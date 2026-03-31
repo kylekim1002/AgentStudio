@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState, KeyboardEvent } from "react";
 import { AgentName, AgentStatus, LessonPackage } from "@/lib/agents/types";
-import { AGENT_META } from "@/lib/agentMeta";
+import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 
 // ─── Message types ───────────────────────────────────────────
 
 type UserMsg    = { type: "user";   text: string; ts: Date };
-type AIMsg      = { type: "ai";     text: string; ts: Date };
+type AIMsg      = { type: "ai";     text: string; ts: Date; agentName?: AgentName };
 type AgentEvent = { type: "event";  agent: AgentName; status: AgentStatus; desc?: string };
 type ErrorMsg   = { type: "error";  text: string };
 type ResultMsg  = { type: "result"; pkg: LessonPackage };
@@ -62,6 +62,9 @@ export default function ChatPanel({
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [showConfirmButton, setShowConfirmButton] = useState(false);
+  const [activeAgentName, setActiveAgentName] = useState<AgentName | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
 
   const chatEndRef  = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -117,21 +120,61 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
 
+  // ── Mention helpers ──────────────────────────────────────────
+  const MENTION_AGENTS = PIPELINE_ORDER.map((a) => ({
+    key: AGENT_META[a].mention,
+    agent: a,
+    label: `@${AGENT_META[a].mention}`,
+    desc: AGENT_META[a].label,
+    num: AGENT_META[a].num,
+  }));
+
+  const filteredMentions = mentionQuery !== null
+    ? MENTION_AGENTS.filter((m) => m.key.includes(mentionQuery) || m.desc.includes(mentionQuery))
+    : [];
+
+  function detectMention(val: string) {
+    const atIdx = val.lastIndexOf("@");
+    if (atIdx === -1) { setMentionQuery(null); return; }
+    const after = val.slice(atIdx + 1);
+    if (/\s/.test(after)) { setMentionQuery(null); return; }
+    setMentionQuery(after.toLowerCase());
+    setMentionIdx(0);
+  }
+
+  function selectMention(key: string, agent: AgentName) {
+    const atIdx = input.lastIndexOf("@");
+    setInput(input.slice(0, atIdx) + "@" + key + " ");
+    setActiveAgentName(agent);
+    setMentionQuery(null);
+    textareaRef.current?.focus();
+  }
+
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     adjustHeight();
+    detectMention(e.target.value);
   }
 
-  // ── Send to /api/chat (conversational) ───────────────────────
+  // ── Send message ─────────────────────────────────────────────
   async function send() {
     const text = input.trim();
     if (!text || isAiThinking || isRunning) return;
 
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    setMentionQuery(null);
     setShowConfirmButton(false);
 
-    // Add user message to display + history
+    // Detect @mention in message
+    const mentionMatch = text.match(/@([\w_]+)/);
+    let targetAgent: AgentName | null = activeAgentName;
+    if (mentionMatch) {
+      const key = mentionMatch[1].toLowerCase();
+      const found = MENTION_AGENTS.find((m) => m.key === key);
+      if (found) targetAgent = found.agent;
+    }
+
     const userTs = new Date();
     setDisplayMessages((prev) => [...prev, { type: "user", text, ts: userTs }]);
     const newHistory: ChatHistory = [...chatHistory, { role: "user", content: text }];
@@ -140,11 +183,16 @@ export default function ChatPanel({
     setIsAiThinking(true);
     setStreamingText("");
 
+    const endpoint = targetAgent ? "/api/agent-chat" : "/api/chat";
+    const body = targetAgent
+      ? { agentName: targetAgent, messages: newHistory }
+      : { messages: newHistory };
+
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newHistory }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok || !res.body) throw new Error("Chat request failed");
@@ -163,10 +211,7 @@ export default function ChatPanel({
           if (data === "[DONE]") break;
           try {
             const parsed = JSON.parse(data);
-            if (parsed.text) {
-              fullText += parsed.text;
-              setStreamingText(fullText);
-            }
+            if (parsed.text) { fullText += parsed.text; setStreamingText(fullText); }
             if (parsed.error) throw new Error(parsed.error);
           } catch (e) {
             if ((e as Error).message !== "Unexpected token") throw e;
@@ -175,12 +220,12 @@ export default function ChatPanel({
       }
 
       const aiTs = new Date();
-      setDisplayMessages((prev) => [...prev, { type: "ai", text: fullText, ts: aiTs }]);
+      // Store which agent responded with this message
+      setDisplayMessages((prev) => [...prev, { type: "ai", text: fullText, ts: aiTs, agentName: targetAgent ?? undefined }]);
       setChatHistory([...newHistory, { role: "assistant", content: fullText }]);
       setStreamingText("");
 
-      // Show confirm button when AI signals readiness
-      if (fullText.includes("레슨 생성을 시작하세요")) {
+      if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
         setShowConfirmButton(true);
       }
     } catch (err) {
@@ -193,6 +238,12 @@ export default function ChatPanel({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionQuery !== null && filteredMentions.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMentionIdx((i) => Math.min(i + 1, filteredMentions.length - 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setMentionIdx((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectMention(filteredMentions[mentionIdx].key, filteredMentions[mentionIdx].agent); return; }
+      if (e.key === "Escape")    { setMentionQuery(null); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
@@ -288,22 +339,39 @@ export default function ChatPanel({
                 </div>
               );
 
-              if (msg.type === "ai") return (
-                <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary-light)", color: "var(--color-primary)", fontSize: "10px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "2px" }}>AI</div>
-                  <div>
+              if (msg.type === "ai") {
+                const agentMeta = msg.agentName ? AGENT_META[msg.agentName] : null;
+                return (
+                  <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
                     <div style={{
-                      background: "var(--color-surface)", border: "1px solid var(--color-border)",
-                      padding: "10px 14px", borderRadius: "4px 12px 12px 12px",
-                      fontSize: "13px", lineHeight: "1.6", maxWidth: "440px",
-                      whiteSpace: "pre-wrap",
+                      width: "28px", height: "28px", borderRadius: "50%",
+                      background: agentMeta ? "#1E293B" : "var(--color-primary-light)",
+                      color: agentMeta ? "#fff" : "var(--color-primary)",
+                      fontSize: "9px", fontWeight: "700",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      flexShrink: 0, marginTop: "2px",
                     }}>
-                      {msg.text}
+                      {agentMeta ? agentMeta.num : "AI"}
                     </div>
-                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "3px" }}>{fmt(msg.ts)}</div>
+                    <div>
+                      {agentMeta && (
+                        <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "3px", fontWeight: "600" }}>
+                          {agentMeta.label}
+                        </div>
+                      )}
+                      <div style={{
+                        background: "var(--color-surface)", border: "1px solid var(--color-border)",
+                        padding: "10px 14px", borderRadius: "4px 12px 12px 12px",
+                        fontSize: "13px", lineHeight: "1.6", maxWidth: "440px",
+                        whiteSpace: "pre-wrap",
+                      }}>
+                        {msg.text}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "3px" }}>{fmt(msg.ts)}</div>
+                    </div>
                   </div>
-                </div>
-              );
+                );
+              }
 
               if (msg.type === "event") {
                 const c = EVT_COLOR[msg.status] ?? EVT_COLOR.running;
@@ -425,47 +493,108 @@ export default function ChatPanel({
 
       {/* ── Input area ── */}
       <div style={{ padding: "10px 16px 12px", background: "var(--color-surface)", borderTop: "1px solid var(--color-border)" }}>
-        <div style={{
-          display: "flex", alignItems: "flex-end", gap: "8px",
-          background: "var(--color-bg)", border: "1.5px solid var(--color-border-strong)",
-          borderRadius: "10px", padding: "8px 10px",
-          transition: "border-color .15s",
-        }}
-          onFocusCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-primary)"; }}
-          onBlurCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border-strong)"; }}
-        >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={isBusy ? "잠시 기다려 주세요..." : "레슨 계획에 대해 이야기해 보세요"}
-            rows={1}
-            disabled={isBusy}
-            style={{
-              flex: 1, resize: "none", border: "none", background: "transparent",
-              fontSize: "13px", color: "var(--color-text)", outline: "none",
-              fontFamily: "inherit", lineHeight: "1.5", minHeight: "20px", maxHeight: "120px",
-            }}
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim() || isBusy}
-            style={{
-              width: "32px", height: "32px", borderRadius: "7px",
-              background: !input.trim() || isBusy ? "var(--color-border-strong)" : "var(--color-primary)",
-              color: !input.trim() || isBusy ? "var(--color-text-subtle)" : "#fff",
-              border: "none", cursor: !input.trim() || isBusy ? "not-allowed" : "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", transition: ".15s",
-              flexShrink: 0,
-            }}
+
+        {/* Active agent indicator */}
+        {activeAgentName && (
+          <div style={{ marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>대화 중:</span>
+            <span style={{ fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "4px", background: "#1E293B", color: "#fff" }}>
+              {AGENT_META[activeAgentName].num} {AGENT_META[activeAgentName].label}
+            </span>
+            <button
+              onClick={() => { setActiveAgentName(null); setChatHistory([]); }}
+              style={{ fontSize: "10px", color: "var(--color-text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+            >
+              종료
+            </button>
+          </div>
+        )}
+
+        <div style={{ position: "relative" }}>
+
+          {/* Mention popup */}
+          {mentionQuery !== null && filteredMentions.length > 0 && (
+            <div style={{
+              position: "absolute", bottom: "calc(100% + 4px)", left: "0",
+              background: "var(--color-surface)", border: "1px solid var(--color-border)",
+              borderRadius: "9px", boxShadow: "0 4px 16px rgba(0,0,0,.12)",
+              overflow: "hidden", zIndex: 50, width: "280px",
+            }}>
+              <div style={{ padding: "7px 12px 5px", fontSize: "10px", fontWeight: "600", color: "var(--color-text-subtle)", borderBottom: "1px solid var(--color-border)", letterSpacing: ".4px", textTransform: "uppercase" }}>
+                에이전트 호출
+              </div>
+              <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                {filteredMentions.slice(0, 10).map((m, idx) => (
+                  <div
+                    key={m.key}
+                    onMouseDown={(e) => { e.preventDefault(); selectMention(m.key, m.agent); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "10px",
+                      padding: "7px 12px", cursor: "pointer",
+                      background: idx === mentionIdx ? "var(--color-primary-light)" : "transparent",
+                    }}
+                    onMouseEnter={() => setMentionIdx(idx)}
+                  >
+                    <div style={{
+                      width: "24px", height: "24px", borderRadius: "5px",
+                      background: "var(--color-bg)", border: "1px solid var(--color-border)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "9px", fontWeight: "700", color: "var(--color-primary)", flexShrink: 0,
+                    }}>
+                      {m.num}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: "500", color: "var(--color-text)" }}>{m.label}</div>
+                      <div style={{ fontSize: "10px", color: "var(--color-text-muted)" }}>{m.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{
+            display: "flex", alignItems: "flex-end", gap: "8px",
+            background: "var(--color-bg)", border: "1.5px solid var(--color-border-strong)",
+            borderRadius: "10px", padding: "8px 10px",
+            transition: "border-color .15s",
+          }}
+            onFocusCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-primary)"; }}
+            onBlurCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border-strong)"; }}
           >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 12L6.5 1 12 12M3 9h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          </button>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={isBusy ? "잠시 기다려 주세요..." : "메시지 입력 — @ 로 특정 에이전트 호출"}
+              rows={1}
+              disabled={isBusy}
+              style={{
+                flex: 1, resize: "none", border: "none", background: "transparent",
+                fontSize: "13px", color: "var(--color-text)", outline: "none",
+                fontFamily: "inherit", lineHeight: "1.5", minHeight: "20px", maxHeight: "120px",
+              }}
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || isBusy}
+              style={{
+                width: "32px", height: "32px", borderRadius: "7px",
+                background: !input.trim() || isBusy ? "var(--color-border-strong)" : "var(--color-primary)",
+                color: !input.trim() || isBusy ? "var(--color-text-subtle)" : "#fff",
+                border: "none", cursor: !input.trim() || isBusy ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", transition: ".15s",
+                flexShrink: 0,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 12L6.5 1 12 12M3 9h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          </div>
         </div>
 
         <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", marginTop: "6px", paddingLeft: "2px" }}>
-          AI와 대화로 레슨을 기획하세요 &nbsp;·&nbsp;
+          @ 로 에이전트 호출 &nbsp;·&nbsp;
           <kbd style={{ background: "var(--color-border)", padding: "1px 5px", borderRadius: "3px", fontSize: "10px" }}>⏎</kbd> 전송 &nbsp;
           <kbd style={{ background: "var(--color-border)", padding: "1px 5px", borderRadius: "3px", fontSize: "10px" }}>Shift+⏎</kbd> 줄바꿈
         </div>

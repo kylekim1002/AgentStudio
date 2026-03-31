@@ -6,6 +6,7 @@ import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 
 interface PipelinePanelProps {
   agentStates: Map<AgentName, AgentStatus>;
+  agentOutputs: Map<AgentName, unknown>;
   onRunAll: (userInput: string) => void;
   isRunning: boolean;
 }
@@ -27,38 +28,53 @@ const STATUS_ICON: Record<AgentStatus, string> = {
   pending: "○", running: "⚙", done: "✓", skipped: "—", error: "✕",
 };
 
-export default function PipelinePanel({ agentStates, onRunAll, isRunning }: PipelinePanelProps) {
+export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isRunning }: PipelinePanelProps) {
   const [userInput, setUserInput] = useState("");
-  // Sequential agents (before parallel block) and after
-  const seqBefore  = PIPELINE_ORDER.filter((a) => {
-    const idx = PIPELINE_ORDER.indexOf(a);
-    return idx < PIPELINE_ORDER.indexOf(AgentName.READING);
-  });
+  const [selectedAgent, setSelectedAgent] = useState<AgentName | null>(null);
+
+  const seqBefore = PIPELINE_ORDER.filter((a) =>
+    PIPELINE_ORDER.indexOf(a) < PIPELINE_ORDER.indexOf(AgentName.READING)
+  );
   const parallelAgents = PIPELINE_ORDER.filter((a) => PARALLEL.has(a));
-  const seqAfter   = PIPELINE_ORDER.filter((a) => {
-    const idx = PIPELINE_ORDER.indexOf(a);
-    return idx > PIPELINE_ORDER.indexOf(AgentName.ASSESSMENT);
-  });
+  const seqAfter = PIPELINE_ORDER.filter((a) =>
+    PIPELINE_ORDER.indexOf(a) > PIPELINE_ORDER.indexOf(AgentName.ASSESSMENT)
+  );
+
+  function handleNodeClick(agent: AgentName) {
+    const status = agentStates.get(agent) ?? "pending";
+    if (status === "pending" || status === "running") return;
+    setSelectedAgent(selectedAgent === agent ? null : agent);
+  }
 
   function Node({ agent }: { agent: AgentName }) {
     const status = agentStates.get(agent) ?? "pending";
     const s = NODE_STYLE[status];
     const m = AGENT_META[agent];
+    const isSelected = selectedAgent === agent;
+    const isClickable = status !== "pending" && status !== "running";
+
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-        <div style={{
-          width: "86px", padding: "8px 6px", borderRadius: "8px",
-          background: s.bg, border: `1.5px solid ${s.border}`,
-          display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
-          textAlign: "center", cursor: "pointer", transition: "all .15s",
-        }}>
-          <div style={{ fontSize: "9px", fontWeight: "700", color: "var(--color-text-subtle)" }}>
+        <div
+          onClick={() => handleNodeClick(agent)}
+          style={{
+            width: "86px", padding: "8px 6px", borderRadius: "8px",
+            background: isSelected ? s.border : s.bg,
+            border: `${isSelected ? "2.5px" : "1.5px"} solid ${s.border}`,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
+            textAlign: "center",
+            cursor: isClickable ? "pointer" : "default",
+            transition: "all .15s",
+            boxShadow: isSelected ? `0 0 0 3px ${s.border}33` : "none",
+          }}
+        >
+          <div style={{ fontSize: "9px", fontWeight: "700", color: isSelected ? "#fff" : "var(--color-text-subtle)" }}>
             {m.num}
           </div>
-          <div style={{ fontSize: "10px", fontWeight: "600", color: "var(--color-text)", lineHeight: "1.3" }}>
+          <div style={{ fontSize: "10px", fontWeight: "600", color: isSelected ? "#fff" : "var(--color-text)", lineHeight: "1.3" }}>
             {m.label.length > 10 ? m.label.slice(0, 10) + "…" : m.label}
           </div>
-          <div style={{ fontSize: "9px", fontWeight: "600", color: s.color }}>
+          <div style={{ fontSize: "9px", fontWeight: "600", color: isSelected ? "#ffffffcc" : s.color }}>
             {status === "running"
               ? <span style={{ display: "inline-block", animation: "spin .8s linear infinite" }}>⚙</span>
               : STATUS_ICON[status]
@@ -79,20 +95,32 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
     );
   }
 
+  // Format JSON output for display
+  function formatOutput(output: unknown): string {
+    try {
+      return JSON.stringify(output, null, 2);
+    } catch {
+      return String(output);
+    }
+  }
+
+  const selectedMeta = selectedAgent ? AGENT_META[selectedAgent] : null;
+  const selectedOutput = selectedAgent ? agentOutputs.get(selectedAgent) : undefined;
+  const selectedStatus = selectedAgent ? (agentStates.get(selectedAgent) ?? "pending") : "pending";
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
 
-      {/* Header */}
+      {/* Header with input */}
       <div style={{
         padding: "12px 20px 14px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
         display: "flex", flexDirection: "column", gap: "10px",
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-text)" }}>파이프라인 실행</div>
-          <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>노드를 클릭해 에이전트 상세 설정 확인</div>
+          <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>완료된 노드를 클릭하면 결과를 확인할 수 있습니다</div>
         </div>
 
-        {/* User input */}
         <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
           <div style={{
             flex: 1, display: "flex", alignItems: "flex-end",
@@ -144,7 +172,6 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
       <div style={{ padding: "20px 16px", overflowX: "auto", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0", minWidth: "max-content" }}>
 
-          {/* Sequential before parallel */}
           {seqBefore.map((agent, idx) => (
             <div key={agent} style={{ display: "flex", alignItems: "center" }}>
               <Node agent={agent} />
@@ -152,18 +179,14 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
             </div>
           ))}
 
-          {/* Parallel block */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", margin: "0 4px" }}>
             <div style={{ fontSize: "9px", fontWeight: "600", color: "var(--color-text-subtle)", marginBottom: "4px", letterSpacing: ".3px" }}>── 병렬 실행 ──</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
               {parallelAgents.map((agent) => (
-                <div key={agent} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    {/* Stub connector */}
-                    <div style={{ width: "10px", height: "1px", background: "var(--color-border-strong)" }} />
-                    <Node agent={agent} />
-                    <div style={{ width: "10px", height: "1px", background: "var(--color-border-strong)" }} />
-                  </div>
+                <div key={agent} style={{ display: "flex", alignItems: "center" }}>
+                  <div style={{ width: "10px", height: "1px", background: "var(--color-border-strong)" }} />
+                  <Node agent={agent} />
+                  <div style={{ width: "10px", height: "1px", background: "var(--color-border-strong)" }} />
                 </div>
               ))}
             </div>
@@ -171,7 +194,6 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
 
           <Arrow />
 
-          {/* Sequential after parallel */}
           {seqAfter.map((agent, idx) => (
             <div key={agent} style={{ display: "flex", alignItems: "center" }}>
               <Node agent={agent} />
@@ -181,11 +203,54 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
         </div>
       </div>
 
+      {/* Agent detail panel (shows on click) */}
+      {selectedAgent && selectedMeta && (
+        <div style={{
+          background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
+          flexShrink: 0, maxHeight: "320px", display: "flex", flexDirection: "column",
+        }}>
+          {/* Detail header */}
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+            <div style={{
+              padding: "3px 8px", borderRadius: "5px", fontSize: "10px", fontWeight: "700",
+              background: NODE_STYLE[selectedStatus].bg, color: NODE_STYLE[selectedStatus].color,
+              border: `1px solid ${NODE_STYLE[selectedStatus].border}`,
+            }}>
+              {selectedMeta.num} {selectedMeta.label}
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--color-text-muted)", flex: 1 }}>{selectedMeta.desc}</div>
+            <button
+              onClick={() => setSelectedAgent(null)}
+              style={{ width: "22px", height: "22px", borderRadius: "4px", border: "none", background: "none", cursor: "pointer", color: "var(--color-text-muted)", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            >✕</button>
+          </div>
+
+          {/* Output content */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "10px 16px" }}>
+            {selectedOutput === undefined ? (
+              <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", fontStyle: "italic" }}>
+                {selectedStatus === "skipped" ? "이 에이전트는 건너뛰었습니다." : "출력 데이터가 없습니다."}
+              </div>
+            ) : (
+              <pre style={{
+                fontSize: "11px", lineHeight: "1.6", color: "var(--color-text)",
+                background: "var(--color-bg)", border: "1px solid var(--color-border)",
+                borderRadius: "6px", padding: "10px 12px",
+                overflow: "auto", margin: 0,
+                fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                whiteSpace: "pre-wrap", wordBreak: "break-word",
+              }}>
+                {formatOutput(selectedOutput)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Config area */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
 
-          {/* Per-agent provider */}
           <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "14px" }}>
             <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "10px" }}>
               🤖 에이전트별 AI 제공자
@@ -211,7 +276,6 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
             </div>
           </div>
 
-          {/* Pipeline config */}
           <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "14px" }}>
             <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "10px" }}>
               ⚙️ 파이프라인 설정

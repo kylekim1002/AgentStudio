@@ -63,6 +63,9 @@ export default function StudioClient() {
   const statusMap = new Map(
     Array.from(agentStates.entries()).map(([k, v]) => [k, v.status])
   );
+  const outputMap = new Map(
+    Array.from(agentStates.entries()).map(([k, v]) => [k, v.output])
+  );
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -229,6 +232,7 @@ export default function StudioClient() {
         ) : (
           <PipelinePanel
             agentStates={statusMap}
+            agentOutputs={outputMap}
             onRunAll={(input) => handleRunAll(input)}
             isRunning={isRunning}
           />

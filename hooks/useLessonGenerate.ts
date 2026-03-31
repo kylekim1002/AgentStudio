@@ -6,6 +6,7 @@ import { AgentName, AIProvider, DifficultyLevel, LessonPackage, AgentStatus } fr
 export interface AgentProgressState {
   agent: AgentName;
   status: AgentStatus;
+  output?: unknown;
   error?: string;
 }
 
@@ -117,14 +118,15 @@ export function useLessonGenerate() {
             }
 
             if (event.type === "progress") {
-              const { agent, status, error } = event as {
+              const { agent, status, error, output } = event as {
                 agent: AgentName;
                 status: AgentStatus;
+                output?: unknown;
                 error?: string;
               };
               setState((prev) => {
                 const next = new Map(prev.agentStates);
-                next.set(agent, { agent, status, error });
+                next.set(agent, { agent, status, output, error });
                 return { ...prev, agentStates: next };
               });
             } else if (event.type === "complete") {
