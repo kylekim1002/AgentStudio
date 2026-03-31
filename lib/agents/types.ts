@@ -157,6 +157,12 @@ export interface QAOutput {
   approvedForPublish: boolean;
 }
 
+export interface PublisherMetaOutput {
+  lessonId: string;
+  publishedAt: string;
+  status: "published";
+}
+
 export interface PublisherOutput {
   lessonId: string;
   publishedAt: string;

@@ -20,7 +20,7 @@ import {
   WritingOutput,
   AssessmentOutput,
   QAOutput,
-  PublisherOutput,
+  PublisherMetaOutput,
 } from "./types";
 
 async function step<T>(
@@ -223,12 +223,19 @@ export async function runPipeline(
     assessment: state.assessment,
   };
 
-  state.publisher = await step<PublisherOutput>(
+  // publisher는 메타데이터만 반환 (lessonId, publishedAt, status)
+  // 전체 패키지를 다시 출력하면 토큰 초과로 파싱 실패하므로 pipeline에서 직접 조합
+  const publisherMeta = await step<PublisherMetaOutput>(
     AgentName.PUBLISHER,
     request,
-    { lessonPackage, qa: state.qa },
+    { qa: state.qa },
     onProgress
   );
+
+  state.publisher = {
+    ...publisherMeta,
+    package: lessonPackage,
+  };
 
   return state.publisher.package;
 }

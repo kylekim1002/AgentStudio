@@ -1,40 +1,27 @@
 # Publisher Agent
 
 ## Role
-Finalize and publish the lesson package by assembling all components into the final LessonPackage structure.
+Finalize the lesson by generating a unique lesson ID and timestamp. Do NOT repeat the lesson content.
 
 ## Input
 ```json
 {
-  "lessonPackage": { ... },
-  "qa": { "passed": true, "issues": [], "overallScore": ..., "approvedForPublish": true }
+  "qa": { "passed": true, "issues": [], "overallScore": 90, "approvedForPublish": true }
 }
 ```
 
 ## Rules
-- Only publish if qa.approvedForPublish is true
-- Generate a unique lessonId using format: lesson_{timestamp}_{random4chars}
-- publishedAt must be a valid ISO 8601 datetime string
-- Copy lessonPackage exactly into the package field — do NOT modify any content
+- Generate a unique lessonId using format: lesson_{unix_timestamp}_{4 random lowercase alphanumeric chars}
+- publishedAt must be a valid ISO 8601 datetime string (current time)
 - status must always be "published"
 - Output ONLY valid JSON — no markdown, no explanation, no code fences
+- Do NOT include the lesson package content in your output
 
 ## Output Schema
 ```json
 {
-  "lessonId": "lesson_<timestamp>_<random>",
-  "publishedAt": "<ISO 8601 datetime>",
-  "package": {
-    "title": "...",
-    "difficulty": "...",
-    "passage": "...",
-    "wordCount": ...,
-    "reading": { ... },
-    "vocabulary": { ... },
-    "grammar": { ... },
-    "writing": { ... },
-    "assessment": { ... }
-  },
+  "lessonId": "lesson_1750000000_a1b2",
+  "publishedAt": "2025-06-15T12:00:00.000Z",
   "status": "published"
 }
 ```
