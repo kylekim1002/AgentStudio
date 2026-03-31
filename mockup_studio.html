@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYJ Jr Studio — 스튜디오 Mockup</title>
+<style>
+/* ─── Reset & Tokens ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: 'Apple SD Gothic Neo', -apple-system, sans-serif; font-size: 13px; }
+:root {
+  --primary:       #4F46E5;
+  --primary-hover: #4338CA;
+  --primary-light: #EEF2FF;
+  --bg:            #F8FAFC;
+  --surface:       #FFFFFF;
+  --border:        #E2E8F0;
+  --border-s:      #CBD5E1;
+  --text:          #0F172A;
+  --muted:         #64748B;
+  --subtle:        #94A3B8;
+  --success:       #10B981;
+  --warning:       #F59E0B;
+  --error:         #EF4444;
+  --nav-h:         52px;
+}
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-thumb { background:#CBD5E1; border-radius:3px; }
+a { text-decoration:none; color:inherit; }
+button { font-family:inherit; cursor:pointer; border:none; background:none; }
+
+/* ─── App Shell ──────────────────────────────────────────── */
+.shell { display:flex; flex-direction:column; height:100vh; background:var(--bg); }
+
+/* ─── Top Nav ────────────────────────────────────────────── */
+.nav {
+  height: var(--nav-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  flex-shrink: 0;
+  z-index: 100;
+}
+.nav-logo {
+  display:flex; align-items:center; gap:8px; margin-right:28px; flex-shrink:0;
+}
+.nav-logo-icon {
+  width:28px; height:28px; border-radius:7px; background:var(--primary);
+  color:#fff; font-size:13px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+}
+.nav-logo-text { font-size:15px; font-weight:700; color:var(--text); letter-spacing:-.3px; }
+.nav-logo-text span { color:var(--primary); }
+.nav-tabs { display:flex; align-items:stretch; height:100%; flex:1; }
+.nav-tab {
+  display:flex; align-items:center; gap:6px;
+  padding:0 16px; font-size:13px; font-weight:500;
+  color:var(--muted); border-bottom:2px solid transparent;
+  transition:.15s; white-space:nowrap; cursor:pointer;
+}
+.nav-tab.active {
+  color:var(--primary); font-weight:600;
+  border-bottom-color:var(--primary); margin-bottom:-1px;
+}
+.nav-tab:hover:not(.active) { color:var(--text); }
+.nav-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.nav-avatar {
+  width:30px; height:30px; border-radius:50%; background:var(--primary);
+  color:#fff; font-size:11px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+
+/* ─── Studio Toolbar ─────────────────────────────────────── */
+.toolbar {
+  height: 44px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.mode-toggle {
+  display:flex; align-items:center; gap:1px;
+  background: var(--bg); border:1px solid var(--border); border-radius:7px; padding:3px;
+}
+.mode-btn {
+  display:flex; align-items:center; gap:5px;
+  padding:5px 12px; border-radius:5px; font-size:12px; font-weight:500;
+  color:var(--muted); transition:.15s; cursor:pointer; border:none; background:none;
+}
+.mode-btn.active { background:var(--surface); color:var(--primary); font-weight:600; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.toolbar-divider { width:1px; height:20px; background:var(--border); margin:0 6px; }
+.toolbar-right { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.btn {
+  display:flex; align-items:center; gap:5px;
+  padding:5px 12px; border-radius:6px; font-size:12px; font-weight:500;
+  border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  cursor:pointer; transition:.15s;
+}
+.btn:hover { border-color:var(--border-s); color:var(--text); }
+.btn-primary {
+  background:var(--primary); color:#fff; border-color:var(--primary);
+}
+.btn-primary:hover { background:var(--primary-hover); }
+
+/* ─── Studio Body (3 panels) ─────────────────────────────── */
+.studio-body {
+  flex:1; display:flex; overflow:hidden;
+}
+
+/* ─── LEFT PANEL ─────────────────────────────────────────── */
+.panel-left {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-left-header {
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtle);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.agent-list {
+  flex:1; overflow-y:auto; padding:8px 8px;
+}
+.agent-item {
+  display:flex; align-items:center; gap:8px;
+  padding:6px 8px; border-radius:6px; cursor:pointer;
+  transition:.12s;
+  margin-bottom:1px;
+  position:relative;
+}
+.agent-item:hover { background:var(--bg); }
+.agent-item.active { background:var(--primary-light); }
+
+/* ─── Agent Tooltip ──────────────────────────────────────── */
+#agent-tooltip {
+  position:fixed;
+  z-index:500;
+  pointer-events:none;
+  left:0; top:0;
+  display:none;
+}
+#agent-tooltip.visible { display:block; }
+.agent-tooltip-box {
+  background:#1E293B;
+  border-radius:8px;
+  padding:10px 13px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.22);
+  width:220px;
+}
+.agent-tooltip-num {
+  font-size:9px; font-weight:700;
+  color:#64748B; letter-spacing:.6px;
+  text-transform:uppercase; margin-bottom:3px;
+}
+.agent-tooltip-label {
+  font-size:13px; font-weight:700;
+  color:#F1F5F9; margin-bottom:4px; line-height:1.3;
+}
+.agent-tooltip-desc {
+  font-size:11px; color:#94A3B8; line-height:1.55;
+}
+.agent-tooltip-tag {
+  display:inline-flex; align-items:center;
+  margin-top:7px; padding:2px 7px; border-radius:4px;
+  font-size:10px; font-weight:600;
+  background:rgba(79,70,229,.25); color:#A5B4FC;
+}
+.agent-dot {
+  width:7px; height:7px; border-radius:50%; flex-shrink:0;
+}
+.dot-pending  { background:#CBD5E1; }
+.dot-running  { background:#3B82F6; animation:pulse 1.2s infinite; }
+.dot-done     { background:#10B981; }
+.dot-skipped  { background:#E2E8F0; border:1px solid #CBD5E1; }
+.dot-error    { background:#EF4444; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.agent-name {
+  font-size:12px; color:var(--text); flex:1; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.agent-status-label {
+  font-size:10px; color:var(--subtle);
+}
+.agent-group-label {
+  font-size:10px; font-weight:600; color:var(--subtle);
+  padding:8px 8px 4px; letter-spacing:.3px; text-transform:uppercase;
+}
+.panel-left-footer {
+  padding:12px; border-top:1px solid var(--border);
+}
+.run-all-btn {
+  width:100%; padding:8px; border-radius:7px;
+  background:var(--primary); color:#fff;
+  font-size:12px; font-weight:600; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  border:none; transition:.15s;
+}
+.run-all-btn:hover { background:var(--primary-hover); }
+
+/* ─── CENTER PANEL (Chat) ────────────────────────────────── */
+.panel-center {
+  flex:1; display:flex; flex-direction:column; overflow:hidden;
+  background:var(--bg);
+}
+.chat-area {
+  flex:1; overflow-y:auto; padding:20px 24px;
+  display:flex; flex-direction:column; gap:16px;
+}
+/* Empty state */
+.chat-empty {
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:12px;
+  color:var(--muted);
+}
+.chat-empty-icon {
+  width:52px; height:52px; border-radius:14px; background:var(--primary-light);
+  display:flex; align-items:center; justify-content:center;
+  font-size:24px;
+}
+.chat-empty h3 { font-size:15px; font-weight:600; color:var(--text); }
+.chat-empty p { font-size:12px; color:var(--muted); text-align:center; line-height:1.6; max-width:320px; }
+.quick-chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:4px; }
+.chip {
+  padding:5px 12px; border-radius:20px; border:1px solid var(--border);
+  font-size:12px; color:var(--muted); background:var(--surface);
+  cursor:pointer; transition:.15s;
+}
+.chip:hover { border-color:var(--primary); color:var(--primary); background:var(--primary-light); }
+
+/* Message bubbles */
+.msg { display:flex; gap:10px; }
+.msg.user { flex-direction:row-reverse; }
+.msg-avatar {
+  width:28px; height:28px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:700;
+}
+.msg-avatar.ai { background:var(--primary-light); color:var(--primary); }
+.msg-avatar.user-av { background:var(--primary); color:#fff; }
+.msg-bubble {
+  max-width:68%; padding:10px 14px; border-radius:12px;
+  font-size:13px; line-height:1.6;
+}
+.msg.ai .msg-bubble { background:var(--surface); border:1px solid var(--border); border-radius:4px 12px 12px 12px; }
+.msg.user .msg-bubble { background:var(--primary); color:#fff; border-radius:12px 4px 12px 12px; }
+.msg-meta { font-size:10px; color:var(--subtle); margin-top:4px; }
+.msg.user .msg-meta { text-align:right; }
+
+/* Agent event cards */
+.agent-event {
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  padding:10px 14px; display:flex; align-items:center; gap:10px;
+}
+.agent-event-icon {
+  width:26px; height:26px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  font-size:13px;
+}
+.agent-event.running .agent-event-icon { background:#EFF6FF; }
+.agent-event.done .agent-event-icon { background:#ECFDF5; }
+.agent-event.error .agent-event-icon { background:#FEF2F2; }
+.agent-event-info { flex:1; }
+.agent-event-name { font-size:12px; font-weight:600; color:var(--text); }
+.agent-event-desc { font-size:11px; color:var(--muted); margin-top:1px; }
+.agent-event-badge {
+  font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px;
+}
+.badge-running { background:#EFF6FF; color:#3B82F6; }
+.badge-done    { background:#ECFDF5; color:#10B981; }
+.badge-error   { background:#FEF2F2; color:#EF4444; }
+
+/* Mention suggestion popup */
+.mention-popup {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.12);
+  overflow:hidden; min-width:240px;
+}
+.mention-header {
+  padding:8px 12px; font-size:10px; font-weight:600;
+  color:var(--subtle); border-bottom:1px solid var(--border);
+  letter-spacing:.4px; text-transform:uppercase;
+}
+.mention-item {
+  display:flex; align-items:center; gap:10px;
+  padding:7px 12px; cursor:pointer; transition:.1s;
+}
+.mention-item:hover, .mention-item.highlighted { background:var(--primary-light); }
+.mention-item-icon {
+  width:22px; height:22px; border-radius:5px; background:var(--bg);
+  border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:700; color:var(--primary); flex-shrink:0;
+}
+.mention-item-name { font-size:12px; font-weight:500; color:var(--text); }
+.mention-item-desc { font-size:10px; color:var(--muted); }
+
+/* ─── Chat Input ─────────────────────────────────────────── */
+.chat-input-wrap {
+  padding:12px 16px;
+  background:var(--surface);
+  border-top:1px solid var(--border);
+  position:relative;
+}
+.mention-popup-wrap {
+  position:absolute; bottom:calc(100% + 4px); left:16px;
+  z-index:50;
+}
+.chat-input-box {
+  display:flex; align-items:flex-end; gap:8px;
+  background:var(--bg); border:1.5px solid var(--border-s);
+  border-radius:10px; padding:8px 10px;
+  transition:border-color .15s;
+}
+.chat-input-box:focus-within { border-color:var(--primary); }
+.chat-mention-tags { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+.mention-tag {
+  display:flex; align-items:center; gap:4px;
+  background:var(--primary-light); color:var(--primary);
+  border:1px solid #C7D2FE; border-radius:4px;
+  padding:2px 7px; font-size:11px; font-weight:600;
+}
+.mention-tag-x {
+  cursor:pointer; opacity:.6; font-size:12px; line-height:1;
+}
+.mention-tag-x:hover { opacity:1; }
+.chat-textarea {
+  flex:1; resize:none; border:none; background:transparent;
+  font-size:13px; color:var(--text); outline:none;
+  font-family:inherit; line-height:1.5;
+  min-height:20px; max-height:120px;
+}
+.chat-textarea::placeholder { color:var(--subtle); }
+.chat-input-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.input-action-btn {
+  width:28px; height:28px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); background:none; border:none; cursor:pointer;
+  transition:.12s;
+}
+.input-action-btn:hover { background:var(--border); color:var(--text); }
+.send-btn {
+  width:32px; height:32px; border-radius:7px;
+  background:var(--primary); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  border:none; cursor:pointer; transition:.15s;
+}
+.send-btn:hover { background:var(--primary-hover); }
+.send-btn:disabled { background:var(--border-s); cursor:not-allowed; }
+.chat-hint { font-size:11px; color:var(--subtle); margin-top:6px; padding:0 2px; }
+
+/* ─── RIGHT PANEL ────────────────────────────────────────── */
+.panel-right {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-right-header {
+  padding:12px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.panel-right-title { font-size:12px; font-weight:600; color:var(--text); }
+.panel-right-actions { display:flex; gap:6px; }
+.icon-btn {
+  width:26px; height:26px; border-radius:5px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); background:none; border:1px solid transparent;
+  cursor:pointer; font-size:13px;
+}
+.icon-btn:hover { background:var(--bg); border-color:var(--border); color:var(--text); }
+.preview-empty {
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:8px;
+  color:var(--muted); padding:24px;
+}
+.preview-empty-icon { font-size:28px; opacity:.4; }
+.preview-area {
+  flex:1; overflow-y:auto; padding:14px;
+  display:flex; flex-direction:column; gap:10px;
+}
+.preview-section {
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:7px; overflow:hidden;
+}
+.preview-section-header {
+  padding:7px 10px;
+  display:flex; align-items:center; justify-content:space-between;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  cursor:pointer;
+}
+.preview-section-title {
+  font-size:11px; font-weight:600; color:var(--text);
+  display:flex; align-items:center; gap:5px;
+}
+.preview-section-body {
+  padding:10px; font-size:12px; color:var(--muted); line-height:1.6;
+}
+.preview-tag {
+  font-size:10px; padding:1px 6px; border-radius:3px;
+  background:var(--primary-light); color:var(--primary); font-weight:600;
+}
+.export-area {
+  padding:12px 14px; border-top:1px solid var(--border);
+  display:flex; flex-direction:column; gap:6px;
+}
+.export-title { font-size:11px; font-weight:600; color:var(--muted); margin-bottom:2px; }
+.export-row { display:flex; gap:6px; }
+.export-btn {
+  flex:1; padding:7px; border-radius:6px; font-size:11px; font-weight:600;
+  border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;
+  transition:.15s;
+}
+.export-btn:hover { border-color:var(--primary); color:var(--primary); background:var(--primary-light); }
+
+/* ─── Save Dialog ────────────────────────────────────────── */
+.dialog-backdrop {
+  position:fixed; inset:0; background:rgba(0,0,0,.35);
+  display:flex; align-items:center; justify-content:center;
+  z-index:300;
+}
+.dialog {
+  background:var(--surface); border-radius:12px;
+  box-shadow:0 8px 32px rgba(0,0,0,.18);
+  width:380px; overflow:hidden;
+}
+.dialog-header {
+  padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between;
+}
+.dialog-title { font-size:15px; font-weight:700; color:var(--text); }
+.dialog-body { padding:16px 20px; display:flex; flex-direction:column; gap:14px; }
+.dialog-label { font-size:12px; font-weight:500; color:var(--text); margin-bottom:5px; }
+.dialog-select, .dialog-input {
+  width:100%; padding:8px 10px; border-radius:7px;
+  border:1.5px solid var(--border-s); font-size:13px;
+  color:var(--text); background:var(--surface); outline:none;
+  font-family:inherit; transition:border-color .15s;
+}
+.dialog-select:focus, .dialog-input:focus { border-color:var(--primary); }
+.dialog-footer {
+  padding:12px 20px; border-top:1px solid var(--border);
+  display:flex; justify-content:flex-end; gap:8px;
+}
+
+/* ─── Pipeline Mode ──────────────────────────────────────── */
+.pipeline-view {
+  flex:1; display:flex; flex-direction:column; overflow:hidden; background:var(--bg);
+}
+.pipeline-header {
+  padding:14px 20px; background:var(--surface); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:16px;
+}
+.pipeline-header h3 { font-size:14px; font-weight:600; color:var(--text); }
+.pipeline-header p  { font-size:12px; color:var(--muted); margin-top:2px; }
+.pipeline-flow {
+  padding:24px 20px; overflow-x:auto;
+  display:flex; align-items:flex-start; gap:0; flex-shrink:0;
+}
+.pipeline-stage { display:flex; align-items:center; }
+.pipeline-node {
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  cursor:pointer; transition:.15s;
+}
+.pipeline-node-box {
+  width:90px; padding:8px 6px; border-radius:8px;
+  background:var(--surface); border:1.5px solid var(--border);
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  transition:.15s; text-align:center;
+}
+.pipeline-node:hover .pipeline-node-box { border-color:var(--primary); }
+.pipeline-node.done .pipeline-node-box { border-color:#10B981; background:#ECFDF5; }
+.pipeline-node.running .pipeline-node-box { border-color:#3B82F6; background:#EFF6FF; }
+.pipeline-node.error .pipeline-node-box { border-color:#EF4444; background:#FEF2F2; }
+.pipeline-node.skipped .pipeline-node-box { border-color:#E2E8F0; background:#F8FAFC; opacity:.6; }
+.pipeline-node-num {
+  font-size:9px; font-weight:700; color:var(--subtle);
+}
+.pipeline-node-name { font-size:10px; font-weight:600; color:var(--text); line-height:1.3; }
+.pipeline-node-status { font-size:9px; }
+.pipeline-node.done .pipeline-node-status { color:#10B981; }
+.pipeline-node.running .pipeline-node-status { color:#3B82F6; }
+.pipeline-node.pending .pipeline-node-status { color:var(--subtle); }
+.pipeline-arrow {
+  width:20px; height:1px; background:var(--border);
+  position:relative; flex-shrink:0; margin-top:-30px;
+}
+.pipeline-arrow::after {
+  content:''; position:absolute; right:-4px; top:-3px;
+  border:4px solid transparent; border-left-color:var(--border-s);
+}
+.parallel-group {
+  display:flex; flex-direction:column; gap:8px;
+  padding:0 8px;
+}
+.parallel-label {
+  font-size:9px; color:var(--muted); text-align:center; font-weight:600;
+}
+.pipeline-config {
+  flex:1; overflow-y:auto; padding:16px 20px;
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+}
+.config-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:12px;
+}
+.config-card-title { font-size:11px; font-weight:600; color:var(--text); margin-bottom:8px; }
+.config-select {
+  width:100%; padding:5px 8px; border-radius:5px;
+  border:1px solid var(--border-s); font-size:11px;
+  color:var(--text); background:var(--surface); outline:none;
+  font-family:inherit; transition:border-color .15s;
+}
+.config-select:focus { border-color:var(--primary); }
+
+/* ─── Tabs (hidden modes) ────────────────────────────────── */
+.hidden { display:none !important; }
+
+/* ─── Notices & Banners ──────────────────────────────────── */
+.notice-bar {
+  padding:7px 16px; background:#FFF7ED; border-bottom:1px solid #FED7AA;
+  display:flex; align-items:center; gap:8px; font-size:12px; color:#C2410C;
+}
+</style>
+</head>
+<body>
+
+<div class="shell" id="app">
+
+  <!-- ── Top Nav ─────────────────────────────────────── -->
+  <header class="nav">
+    <div class="nav-logo">
+      <div class="nav-logo-icon">C</div>
+      <span class="nav-logo-text">CYJ Jr <span>Studio</span></span>
+    </div>
+    <nav class="nav-tabs">
+      <div class="nav-tab active">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor" opacity=".7"/><rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor" opacity=".7"/></svg>
+        스튜디오
+      </div>
+      <div class="nav-tab">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 2.5h3v9H1zM5 2.5h3v9H5zM9 2.5h3v9H9z" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+        학습자료소
+      </div>
+      <div class="nav-tab">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" fill="currentColor"/><path d="M11.7 7a4.7 4.7 0 00-.05-.7l1.5-1.15L11.7 2.6l-1.75.7a4.7 4.7 0 00-1.25-.72L8.4 1H5.6l-.3 1.58a4.7 4.7 0 00-1.25.72L2.3 2.6.85 5.15 2.35 6.3a4.7 4.7 0 000 1.4L.85 8.85 2.3 11.4l1.75-.7c.38.28.8.52 1.25.72L5.6 13h2.8l.3-1.58c.45-.2.87-.44 1.25-.72l1.75.7 1.45-2.55L11.7 7.7c.03-.23.05-.46.05-.7z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        시스템 설정
+      </div>
+    </nav>
+    <div class="nav-right">
+      <span style="font-size:10px;font-weight:600;color:var(--primary);background:var(--primary-light);padding:3px 8px;border-radius:4px;">관리자</span>
+      <div class="nav-avatar">K</div>
+    </div>
+  </header>
+
+  <!-- ── Studio Toolbar ───────────────────────────────── -->
+  <div class="toolbar">
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 1h11v8H7.5L4 12V9H1V1z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>
+        채팅 모드
+      </button>
+      <button class="mode-btn" id="btn-pipeline" onclick="setMode('pipeline')">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="2" cy="6.5" r="1.5" fill="currentColor"/><circle cx="6.5" cy="6.5" r="1.5" fill="currentColor"/><circle cx="11" cy="6.5" r="1.5" fill="currentColor"/><path d="M3.5 6.5h1.5M8 6.5h1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        파이프라인 모드
+      </button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- Provider badge -->
+    <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);">
+      <div style="width:16px;height:16px;border-radius:3px;background:#D97706;display:flex;align-items:center;justify-content:center;color:#fff;font-size:8px;font-weight:700;">C</div>
+      Claude 기본
+      <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    </div>
+
+    <div class="toolbar-right">
+      <button class="btn" onclick="showSaveDialog()">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1h7.5L11 3.5V11H1V1zM3 1v3h5V1M3 11V7h6v4" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/></svg>
+        저장
+      </button>
+      <button class="btn btn-primary" onclick="toggleExport()">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M3 5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        내보내기
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Studio Body ───────────────────────────────────── -->
+  <div class="studio-body">
+
+    <!-- LEFT PANEL: Agent List -->
+    <aside class="panel-left">
+      <div class="panel-left-header">
+        에이전트
+        <span style="font-size:10px;color:var(--subtle);font-weight:400;">3/16 완료</span>
+      </div>
+      <div class="agent-list">
+
+        <div class="agent-group-label">분석 단계</div>
+        <div class="agent-item done" onclick="selectAgent(this,'intent_router')"
+          data-num="01" data-label="의도 분석기" data-desc="사용자의 요청을 해석해 '레슨 생성 / 수정 / 질문' 중 하나로 분류하고, 지문 소스 방식(주제 생성 vs 직접 제공)을 결정합니다." data-tag="분석">
+          <div class="agent-dot dot-done"></div>
+          <span class="agent-name">의도 분석기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#01</span></span>
+          <span class="agent-status-label">완료</span>
+        </div>
+        <div class="agent-item done" onclick="selectAgent(this,'teaching_frame')"
+          data-num="02" data-label="교수 프레임 설계기" data-desc="대상 학년과 학습 목표를 설정합니다. 독해·어휘·문법 등 이번 레슨에서 집중할 스킬을 결정하고 이후 모든 에이전트의 기준이 됩니다." data-tag="설계">
+          <div class="agent-dot dot-done"></div>
+          <span class="agent-name">교수 프레임 설계기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#02</span></span>
+          <span class="agent-status-label">완료</span>
+        </div>
+        <div class="agent-item done" onclick="selectAgent(this,'difficulty_lock')"
+          data-num="03" data-label="난이도 잠금기" data-desc="난이도(beginner~advanced)와 목표 단어 수·어휘 수준을 확정하고 잠급니다. 이후 모든 에이전트는 이 값을 반드시 준수합니다." data-tag="설계">
+          <div class="agent-dot dot-done"></div>
+          <span class="agent-name">난이도 잠금기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#03</span></span>
+          <span class="agent-status-label">완료</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'source_mode_router')"
+          data-num="04" data-label="소스 경로 결정기" data-desc="'주제 선정 → 지문 생성' 경로와 '직접 제공 지문 사용' 경로 중 하나를 선택합니다. 지문이 제공된 경우 05·06 에이전트를 건너뜁니다." data-tag="라우팅">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">소스 경로 결정기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#04</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+
+        <div class="agent-group-label">주제 단계</div>
+        <div class="agent-item" onclick="selectAgent(this,'topic_selection')"
+          data-num="05" data-label="주제 선정기" data-desc="교수 프레임과 난이도를 바탕으로 레슨에 적합한 구체적 주제를 선정합니다. 주제가 직접 제공된 경우 이 단계는 건너뜁니다." data-tag="조건부">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">주제 선정기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#05</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'research_curation')"
+          data-num="06" data-label="리서치 큐레이터" data-desc="선정된 주제에 맞는 핵심 사실과 어휘를 수집·정리합니다. 지문 생성에 활용할 고품질 정보를 선별합니다. 주제 모드에서만 실행됩니다." data-tag="조건부">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">리서치 큐레이터<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#06</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+
+        <div class="agent-group-label">지문 생성</div>
+        <div class="agent-item" onclick="selectAgent(this,'passage_generation')"
+          data-num="07" data-label="지문 생성기" data-desc="리서치 결과와 난이도 설정을 바탕으로 영어 지문을 작성합니다. 목표 단어 수와 어휘 수준을 정확히 맞춥니다." data-tag="핵심">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">지문 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#07</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'passage_validation')"
+          data-num="08" data-label="지문 검증기" data-desc="생성된 지문의 난이도·단어 수·문법 정확성·교육 적합성을 검토합니다. 기준 미달 시 파이프라인을 중단하고 오류를 보고합니다." data-tag="검증">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">지문 검증기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#08</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'approved_passage_lock')"
+          data-num="09" data-label="지문 확정 잠금기" data-desc="검증 통과한 지문을 최종 확정하고 잠급니다. 이후 콘텐츠 에이전트들은 이 지문을 기준으로 문제·학습 자료를 만듭니다." data-tag="잠금">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">지문 확정 잠금기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#09</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+
+        <div class="agent-group-label">콘텐츠 생성 (병렬)</div>
+        <div class="agent-item" onclick="selectAgent(this,'reading')"
+          data-num="10" data-label="독해 문제 생성기" data-desc="지문을 바탕으로 이해·추론·문맥 어휘 유형의 독해 문제 5개를 만듭니다. 정답과 해설을 함께 제공합니다." data-tag="병렬">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">독해 문제 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#10</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'vocabulary')"
+          data-num="11" data-label="어휘 학습 생성기" data-desc="지문의 핵심 어휘를 선별하고 정의·품사·예문·한국어 번역을 포함한 어휘 학습 카드를 만듭니다." data-tag="병렬">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">어휘 학습 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#11</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'grammar')"
+          data-num="12" data-label="문법 미니레슨 생성기" data-desc="지문에서 핵심 문법 포인트를 뽑아 설명·예문·연습 문제를 구성합니다. 학년 수준에 맞는 문법 개념을 선택합니다." data-tag="병렬">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">문법 미니레슨 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#12</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'writing')"
+          data-num="13" data-label="쓰기 과제 생성기" data-desc="지문 주제와 연계된 쓰기 과제를 설계합니다. 스캐폴딩·루브릭·모범 답안을 함께 제공합니다." data-tag="병렬">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">쓰기 과제 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#13</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'assessment')"
+          data-num="14" data-label="평가지 생성기" data-desc="객관식·단답형·OX 혼합 평가 문항을 만듭니다. 배점과 통과 점수를 자동 계산합니다." data-tag="병렬">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">평가지 생성기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#14</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+
+        <div class="agent-group-label">검수 & 발행</div>
+        <div class="agent-item" onclick="selectAgent(this,'qa')"
+          data-num="15" data-label="품질 검수기 (QA)" data-desc="지문·독해·어휘·문법·쓰기·평가 전체를 종합 검토합니다. 점수가 기준 미달이면 발행을 차단하고 문제점을 보고합니다." data-tag="검수">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">품질 검수기 (QA)<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#15</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+        <div class="agent-item" onclick="selectAgent(this,'publisher')"
+          data-num="16" data-label="최종 발행기" data-desc="QA를 통과한 레슨에 고유 ID와 발행 시각을 부여합니다. 전체 레슨 패키지를 조립해 저장 가능한 형태로 완성합니다." data-tag="발행">
+          <div class="agent-dot dot-pending"></div>
+          <span class="agent-name">최종 발행기<span style="font-size:10px;color:var(--subtle);margin-left:3px;">#16</span></span>
+          <span class="agent-status-label">대기</span>
+        </div>
+
+      </div>
+      <div class="panel-left-footer">
+        <button class="run-all-btn" onclick="simulateRun()">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M3 2l8 4.5L3 11V2z" fill="currentColor"/></svg>
+          전체 파이프라인 실행
+        </button>
+      </div>
+    </aside>
+
+    <!-- CENTER PANEL: Chat -->
+    <div class="panel-center" id="panel-chat">
+
+      <!-- Chat messages area -->
+      <div class="chat-area" id="chat-area">
+
+        <!-- Empty state (초기) -->
+        <div class="chat-empty" id="chat-empty">
+          <div class="chat-empty-icon">⚡</div>
+          <h3>레슨을 만들어 보세요</h3>
+          <p>주제, 난이도, 대상 학년을 알려주시면<br>AI 에이전트가 완성된 레슨 패키지를 만들어 드립니다.</p>
+          <div class="quick-chips">
+            <span class="chip" onclick="quickPrompt('초등 5학년 intermediate 환경 주제로 레슨 만들어줘')">🌿 환경 주제</span>
+            <span class="chip" onclick="quickPrompt('중학교 1학년 elementary 우주 탐험 레슨 만들어줘')">🚀 우주 탐험</span>
+            <span class="chip" onclick="quickPrompt('고등학교 advanced AI 기술 레슨 만들어줘')">🤖 AI 기술</span>
+            <span class="chip" onclick="quickPrompt('@passage_generation 직접 제공한 지문으로 문제만 만들어줘')">📄 지문 제공</span>
+          </div>
+        </div>
+
+        <!-- (Demo messages — 처음에는 숨김) -->
+        <div id="demo-messages" class="hidden">
+          <div class="msg user">
+            <div class="msg-avatar user-av">K</div>
+            <div>
+              <div class="msg-bubble">초등 5학년 intermediate 수준으로 환경 보호에 관한 레슨 패키지 만들어줘</div>
+              <div class="msg-meta">오전 10:23</div>
+            </div>
+          </div>
+
+          <div class="msg ai">
+            <div class="msg-avatar ai">AI</div>
+            <div>
+              <div class="msg-bubble">
+                알겠습니다! 초등 5학년 intermediate 수준 환경 보호 레슨을 만들겠습니다.<br><br>
+                파이프라인을 순서대로 실행할게요. 진행 상황을 확인해 주세요.
+              </div>
+              <div class="msg-meta">오전 10:23</div>
+            </div>
+          </div>
+
+          <div class="agent-event done">
+            <div class="agent-event-icon">✅</div>
+            <div class="agent-event-info">
+              <div class="agent-event-name">intent_router_agent</div>
+              <div class="agent-event-desc">의도 분석 완료 — generate_lesson / topic 모드</div>
+            </div>
+            <span class="agent-event-badge badge-done">완료</span>
+          </div>
+
+          <div class="agent-event done">
+            <div class="agent-event-icon">✅</div>
+            <div class="agent-event-info">
+              <div class="agent-event-name">teaching_frame_agent</div>
+              <div class="agent-event-desc">교수 프레임 설정 — 초등 5학년, 독해·어휘 중심</div>
+            </div>
+            <span class="agent-event-badge badge-done">완료</span>
+          </div>
+
+          <div class="agent-event done">
+            <div class="agent-event-icon">✅</div>
+            <div class="agent-event-info">
+              <div class="agent-event-name">difficulty_lock_agent</div>
+              <div class="agent-event-desc">intermediate · 200–250 words · B1 어휘 수준</div>
+            </div>
+            <span class="agent-event-badge badge-done">완료</span>
+          </div>
+
+          <div class="agent-event running">
+            <div class="agent-event-icon" style="animation:pulse 1s infinite">⚙️</div>
+            <div class="agent-event-info">
+              <div class="agent-event-name">source_mode_router_agent</div>
+              <div class="agent-event-desc">소스 경로 결정 중...</div>
+            </div>
+            <span class="agent-event-badge badge-running">실행 중</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Chat Input -->
+      <div class="chat-input-wrap">
+        <div id="mention-popup-container"></div>
+
+        <div class="chat-input-box" id="chat-input-box">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+            <div class="chat-mention-tags" id="mention-tags-display" style="display:none;"></div>
+            <textarea
+              class="chat-textarea"
+              id="chat-textarea"
+              placeholder="레슨 요청을 입력하세요 — @ 입력으로 에이전트 지정"
+              rows="1"
+              oninput="handleInput(this)"
+              onkeydown="handleKeydown(event)"
+            ></textarea>
+          </div>
+          <div class="chat-input-actions">
+            <button class="input-action-btn" title="파일 첨부">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7L7 12a3.5 3.5 0 01-5-5l5.5-5.5a2 2 0 012.8 2.8L5 9.5a.7.7 0 01-1-1L9.5 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+            </button>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 12L6.5 1 12 12M3 9h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="chat-hint">
+          <strong>@all</strong> 전체 파이프라인 &nbsp;·&nbsp;
+          <strong>@passage</strong> 지문만 &nbsp;·&nbsp;
+          <strong>@reading</strong> 독해만 &nbsp;·&nbsp;
+          <kbd style="background:var(--border);padding:1px 5px;border-radius:3px;font-size:10px;">⏎</kbd> 전송 &nbsp;
+          <kbd style="background:var(--border);padding:1px 5px;border-radius:3px;font-size:10px;">Shift+⏎</kbd> 줄바꿈
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER PANEL: Pipeline Mode -->
+    <div class="pipeline-view hidden" id="panel-pipeline">
+      <div class="pipeline-header">
+        <div>
+          <h3>파이프라인 실행 현황</h3>
+          <p>에이전트 노드를 클릭하면 각 입력/출력 설정을 확인할 수 있습니다</p>
+        </div>
+        <button class="btn btn-primary" style="margin-left:auto;" onclick="simulateRun()">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 1.5l9 5-9 5V1.5z" fill="currentColor"/></svg>
+          실행
+        </button>
+      </div>
+
+      <!-- Pipeline Flow Diagram -->
+      <div class="pipeline-flow">
+
+        <!-- Stage 1-4: Sequential -->
+        <div class="pipeline-stage">
+          <div class="pipeline-node done">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">01</div>
+              <div class="pipeline-node-name">intent_router</div>
+              <div class="pipeline-node-status">✅ 완료</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node done">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">02</div>
+              <div class="pipeline-node-name">teaching_frame</div>
+              <div class="pipeline-node-status">✅ 완료</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node done">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">03</div>
+              <div class="pipeline-node-name">difficulty_lock</div>
+              <div class="pipeline-node-status">✅ 완료</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node running">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">04</div>
+              <div class="pipeline-node-name">source_mode_router</div>
+              <div class="pipeline-node-status">⚙️ 실행중</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">05</div>
+              <div class="pipeline-node-name">topic_selection</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">06</div>
+              <div class="pipeline-node-name">research_curation</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">07</div>
+              <div class="pipeline-node-name">passage_generation</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">08</div>
+              <div class="pipeline-node-name">passage_validation</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">09</div>
+              <div class="pipeline-node-name">approved_passage_lock</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <!-- Parallel group 10–14 -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:9px;color:var(--muted);font-weight:600;padding:0 8px;margin-bottom:2px;">── 병렬 실행 ──</div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <div class="pipeline-node pending"><div class="pipeline-node-box" style="width:80px;"><div class="pipeline-node-num">10</div><div class="pipeline-node-name">reading</div><div class="pipeline-node-status">○ 대기</div></div></div>
+            <div class="pipeline-node pending"><div class="pipeline-node-box" style="width:80px;"><div class="pipeline-node-num">11</div><div class="pipeline-node-name">vocabulary</div><div class="pipeline-node-status">○ 대기</div></div></div>
+            <div class="pipeline-node pending"><div class="pipeline-node-box" style="width:80px;"><div class="pipeline-node-num">12</div><div class="pipeline-node-name">grammar</div><div class="pipeline-node-status">○ 대기</div></div></div>
+            <div class="pipeline-node pending"><div class="pipeline-node-box" style="width:80px;"><div class="pipeline-node-num">13</div><div class="pipeline-node-name">writing</div><div class="pipeline-node-status">○ 대기</div></div></div>
+            <div class="pipeline-node pending"><div class="pipeline-node-box" style="width:80px;"><div class="pipeline-node-num">14</div><div class="pipeline-node-name">assessment</div><div class="pipeline-node-status">○ 대기</div></div></div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">15</div>
+              <div class="pipeline-node-name">qa</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline-arrow"></div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-node pending">
+            <div class="pipeline-node-box">
+              <div class="pipeline-node-num">16</div>
+              <div class="pipeline-node-name">publisher</div>
+              <div class="pipeline-node-status">○ 대기</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Agent Config Grid -->
+      <div class="pipeline-config">
+        <div class="config-card">
+          <div class="config-card-title">🤖 에이전트별 AI 제공자</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:11px;color:var(--muted);">intent_router</span>
+              <select class="config-select" style="width:110px;">
+                <option>Claude (기본)</option><option>GPT-4o</option><option>Gemini</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:11px;color:var(--muted);">passage_generation</span>
+              <select class="config-select" style="width:110px;">
+                <option>Claude (기본)</option><option>GPT-4o</option><option>Gemini</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:11px;color:var(--muted);">reading</span>
+              <select class="config-select" style="width:110px;">
+                <option>Claude (기본)</option><option>GPT-4o</option><option>Gemini</option>
+              </select>
+            </div>
+            <div style="text-align:center;margin-top:2px;">
+              <span style="font-size:10px;color:var(--primary);cursor:pointer;">+ 개별 설정 펼치기</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-card-title">⚙️ 파이프라인 설정</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">난이도</div>
+              <select class="config-select">
+                <option>intermediate</option><option>beginner</option><option>elementary</option><option>upper-intermediate</option><option>advanced</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">시작 에이전트</div>
+              <select class="config-select">
+                <option>1. intent_router (처음부터)</option>
+                <option>7. passage_generation (지문부터)</option>
+                <option>10. reading (콘텐츠부터)</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">끝 에이전트</div>
+              <select class="config-select">
+                <option>16. publisher (전체)</option>
+                <option>9. approved_passage_lock (지문까지)</option>
+                <option>14. assessment (콘텐츠까지)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: Preview -->
+    <aside class="panel-right">
+      <div class="panel-right-header">
+        <span class="panel-right-title">📄 문서 미리보기</span>
+        <div class="panel-right-actions">
+          <button class="icon-btn" title="새로고침">↺</button>
+          <button class="icon-btn" title="패널 닫기" onclick="toggleRightPanel()">✕</button>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div class="preview-empty" id="preview-empty">
+        <div class="preview-empty-icon">📋</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.6;">
+          레슨이 생성되면<br>여기서 미리볼 수 있습니다
+        </div>
+      </div>
+
+      <!-- Preview content (데모용, 보통은 숨김) -->
+      <div class="preview-area hidden" id="preview-content">
+        <div style="padding:8px 0;">
+          <div style="font-size:14px;font-weight:700;color:var(--text);">Saving Our Planet</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;gap:6px;align-items:center;">
+            <span class="preview-tag">intermediate</span>
+            <span>• 230 words</span>
+            <span>• 초등 5학년</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">📖 지문</span>
+            <span style="font-size:11px;color:var(--muted);">▾</span>
+          </div>
+          <div class="preview-section-body">
+            Every day, humans produce millions of tons of waste. Plastic bottles, food scraps, and old electronics pile up in landfills around the world. But there are simple ways we can help protect our planet...
+            <br><br><span style="color:var(--subtle);font-size:11px;">[230 words 전체 보기]</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">❓ 독해 문제 <span style="font-size:10px;background:var(--bg);border:1px solid var(--border);padding:1px 5px;border-radius:3px;color:var(--muted);">5문항</span></span>
+            <span style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">📝 어휘 학습 <span style="font-size:10px;background:var(--bg);border:1px solid var(--border);padding:1px 5px;border-radius:3px;color:var(--muted);">8단어</span></span>
+            <span style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">📐 문법 미니레슨</span>
+            <span style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">✍️ 쓰기 과제</span>
+            <span style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+        </div>
+
+        <div class="preview-section">
+          <div class="preview-section-header" onclick="toggleSection(this)">
+            <span class="preview-section-title">📊 평가지 <span style="font-size:10px;background:var(--bg);border:1px solid var(--border);padding:1px 5px;border-radius:3px;color:var(--muted);">10문항</span></span>
+            <span style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Export -->
+      <div class="export-area">
+        <div class="export-title">내보내기</div>
+        <div style="display:flex;gap:5px;margin-bottom:5px;">
+          <button class="export-btn" style="padding:5px 8px;font-size:10px;gap:3px;flex:none;min-width:60px;" onclick="toggleLayout(this,'simple')">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1" y="1" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M3 4h4M3 6h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            심플
+          </button>
+          <button class="export-btn" style="padding:5px 8px;font-size:10px;gap:3px;flex:none;min-width:60px;border-color:var(--primary);color:var(--primary);background:var(--primary-light);" onclick="toggleLayout(this,'advanced')">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1" y="1" width="3.5" height="4" rx=".5" fill="currentColor" opacity=".5"/><rect x="5.5" y="1" width="3.5" height="2" rx=".5" fill="currentColor"/><rect x="5.5" y="4" width="3.5" height="2" rx=".5" fill="currentColor" opacity=".7"/><rect x="1" y="6.5" width="8" height="2" rx=".5" fill="currentColor" opacity=".4"/></svg>
+            고급
+          </button>
+        </div>
+        <div class="export-row">
+          <button class="export-btn">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 1h7l2 2v7H1V1z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 1v2h2" stroke="currentColor" stroke-width="1.2"/><path d="M3 5h5M3 7h4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            학생용 PDF
+          </button>
+          <button class="export-btn">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 1h7l2 2v7H1V1z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 1v2h2" stroke="currentColor" stroke-width="1.2"/><path d="M3 5h5M3 7h4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            교사용 PDF
+          </button>
+        </div>
+        <div class="export-row">
+          <button class="export-btn">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M3 4h5M3 6h4M3 8h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            학생용 DOCX
+          </button>
+          <button class="export-btn">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M3 4h5M3 6h4M3 8h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            교사용 DOCX
+          </button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+</div>
+
+<!-- ── Agent Tooltip ───────────────────────────────────── -->
+<div id="agent-tooltip">
+  <div class="agent-tooltip-box">
+    <div class="agent-tooltip-num" id="tt-num"></div>
+    <div class="agent-tooltip-label" id="tt-label"></div>
+    <div class="agent-tooltip-desc" id="tt-desc"></div>
+    <span class="agent-tooltip-tag" id="tt-tag"></span>
+  </div>
+</div>
+
+<!-- ── Save Dialog ─────────────────────────────────────── -->
+<div class="dialog-backdrop hidden" id="save-dialog">
+  <div class="dialog">
+    <div class="dialog-header">
+      <span class="dialog-title">레슨 저장</span>
+      <button class="icon-btn" onclick="hideSaveDialog()" style="font-size:15px;">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div>
+        <div class="dialog-label">프로젝트</div>
+        <select class="dialog-select">
+          <option>2026년 초등부</option>
+          <option>2026년 중등부</option>
+          <option>+ 새 프로젝트 만들기</option>
+        </select>
+      </div>
+      <div>
+        <div class="dialog-label">레슨 이름</div>
+        <input class="dialog-input" type="text" value="Saving Our Planet — 환경 보호" placeholder="레슨 이름 입력"/>
+      </div>
+      <div>
+        <div class="dialog-label">태그 (선택)</div>
+        <input class="dialog-input" type="text" placeholder="환경, 초등, intermediate"/>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn" onclick="hideSaveDialog()">취소</button>
+      <button class="btn btn-primary" onclick="hideSaveDialog()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Mention Popup (floating example) ───────────────── -->
+<div id="mention-floating" style="position:fixed;bottom:120px;left:240px;z-index:200;display:none;">
+  <div class="mention-popup">
+    <div class="mention-header">에이전트 선택 — @</div>
+    <div class="mention-item highlighted">
+      <div class="mention-item-icon">ALL</div>
+      <div><div class="mention-item-name">@all</div><div class="mention-item-desc">전체 파이프라인 실행</div></div>
+    </div>
+    <div class="mention-item">
+      <div class="mention-item-icon">PG</div>
+      <div><div class="mention-item-name">@passage_generation</div><div class="mention-item-desc">지문 생성만 실행</div></div>
+    </div>
+    <div class="mention-item">
+      <div class="mention-item-icon">R</div>
+      <div><div class="mention-item-name">@reading</div><div class="mention-item-desc">독해 문제 생성</div></div>
+    </div>
+    <div class="mention-item">
+      <div class="mention-item-icon">V</div>
+      <div><div class="mention-item-name">@vocabulary</div><div class="mention-item-desc">어휘 학습 생성</div></div>
+    </div>
+    <div class="mention-item">
+      <div class="mention-item-icon">G</div>
+      <div><div class="mention-item-name">@grammar</div><div class="mention-item-desc">문법 미니레슨 생성</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Mode Toggle ──────────────────────────────────────────────
+function setMode(mode) {
+  const chatPanel = document.getElementById('panel-chat');
+  const pipelinePanel = document.getElementById('panel-pipeline');
+  const btnChat = document.getElementById('btn-chat');
+  const btnPipeline = document.getElementById('btn-pipeline');
+
+  if (mode === 'chat') {
+    chatPanel.classList.remove('hidden');
+    pipelinePanel.classList.add('hidden');
+    btnChat.classList.add('active');
+    btnPipeline.classList.remove('active');
+  } else {
+    chatPanel.classList.add('hidden');
+    pipelinePanel.classList.remove('hidden');
+    btnPipeline.classList.add('active');
+    btnChat.classList.remove('active');
+  }
+}
+
+// ── Agent Selection ──────────────────────────────────────────
+function selectAgent(el, name) {
+  document.querySelectorAll('.agent-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── Quick Prompt ──────────────────────────────────────────────
+function quickPrompt(text) {
+  const ta = document.getElementById('chat-textarea');
+  ta.value = text;
+  document.getElementById('send-btn').removeAttribute('disabled');
+  ta.focus();
+}
+
+// ── Input handler ─────────────────────────────────────────────
+function handleInput(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  document.getElementById('send-btn').disabled = !el.value.trim();
+
+  // Show mention popup when @ is typed
+  const val = el.value;
+  const atIdx = val.lastIndexOf('@');
+  const floating = document.getElementById('mention-floating');
+  if (atIdx !== -1 && atIdx === val.length - 1) {
+    floating.style.display = 'block';
+  } else {
+    floating.style.display = 'none';
+  }
+}
+
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('mention-floating').style.display = 'none';
+  }
+}
+
+// ── Send Message (demo) ───────────────────────────────────────
+function sendMessage() {
+  const ta = document.getElementById('chat-textarea');
+  if (!ta.value.trim()) return;
+
+  document.getElementById('chat-empty').classList.add('hidden');
+  document.getElementById('demo-messages').classList.remove('hidden');
+  ta.value = '';
+  ta.style.height = 'auto';
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('mention-floating').style.display = 'none';
+}
+
+// ── Simulate Run ──────────────────────────────────────────────
+function simulateRun() {
+  document.getElementById('chat-empty').classList.add('hidden');
+  document.getElementById('demo-messages').classList.remove('hidden');
+  setMode('chat');
+}
+
+// ── Save Dialog ───────────────────────────────────────────────
+function showSaveDialog() {
+  document.getElementById('save-dialog').classList.remove('hidden');
+}
+function hideSaveDialog() {
+  document.getElementById('save-dialog').classList.add('hidden');
+}
+
+// ── Preview Section Toggle ────────────────────────────────────
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('span:last-child');
+  if (body && body.classList.contains('preview-section-body')) {
+    const isOpen = body.style.display !== 'none' && body.style.display !== '';
+    body.style.display = isOpen ? 'none' : 'block';
+    arrow.textContent = isOpen ? '▸' : '▾';
+  } else {
+    // Show full content
+    if (!body) {
+      const newBody = document.createElement('div');
+      newBody.className = 'preview-section-body';
+      newBody.textContent = '(내용이 생성되면 여기 표시됩니다)';
+      header.parentNode.appendChild(newBody);
+      arrow.textContent = '▾';
+    }
+  }
+}
+
+// ── Toggle Right Panel ────────────────────────────────────────
+function toggleRightPanel() {
+  const panel = document.querySelector('.panel-right');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+// ── Toggle Export Layout ──────────────────────────────────────
+function toggleLayout(btn, type) {
+  document.querySelectorAll('.export-area .export-btn').forEach(b => {
+    if (b === btn || (type === 'simple' && b.textContent.trim() === '심플') || (type === 'advanced' && b.textContent.trim() === '고급')) {
+      b.style.borderColor = 'var(--primary)';
+      b.style.color = 'var(--primary)';
+      b.style.background = 'var(--primary-light)';
+    } else if (b.textContent.includes('심플') || b.textContent.includes('고급')) {
+      b.style.borderColor = 'var(--border)';
+      b.style.color = 'var(--muted)';
+      b.style.background = 'var(--surface)';
+    }
+  });
+}
+
+// ── Show demo preview on load (optional) ─────────────────────
+// Uncomment to show preview panel in loaded state:
+// document.getElementById('preview-empty').classList.add('hidden');
+// document.getElementById('preview-content').classList.remove('hidden');
+
+// Close mention popup on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#chat-textarea') && !e.target.closest('#mention-floating')) {
+    document.getElementById('mention-floating').style.display = 'none';
+  }
+});
+
+// ── Agent Tooltip ─────────────────────────────────────────────
+const tooltip   = document.getElementById('agent-tooltip');
+const ttNum     = document.getElementById('tt-num');
+const ttLabel   = document.getElementById('tt-label');
+const ttDesc    = document.getElementById('tt-desc');
+const ttTag     = document.getElementById('tt-tag');
+
+let tooltipTimer = null;
+
+document.querySelectorAll('.agent-item[data-label]').forEach(item => {
+  item.addEventListener('mouseenter', (e) => {
+    tooltipTimer = setTimeout(() => {
+      ttNum.textContent   = 'AGENT ' + item.dataset.num;
+      ttLabel.textContent = item.dataset.label;
+      ttDesc.textContent  = item.dataset.desc;
+      ttTag.textContent   = item.dataset.tag;
+      tooltip.classList.add('visible');
+      positionTooltip(e);
+    }, 300); // 300ms 딜레이 후 표시
+  });
+
+  item.addEventListener('mousemove', positionTooltip);
+
+  item.addEventListener('mouseleave', () => {
+    clearTimeout(tooltipTimer);
+    tooltip.classList.remove('visible');
+  });
+});
+
+function positionTooltip(e) {
+  const TW = 220 + 24; // tooltip width + margin
+  const TH = 140;       // estimated tooltip height
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let x = e.clientX + 16;
+  let y = e.clientY - 10;
+
+  // 오른쪽 화면 밖으로 나가면 왼쪽에 표시
+  if (x + TW > vw) x = e.clientX - TW + 8;
+  // 아래 화면 밖으로 나가면 위로 올림
+  if (y + TH > vh) y = vh - TH - 8;
+
+  tooltip.style.left = x + 'px';
+  tooltip.style.top  = y + 'px';
+}
+</script>
+</body>
+</html>
