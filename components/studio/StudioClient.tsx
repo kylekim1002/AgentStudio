@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AIProvider } from "@/lib/agents/types";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import AgentPanel from "./AgentPanel";
@@ -24,17 +24,24 @@ export default function StudioClient() {
   const [showPreview, setShowPreview] = useState(true);
 
   const { isRunning, agentStates, lessonPackage, error, generate, reset } = useLessonGenerate();
+  const prevPackage = useRef<typeof lessonPackage>(null);
+
+  // Auto-open save dialog when a new lesson package is generated
+  useEffect(() => {
+    if (lessonPackage && lessonPackage !== prevPackage.current) {
+      setShowSave(true);
+    }
+    prevPackage.current = lessonPackage;
+  }, [lessonPackage]);
 
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
 
-  function handleSend(text: string) {
-    generate({ userInput: text, provider });
+  function handleConfirmGenerate(chatSummary: string) {
+    generate({ userInput: chatSummary || "전체 파이프라인을 실행해 주세요.", provider });
   }
 
-  function handleRunAll() {
-    // 파이프라인 모드에서 기본 프롬프트로 실행 (채팅 모드로 전환 후 실행)
-    setMode("chat");
-    generate({ userInput: "전체 파이프라인을 실행해 주세요.", provider });
+  function handleRunAll(userInput?: string) {
+    generate({ userInput: userInput || "전체 파이프라인을 실행해 주세요.", provider });
   }
 
   async function handleSave(projectId: string | null, lessonName: string, tags: string) {
@@ -216,13 +223,13 @@ export default function StudioClient() {
             isRunning={isRunning}
             lessonPackage={lessonPackage}
             error={error}
-            onSend={handleSend}
+            onConfirmGenerate={handleConfirmGenerate}
             onReset={reset}
           />
         ) : (
           <PipelinePanel
             agentStates={statusMap}
-            onRunAll={handleRunAll}
+            onRunAll={(input) => handleRunAll(input)}
             isRunning={isRunning}
           />
         )}
@@ -232,6 +239,7 @@ export default function StudioClient() {
           <PreviewPanel
             lessonPackage={lessonPackage}
             onClose={() => setShowPreview(false)}
+            onSave={() => setShowSave(true)}
           />
         )}
       </div>

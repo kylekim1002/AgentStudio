@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, KeyboardEvent } from "react";
 import { AgentName, AgentStatus, LessonPackage } from "@/lib/agents/types";
-import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
+import { AGENT_META } from "@/lib/agentMeta";
 
 // ─── Message types ───────────────────────────────────────────
 
@@ -12,7 +12,9 @@ type AgentEvent = { type: "event";  agent: AgentName; status: AgentStatus; desc?
 type ErrorMsg   = { type: "error";  text: string };
 type ResultMsg  = { type: "result"; pkg: LessonPackage };
 
-type ChatMsg = UserMsg | AIMsg | AgentEvent | ErrorMsg | ResultMsg;
+type DisplayMsg = UserMsg | AIMsg | AgentEvent | ErrorMsg | ResultMsg;
+
+type ChatHistory = { role: "user" | "assistant"; content: string }[];
 
 // ─── Props ───────────────────────────────────────────────────
 
@@ -21,7 +23,7 @@ interface ChatPanelProps {
   isRunning: boolean;
   lessonPackage: LessonPackage | null;
   error: string | null;
-  onSend: (text: string) => void;
+  onConfirmGenerate: (chatSummary: string) => void;
   onReset: () => void;
 }
 
@@ -38,37 +40,40 @@ const EVT_ICON: Record<string, string> = {
   running: "⚙️", done: "✅", skipped: "⏭", error: "❌",
 };
 
-// ─── Mention popup ────────────────────────────────────────────
-
-const MENTION_AGENTS = [
-  { key: "all",                  label: "@all",                  desc: "전체 파이프라인 실행" },
-  ...PIPELINE_ORDER.map((a) => ({
-    key: AGENT_META[a].mention,
-    label: `@${AGENT_META[a].mention}`,
-    desc: AGENT_META[a].label,
-  })),
-];
-
 function fmt(d: Date) {
   return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ChatPanel({ agentStates, isRunning, lessonPackage, error, onSend, onReset }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+// ─── Quick prompt starters ────────────────────────────────────
+
+const QUICK = [
+  { icon: "🌿", text: "초등 5학년 환경 보호 주제로 레슨 만들어줘" },
+  { icon: "🚀", text: "중학교 1학년 우주 탐험 레슨 만들어줘" },
+  { icon: "🤖", text: "고등학교 advanced AI 기술 레슨 만들어줘" },
+  { icon: "📄", text: "직접 지문을 제공해서 문제만 만들어줘" },
+];
+
+export default function ChatPanel({
+  agentStates, isRunning, lessonPackage, error, onConfirmGenerate, onReset,
+}: ChatPanelProps) {
+  const [displayMessages, setDisplayMessages] = useState<DisplayMsg[]>([]);
+  const [chatHistory, setChatHistory] = useState<ChatHistory>([]);
   const [input, setInput] = useState("");
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = hidden
-  const [mentionIdx, setMentionIdx] = useState(0);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [showConfirmButton, setShowConfirmButton] = useState(false);
+
+  const chatEndRef  = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const prevRunning = useRef(false);
   const prevStates  = useRef<Map<AgentName, AgentStatus>>(new Map());
+  const prevRunning = useRef(false);
 
   // ── Auto-scroll ──────────────────────────────────────────────
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [displayMessages, streamingText]);
 
-  // ── Sync agent state events into chat ───────────────────────
+  // ── Sync agent events into chat (during pipeline run) ────────
   useEffect(() => {
     agentStates.forEach((status, agent) => {
       const prev = prevStates.current.get(agent);
@@ -79,29 +84,28 @@ export default function ChatPanel({ agentStates, isRunning, lessonPackage, error
           status === "running" ? `${m.label} 실행 중...` :
           status === "skipped" ? `${m.label} — 건너뜀` :
           status === "error"   ? `${m.label} — 오류 발생` : "";
-        setMessages((prev) => [...prev, { type: "event", agent, status, desc }]);
+        setDisplayMessages((prev) => [...prev, { type: "event", agent, status, desc }]);
       }
     });
     prevStates.current = new Map(agentStates);
   }, [agentStates]);
 
-  // ── On complete ──────────────────────────────────────────────
+  // ── On pipeline complete ─────────────────────────────────────
   useEffect(() => {
-    if (lessonPackage && !prevRunning.current) return;
-    if (lessonPackage) {
-      setMessages((prev) => [
+    if (lessonPackage && prevRunning.current) {
+      setDisplayMessages((prev) => [
         ...prev,
-        { type: "ai", text: `레슨 패키지가 완성되었습니다! 우측 미리보기에서 확인하고 PDF/DOCX로 내보낼 수 있습니다.`, ts: new Date() },
+        { type: "ai", text: "레슨 패키지가 완성되었습니다! 우측 미리보기에서 확인하고 PDF/DOCX로 내보낼 수 있습니다. 🎉", ts: new Date() },
         { type: "result", pkg: lessonPackage },
       ]);
     }
     prevRunning.current = isRunning;
   }, [lessonPackage]);
 
-  // ── On error ────────────────────────────────────────────────
+  // ── On pipeline error ────────────────────────────────────────
   useEffect(() => {
     if (error) {
-      setMessages((prev) => [...prev, { type: "error", text: error }]);
+      setDisplayMessages((prev) => [...prev, { type: "error", text: error }]);
     }
   }, [error]);
 
@@ -113,64 +117,110 @@ export default function ChatPanel({ agentStates, isRunning, lessonPackage, error
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
 
-  // ── @ mention detection ──────────────────────────────────────
-  function detectMention(val: string) {
-    const atIdx = val.lastIndexOf("@");
-    if (atIdx === -1) { setMentionQuery(null); return; }
-    const after = val.slice(atIdx + 1);
-    if (/\s/.test(after)) { setMentionQuery(null); return; }
-    setMentionQuery(after.toLowerCase());
-    setMentionIdx(0);
-  }
-
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     adjustHeight();
-    detectMention(e.target.value);
   }
 
-  // ── Mention select ───────────────────────────────────────────
-  const filteredMentions = mentionQuery !== null
-    ? MENTION_AGENTS.filter((m) => m.key.includes(mentionQuery) || m.desc.includes(mentionQuery))
-    : [];
-
-  function selectMention(key: string) {
-    const atIdx = input.lastIndexOf("@");
-    setInput(input.slice(0, atIdx) + "@" + key + " ");
-    setMentionQuery(null);
-    textareaRef.current?.focus();
-  }
-
-  // ── Send ─────────────────────────────────────────────────────
-  function send() {
+  // ── Send to /api/chat (conversational) ───────────────────────
+  async function send() {
     const text = input.trim();
-    if (!text || isRunning) return;
-    setMessages((prev) => [...prev, { type: "user", text, ts: new Date() }]);
+    if (!text || isAiThinking || isRunning) return;
+
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-    setMentionQuery(null);
-    onSend(text);
+    setShowConfirmButton(false);
+
+    // Add user message to display + history
+    const userTs = new Date();
+    setDisplayMessages((prev) => [...prev, { type: "user", text, ts: userTs }]);
+    const newHistory: ChatHistory = [...chatHistory, { role: "user", content: text }];
+    setChatHistory(newHistory);
+
+    setIsAiThinking(true);
+    setStreamingText("");
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: newHistory }),
+      });
+
+      if (!res.ok || !res.body) throw new Error("Chat request failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.text) {
+              fullText += parsed.text;
+              setStreamingText(fullText);
+            }
+            if (parsed.error) throw new Error(parsed.error);
+          } catch (e) {
+            if ((e as Error).message !== "Unexpected token") throw e;
+          }
+        }
+      }
+
+      const aiTs = new Date();
+      setDisplayMessages((prev) => [...prev, { type: "ai", text: fullText, ts: aiTs }]);
+      setChatHistory([...newHistory, { role: "assistant", content: fullText }]);
+      setStreamingText("");
+
+      // Show confirm button when AI signals readiness
+      if (fullText.includes("레슨 생성을 시작하세요")) {
+        setShowConfirmButton(true);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "오류가 발생했습니다.";
+      setDisplayMessages((prev) => [...prev, { type: "error", text: msg }]);
+      setStreamingText("");
+    } finally {
+      setIsAiThinking(false);
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionQuery !== null && filteredMentions.length > 0) {
-      if (e.key === "ArrowDown") { e.preventDefault(); setMentionIdx((i) => Math.min(i + 1, filteredMentions.length - 1)); return; }
-      if (e.key === "ArrowUp")   { e.preventDefault(); setMentionIdx((i) => Math.max(i - 1, 0)); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectMention(filteredMentions[mentionIdx].key); return; }
-      if (e.key === "Escape")    { setMentionQuery(null); return; }
-    }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  // ── Quick prompts ─────────────────────────────────────────────
-  const QUICK = [
-    { icon: "🌿", text: "초등 5학년 intermediate 환경 보호 주제로 레슨 만들어줘" },
-    { icon: "🚀", text: "중학교 1학년 elementary 우주 탐험 레슨 만들어줘" },
-    { icon: "🤖", text: "고등학교 advanced AI 기술 레슨 만들어줘" },
-    { icon: "📄", text: "@passage_generation 지문을 직접 제공해서 문제만 만들어줘" },
-  ];
+  // ── Confirm → start pipeline ──────────────────────────────────
+  function handleConfirm() {
+    setShowConfirmButton(false);
+    // Build a summary string from last assistant message (full history context)
+    const lastAssistant = [...chatHistory].reverse().find((m) => m.role === "assistant");
+    const summary = lastAssistant?.content ?? "";
+    onConfirmGenerate(summary);
+    setDisplayMessages((prev) => [...prev, {
+      type: "ai",
+      text: "알겠습니다! 지금 바로 레슨 생성을 시작합니다 🚀",
+      ts: new Date(),
+    }]);
+  }
 
-  const isEmpty = messages.length === 0;
+  // ── Reset ────────────────────────────────────────────────────
+  function handleReset() {
+    setDisplayMessages([]);
+    setChatHistory([]);
+    setStreamingText("");
+    setShowConfirmButton(false);
+    onReset();
+  }
+
+  const isEmpty = displayMessages.length === 0 && !streamingText;
+  const isBusy  = isAiThinking || isRunning;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
@@ -179,18 +229,18 @@ export default function ChatPanel({ agentStates, isRunning, lessonPackage, error
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
         {isEmpty ? (
-          /* Empty state */
+          /* Empty / welcome state */
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "14px", paddingTop: "60px" }}>
             <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "var(--color-primary-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px" }}>
-              ⚡
+              💬
             </div>
             <div>
-              <div style={{ fontSize: "16px", fontWeight: "700", color: "var(--color-text)", textAlign: "center" }}>레슨을 만들어 보세요</div>
+              <div style={{ fontSize: "16px", fontWeight: "700", color: "var(--color-text)", textAlign: "center" }}>어떤 레슨을 만들어 드릴까요?</div>
               <div style={{ fontSize: "13px", color: "var(--color-text-muted)", textAlign: "center", marginTop: "6px", lineHeight: "1.6" }}>
-                주제, 난이도, 대상 학년을 알려주시면<br/>AI 에이전트가 완성된 레슨 패키지를 만들어 드립니다.
+                학년, 주제, 난이도를 알려주시면 함께 레슨을 기획해 드립니다.<br/>확정 후 버튼을 누르면 AI가 레슨 패키지를 자동 생성합니다.
               </div>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", maxWidth: "400px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", maxWidth: "420px" }}>
               {QUICK.map((q) => (
                 <button
                   key={q.text}
@@ -213,210 +263,218 @@ export default function ChatPanel({ agentStates, isRunning, lessonPackage, error
                     (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface)";
                   }}
                 >
-                  {q.icon} {q.text.length > 22 ? q.text.slice(0, 22) + "…" : q.text}
+                  {q.icon} {q.text.length > 24 ? q.text.slice(0, 24) + "…" : q.text}
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          messages.map((msg, i) => {
-            if (msg.type === "user") return (
-              <div key={i} style={{ display: "flex", justifyContent: "flex-end", gap: "8px", alignItems: "flex-end" }}>
-                <div>
-                  <div style={{
-                    background: "var(--color-primary)", color: "#fff",
-                    padding: "10px 14px", borderRadius: "12px 4px 12px 12px",
-                    fontSize: "13px", lineHeight: "1.6", maxWidth: "420px",
-                    whiteSpace: "pre-wrap",
-                  }}>
-                    {msg.text}
+          <>
+            {displayMessages.map((msg, i) => {
+              if (msg.type === "user") return (
+                <div key={i} style={{ display: "flex", justifyContent: "flex-end", gap: "8px", alignItems: "flex-end" }}>
+                  <div>
+                    <div style={{
+                      background: "var(--color-primary)", color: "#fff",
+                      padding: "10px 14px", borderRadius: "12px 4px 12px 12px",
+                      fontSize: "13px", lineHeight: "1.6", maxWidth: "420px",
+                      whiteSpace: "pre-wrap",
+                    }}>
+                      {msg.text}
+                    </div>
+                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", textAlign: "right", marginTop: "3px" }}>{fmt(msg.ts)}</div>
                   </div>
-                  <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", textAlign: "right", marginTop: "3px" }}>{fmt(msg.ts)}</div>
-                </div>
-                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary)", color: "#fff", fontSize: "11px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>K</div>
-              </div>
-            );
-
-            if (msg.type === "ai") return (
-              <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary-light)", color: "var(--color-primary)", fontSize: "10px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "2px" }}>AI</div>
-                <div>
-                  <div style={{
-                    background: "var(--color-surface)", border: "1px solid var(--color-border)",
-                    padding: "10px 14px", borderRadius: "4px 12px 12px 12px",
-                    fontSize: "13px", lineHeight: "1.6", maxWidth: "420px",
-                    whiteSpace: "pre-wrap",
-                  }}>
-                    {msg.text}
-                  </div>
-                  <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "3px" }}>{fmt(msg.ts)}</div>
-                </div>
-              </div>
-            );
-
-            if (msg.type === "event") {
-              const c = EVT_COLOR[msg.status] ?? EVT_COLOR.running;
-              return (
-                <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  background: c.bg, border: `1px solid ${c.border}`,
-                  borderRadius: "8px", padding: "8px 12px",
-                }}>
-                  <span style={{ fontSize: "14px", flexShrink: 0 }}>{EVT_ICON[msg.status] ?? "•"}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "12px", fontWeight: "600", color: c.text }}>{msg.desc}</div>
-                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "1px" }}>{AGENT_META[msg.agent].num} / {AGENT_META[msg.agent].mention}</div>
-                  </div>
-                  {msg.status === "running" && (
-                    <div style={{ width: "14px", height: "14px", border: `2px solid ${c.text}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite", flexShrink: 0 }} />
-                  )}
+                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary)", color: "#fff", fontSize: "11px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>T</div>
                 </div>
               );
-            }
 
-            if (msg.type === "error") return (
-              <div key={i} style={{
-                background: "#FEF2F2", border: "1px solid #FECACA",
-                borderRadius: "8px", padding: "10px 14px",
-                fontSize: "13px", color: "#DC2626", lineHeight: "1.5",
-              }}>
-                ❌ {msg.text}
-                <button onClick={onReset} style={{ marginLeft: "10px", fontSize: "11px", color: "var(--color-primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                  초기화
-                </button>
-              </div>
-            );
-
-            if (msg.type === "result") return (
-              <div key={i} style={{
-                background: "var(--color-surface)", border: "1px solid var(--color-border)",
-                borderRadius: "10px", padding: "12px 14px",
-              }}>
-                <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px" }}>
-                  📚 {msg.pkg.title}
+              if (msg.type === "ai") return (
+                <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary-light)", color: "var(--color-primary)", fontSize: "10px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "2px" }}>AI</div>
+                  <div>
+                    <div style={{
+                      background: "var(--color-surface)", border: "1px solid var(--color-border)",
+                      padding: "10px 14px", borderRadius: "4px 12px 12px 12px",
+                      fontSize: "13px", lineHeight: "1.6", maxWidth: "440px",
+                      whiteSpace: "pre-wrap",
+                    }}>
+                      {msg.text}
+                    </div>
+                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "3px" }}>{fmt(msg.ts)}</div>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {[
-                    { label: msg.pkg.difficulty, color: "#4F46E5" },
-                    { label: `${msg.pkg.wordCount} words`, color: "#64748B" },
-                    { label: `독해 ${msg.pkg.reading.questions.length}문항`, color: "#64748B" },
-                    { label: `어휘 ${msg.pkg.vocabulary.words.length}개`, color: "#64748B" },
-                  ].map(({ label, color }) => (
-                    <span key={label} style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: "#EEF2FF", color }}>{label}</span>
+              );
+
+              if (msg.type === "event") {
+                const c = EVT_COLOR[msg.status] ?? EVT_COLOR.running;
+                return (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    background: c.bg, border: `1px solid ${c.border}`,
+                    borderRadius: "8px", padding: "8px 12px",
+                  }}>
+                    <span style={{ fontSize: "14px", flexShrink: 0 }}>{EVT_ICON[msg.status] ?? "•"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "12px", fontWeight: "600", color: c.text }}>{msg.desc}</div>
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "1px" }}>{AGENT_META[msg.agent].num} / {AGENT_META[msg.agent].mention}</div>
+                    </div>
+                    {msg.status === "running" && (
+                      <div style={{ width: "14px", height: "14px", border: `2px solid ${c.text}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite", flexShrink: 0 }} />
+                    )}
+                  </div>
+                );
+              }
+
+              if (msg.type === "error") return (
+                <div key={i} style={{
+                  background: "#FEF2F2", border: "1px solid #FECACA",
+                  borderRadius: "8px", padding: "10px 14px",
+                  fontSize: "13px", color: "#DC2626", lineHeight: "1.5",
+                }}>
+                  ❌ {msg.text}
+                  <button onClick={handleReset} style={{ marginLeft: "10px", fontSize: "11px", color: "var(--color-primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                    초기화
+                  </button>
+                </div>
+              );
+
+              if (msg.type === "result") return (
+                <div key={i} style={{
+                  background: "var(--color-surface)", border: "1px solid var(--color-border)",
+                  borderRadius: "10px", padding: "12px 14px",
+                }}>
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px" }}>
+                    📚 {msg.pkg.title}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    {[
+                      { label: msg.pkg.difficulty, color: "#4F46E5" },
+                      { label: `${msg.pkg.wordCount} words`, color: "#64748B" },
+                      { label: `독해 ${msg.pkg.reading.questions.length}문항`, color: "#64748B" },
+                      { label: `어휘 ${msg.pkg.vocabulary.words.length}개`, color: "#64748B" },
+                    ].map(({ label, color }) => (
+                      <span key={label} style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: "#EEF2FF", color }}>{label}</span>
+                    ))}
+                  </div>
+                </div>
+              );
+
+              return null;
+            })}
+
+            {/* ── Streaming AI response (in-progress) ── */}
+            {streamingText && (
+              <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary-light)", color: "var(--color-primary)", fontSize: "10px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "2px" }}>AI</div>
+                <div style={{
+                  background: "var(--color-surface)", border: "1px solid var(--color-border)",
+                  padding: "10px 14px", borderRadius: "4px 12px 12px 12px",
+                  fontSize: "13px", lineHeight: "1.6", maxWidth: "440px",
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {streamingText}
+                  <span style={{ display: "inline-block", width: "2px", height: "14px", background: "var(--color-primary)", marginLeft: "2px", animation: "blink 1s step-end infinite", verticalAlign: "middle" }} />
+                </div>
+              </div>
+            )}
+
+            {/* ── Thinking indicator ── */}
+            {isAiThinking && !streamingText && (
+              <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--color-primary-light)", color: "var(--color-primary)", fontSize: "10px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>AI</div>
+                <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", padding: "10px 14px", borderRadius: "4px 12px 12px 12px", display: "flex", gap: "5px", alignItems: "center" }}>
+                  {[0, 160, 320].map((delay) => (
+                    <div key={delay} style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--color-primary)", opacity: 0.5, animation: `bounce 1s ${delay}ms ease-in-out infinite` }} />
                   ))}
                 </div>
               </div>
-            );
-
-            return null;
-          })
+            )}
+          </>
         )}
+
         <div ref={chatEndRef} />
       </div>
 
-      {/* ── Input area ── */}
-      <div style={{ padding: "10px 16px 12px", background: "var(--color-surface)", borderTop: "1px solid var(--color-border)", position: "relative" }}>
-
-        {/* Mention popup */}
-        {mentionQuery !== null && filteredMentions.length > 0 && (
-          <div style={{
-            position: "absolute", bottom: "calc(100% + 4px)", left: "16px",
-            background: "var(--color-surface)", border: "1px solid var(--color-border)",
-            borderRadius: "9px", boxShadow: "0 4px 16px rgba(0,0,0,.12)",
-            overflow: "hidden", zIndex: 50, width: "280px",
-          }}>
-            <div style={{ padding: "7px 12px 5px", fontSize: "10px", fontWeight: "600", color: "var(--color-text-subtle)", borderBottom: "1px solid var(--color-border)", letterSpacing: ".4px", textTransform: "uppercase" }}>
-              에이전트 선택
-            </div>
-            <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-              {filteredMentions.slice(0, 10).map((m, idx) => (
-                <div
-                  key={m.key}
-                  onMouseDown={(e) => { e.preventDefault(); selectMention(m.key); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "10px",
-                    padding: "7px 12px", cursor: "pointer",
-                    background: idx === mentionIdx ? "var(--color-primary-light)" : "transparent",
-                    transition: ".1s",
-                  }}
-                  onMouseEnter={() => setMentionIdx(idx)}
-                >
-                  <div style={{
-                    width: "24px", height: "24px", borderRadius: "5px",
-                    background: "var(--color-bg)", border: "1px solid var(--color-border)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "9px", fontWeight: "700", color: "var(--color-primary)", flexShrink: 0,
-                  }}>
-                    {m.key === "all" ? "ALL" : m.key.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "12px", fontWeight: "500", color: "var(--color-text)" }}>{m.label}</div>
-                    <div style={{ fontSize: "10px", color: "var(--color-text-muted)" }}>{m.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* ── Confirm button banner ── */}
+      {showConfirmButton && !isRunning && (
+        <div style={{
+          padding: "10px 16px",
+          background: "linear-gradient(135deg, #EFF6FF, #F0FDF4)",
+          borderTop: "1px solid var(--color-border)",
+          display: "flex", alignItems: "center", gap: "10px",
+        }}>
+          <div style={{ flex: 1, fontSize: "12px", color: "var(--color-text-muted)", lineHeight: "1.4" }}>
+            레슨 정보가 확인되었습니다. 아래 버튼을 눌러 생성을 시작하세요.
           </div>
-        )}
+          <button
+            onClick={handleConfirm}
+            style={{
+              padding: "8px 18px", borderRadius: "8px",
+              background: "var(--color-primary)", color: "#fff",
+              fontSize: "13px", fontWeight: "700",
+              border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: "6px",
+              boxShadow: "0 2px 8px rgba(79,70,229,.35)",
+              flexShrink: 0,
+            }}
+          >
+            🚀 레슨 생성 시작
+          </button>
+        </div>
+      )}
 
-        {/* Input box */}
+      {/* ── Input area ── */}
+      <div style={{ padding: "10px 16px 12px", background: "var(--color-surface)", borderTop: "1px solid var(--color-border)" }}>
         <div style={{
           display: "flex", alignItems: "flex-end", gap: "8px",
           background: "var(--color-bg)", border: "1.5px solid var(--color-border-strong)",
           borderRadius: "10px", padding: "8px 10px",
           transition: "border-color .15s",
         }}
-          onFocus={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-primary)"; }}
-          onBlur={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border-strong)"; }}
+          onFocusCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-primary)"; }}
+          onBlurCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border-strong)"; }}
         >
           <textarea
             ref={textareaRef}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="레슨 요청을 입력하세요 — @ 입력으로 에이전트 지정"
+            placeholder={isBusy ? "잠시 기다려 주세요..." : "레슨 계획에 대해 이야기해 보세요"}
             rows={1}
-            disabled={isRunning}
+            disabled={isBusy}
             style={{
               flex: 1, resize: "none", border: "none", background: "transparent",
               fontSize: "13px", color: "var(--color-text)", outline: "none",
               fontFamily: "inherit", lineHeight: "1.5", minHeight: "20px", maxHeight: "120px",
             }}
           />
-          <div style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0 }}>
-            {/* Attach button */}
-            <button style={{ width: "28px", height: "28px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer" }}
-              title="파일 첨부">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7L7 12a3.5 3.5 0 01-5-5l5.5-5.5a2 2 0 012.8 2.8L5 9.5a.7.7 0 01-1-1L9.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/></svg>
-            </button>
-            {/* Send button */}
-            <button
-              onClick={send}
-              disabled={!input.trim() || isRunning}
-              style={{
-                width: "32px", height: "32px", borderRadius: "7px",
-                background: !input.trim() || isRunning ? "var(--color-border-strong)" : "var(--color-primary)",
-                color: !input.trim() || isRunning ? "var(--color-text-subtle)" : "#fff",
-                border: "none", cursor: !input.trim() || isRunning ? "not-allowed" : "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", transition: ".15s",
-              }}
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 12L6.5 1 12 12M3 9h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-            </button>
-          </div>
+          <button
+            onClick={send}
+            disabled={!input.trim() || isBusy}
+            style={{
+              width: "32px", height: "32px", borderRadius: "7px",
+              background: !input.trim() || isBusy ? "var(--color-border-strong)" : "var(--color-primary)",
+              color: !input.trim() || isBusy ? "var(--color-text-subtle)" : "#fff",
+              border: "none", cursor: !input.trim() || isBusy ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", transition: ".15s",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 12L6.5 1 12 12M3 9h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
         </div>
 
-        {/* Hint row */}
         <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", marginTop: "6px", paddingLeft: "2px" }}>
-          <strong style={{ color: "var(--color-primary)" }}>@all</strong> 전체 파이프라인 &nbsp;·&nbsp;
-          <strong style={{ color: "var(--color-primary)" }}>@passage_generation</strong> 지문만 &nbsp;·&nbsp;
+          AI와 대화로 레슨을 기획하세요 &nbsp;·&nbsp;
           <kbd style={{ background: "var(--color-border)", padding: "1px 5px", borderRadius: "3px", fontSize: "10px" }}>⏎</kbd> 전송 &nbsp;
           <kbd style={{ background: "var(--color-border)", padding: "1px 5px", borderRadius: "3px", fontSize: "10px" }}>Shift+⏎</kbd> 줄바꿈
         </div>
       </div>
 
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin   { to { transform: rotate(360deg); } }
+        @keyframes blink  { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+        @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
       `}</style>
     </div>
   );

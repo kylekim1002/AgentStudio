@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { AgentName, AgentStatus } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 
 interface PipelinePanelProps {
   agentStates: Map<AgentName, AgentStatus>;
-  onRunAll: () => void;
+  onRunAll: (userInput: string) => void;
   isRunning: boolean;
 }
 
@@ -27,6 +28,7 @@ const STATUS_ICON: Record<AgentStatus, string> = {
 };
 
 export default function PipelinePanel({ agentStates, onRunAll, isRunning }: PipelinePanelProps) {
+  const [userInput, setUserInput] = useState("");
   // Sequential agents (before parallel block) and after
   const seqBefore  = PIPELINE_ORDER.filter((a) => {
     const idx = PIPELINE_ORDER.indexOf(a);
@@ -82,30 +84,60 @@ export default function PipelinePanel({ agentStates, onRunAll, isRunning }: Pipe
 
       {/* Header */}
       <div style={{
-        padding: "12px 20px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
-        display: "flex", alignItems: "center", gap: "16px",
+        padding: "12px 20px 14px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
+        display: "flex", flexDirection: "column", gap: "10px",
       }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-text)" }}>파이프라인 실행 현황</div>
-          <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginTop: "2px" }}>
-            노드를 클릭하면 에이전트 상세 설정을 확인할 수 있습니다
-          </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-text)" }}>파이프라인 실행</div>
+          <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>노드를 클릭해 에이전트 상세 설정 확인</div>
         </div>
-        <button
-          onClick={onRunAll}
-          disabled={isRunning}
-          style={{
-            display: "flex", alignItems: "center", gap: "6px",
-            padding: "7px 16px", borderRadius: "7px",
-            background: isRunning ? "var(--color-border-strong)" : "var(--color-primary)",
-            color: isRunning ? "var(--color-text-muted)" : "#fff",
-            fontSize: "12px", fontWeight: "600",
-            border: "none", cursor: isRunning ? "not-allowed" : "pointer",
+
+        {/* User input */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+          <div style={{
+            flex: 1, display: "flex", alignItems: "flex-end",
+            background: "var(--color-bg)", border: "1.5px solid var(--color-border-strong)",
+            borderRadius: "8px", padding: "7px 10px",
+            transition: "border-color .15s",
           }}
-        >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l8 4-8 4V1.5z" fill="currentColor"/></svg>
-          {isRunning ? "실행 중..." : "실행"}
-        </button>
+            onFocusCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-primary)"; }}
+            onBlurCapture={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border-strong)"; }}
+          >
+            <textarea
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (userInput.trim() && !isRunning) onRunAll(userInput.trim());
+                }
+              }}
+              placeholder="예: 초등 5학년 intermediate 환경 보호 주제로 레슨 만들어줘"
+              rows={1}
+              disabled={isRunning}
+              style={{
+                flex: 1, resize: "none", border: "none", background: "transparent",
+                fontSize: "12px", color: "var(--color-text)", outline: "none",
+                fontFamily: "inherit", lineHeight: "1.5",
+              }}
+            />
+          </div>
+          <button
+            onClick={() => { if (userInput.trim()) onRunAll(userInput.trim()); }}
+            disabled={!userInput.trim() || isRunning}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "8px 16px", borderRadius: "7px", flexShrink: 0,
+              background: !userInput.trim() || isRunning ? "var(--color-border-strong)" : "var(--color-primary)",
+              color: !userInput.trim() || isRunning ? "var(--color-text-muted)" : "#fff",
+              fontSize: "12px", fontWeight: "600",
+              border: "none", cursor: !userInput.trim() || isRunning ? "not-allowed" : "pointer",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l8 4-8 4V1.5z" fill="currentColor"/></svg>
+            {isRunning ? "실행 중..." : "실행"}
+          </button>
+        </div>
       </div>
 
       {/* Flow diagram */}

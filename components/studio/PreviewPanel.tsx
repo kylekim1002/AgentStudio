@@ -7,11 +7,12 @@ import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
 interface PreviewPanelProps {
   lessonPackage: LessonPackage | null;
   onClose?: () => void;
+  onSave?: () => void;
 }
 
 type Layout = "simple" | "advanced";
 
-export default function PreviewPanel({ lessonPackage, onClose }: PreviewPanelProps) {
+export default function PreviewPanel({ lessonPackage, onClose, onSave }: PreviewPanelProps) {
   const [layout, setLayout] = useState<Layout>("simple");
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["passage"]));
   const [exporting, setExporting] = useState<string | null>(null);
@@ -75,6 +76,34 @@ export default function PreviewPanel({ lessonPackage, onClose }: PreviewPanelPro
           )}
         </div>
       </div>
+
+      {/* Save banner — shown when lesson is ready */}
+      {lessonPackage && onSave && (
+        <div style={{
+          padding: "8px 12px",
+          background: "linear-gradient(135deg, #EFF6FF, #F0FDF4)",
+          borderBottom: "1px solid var(--color-border)",
+          display: "flex", alignItems: "center", gap: "8px",
+          flexShrink: 0,
+        }}>
+          <div style={{ flex: 1, fontSize: "11px", color: "var(--color-text-muted)", lineHeight: "1.4" }}>
+            레슨이 생성되었습니다
+          </div>
+          <button
+            onClick={onSave}
+            style={{
+              padding: "6px 12px", borderRadius: "6px",
+              background: "var(--color-primary)", color: "#fff",
+              fontSize: "11px", fontWeight: "700",
+              border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: "5px",
+              flexShrink: 0,
+            }}
+          >
+            💾 학습자료소에 저장
+          </button>
+        </div>
+      )}
 
       {/* Content */}
       {!lessonPackage ? (
