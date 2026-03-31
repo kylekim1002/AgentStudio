@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { LessonForm } from "@/components/LessonForm";
 import { PipelineProgress } from "@/components/PipelineProgress";
 import { LessonViewer } from "@/components/LessonViewer";
@@ -20,9 +21,19 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="text-xl font-bold text-gray-900">CYJ Jr Agent Studio</h1>
-        <p className="text-sm text-gray-500 mt-0.5">AI 에이전트 기반 영어 레슨 패키지 자동 생성</p>
+      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">CYJ Jr Agent Studio</h1>
+          <p className="text-sm text-gray-500 mt-0.5">AI 에이전트 기반 영어 레슨 패키지 자동 생성</p>
+        </div>
+        <nav className="flex items-center gap-3">
+          <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            레슨 히스토리
+          </Link>
+          <Link href="/auth/login" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            로그인
+          </Link>
+        </nav>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">

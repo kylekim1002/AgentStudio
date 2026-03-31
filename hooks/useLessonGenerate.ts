@@ -80,7 +80,16 @@ export function useLessonGenerate() {
 
         if (!res.ok || !res.body) {
           const text = await res.text();
-          throw new Error(text || "Request failed");
+          let message = text || "Request failed";
+          try {
+            const json = JSON.parse(text);
+            if (json?.error?.type === "overloaded_error") {
+              message = "Claude API가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해 주세요.";
+            } else if (json?.error?.message) {
+              message = json.error.message;
+            }
+          } catch {}
+          throw new Error(message);
         }
 
         const reader = res.body.getReader();
@@ -125,10 +134,14 @@ export function useLessonGenerate() {
                 lessonPackage: event.package as LessonPackage,
               }));
             } else if (event.type === "error") {
+              let errorMsg = event.error as string;
+              if (errorMsg?.includes("overloaded_error") || errorMsg?.includes("Overloaded")) {
+                errorMsg = "Claude API가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해 주세요.";
+              }
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
-                error: event.error as string,
+                error: errorMsg,
               }));
             }
           }
