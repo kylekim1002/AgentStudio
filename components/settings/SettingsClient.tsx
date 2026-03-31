@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AgentName, AIProvider } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 
@@ -43,6 +43,46 @@ export default function SettingsClient() {
   const [warnMinutes, setWarnMinutes]     = useState(5);
   const [blockOnLimit, setBlockOnLimit]   = useState(true);
 
+  // Save state
+  const [saving, setSaving]   = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Load settings on mount
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then(({ settings }) => {
+        if (!settings) return;
+        if (settings.useClaudeCode   !== undefined) setUseClaudeCode(settings.useClaudeCode);
+        if (settings.defaultProvider !== undefined) setDefaultProvider(settings.defaultProvider);
+        if (settings.agentProviders  !== undefined) setAgentProviders({ ...initAgentProviders(), ...settings.agentProviders });
+        if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit);
+        if (settings.warnMinutes     !== undefined) setWarnMinutes(settings.warnMinutes);
+        if (settings.blockOnLimit    !== undefined) setBlockOnLimit(settings.blockOnLimit);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ useClaudeCode, defaultProvider, agentProviders, tokenLimit, warnMinutes, blockOnLimit }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "저장 실패");
+      setSaveMsg({ ok: true, text: "저장되었습니다." });
+    } catch (e) {
+      setSaveMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 3000);
+    }
+  }
+
   // Folder/project state (placeholder)
   const [folders] = useState([
     { id: "1", name: "2026년 초등부", code: "E26", count: 12 },
@@ -73,6 +113,31 @@ export default function SettingsClient() {
           </button>
         ))}
       </aside>
+    );
+  }
+
+  function SaveFooter() {
+    return (
+      <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "12px" }}>
+        {saveMsg && (
+          <span style={{ fontSize: "12px", color: saveMsg.ok ? "#059669" : "#DC2626", fontWeight: "500" }}>
+            {saveMsg.ok ? "✓ " : "✕ "}{saveMsg.text}
+          </span>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            padding: "8px 20px", borderRadius: "7px",
+            background: saving ? "var(--color-border-strong)" : "var(--color-primary)",
+            color: saving ? "var(--color-text-muted)" : "#fff",
+            border: "none", fontSize: "13px", fontWeight: "600",
+            cursor: saving ? "not-allowed" : "pointer",
+          }}
+        >
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
     );
   }
 
@@ -153,9 +218,7 @@ export default function SettingsClient() {
               ))}
             </div>
 
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end" }}>
-              <SaveBtn />
-            </div>
+            <SaveFooter />
           </div>
         )}
 
@@ -228,7 +291,26 @@ export default function SettingsClient() {
               >
                 전체 초기화
               </button>
-              <SaveBtn />
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                {saveMsg && (
+                  <span style={{ fontSize: "12px", color: saveMsg.ok ? "#059669" : "#DC2626", fontWeight: "500" }}>
+                    {saveMsg.ok ? "✓ " : "✕ "}{saveMsg.text}
+                  </span>
+                )}
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{
+                    padding: "8px 20px", borderRadius: "7px",
+                    background: saving ? "var(--color-border-strong)" : "var(--color-primary)",
+                    color: saving ? "var(--color-text-muted)" : "#fff",
+                    border: "none", fontSize: "13px", fontWeight: "600",
+                    cursor: saving ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "저장 중..." : "저장"}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -283,9 +365,7 @@ export default function SettingsClient() {
               <UsageBar label="Gemini" used={5200}  total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
             </Card>
 
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end" }}>
-              <SaveBtn />
-            </div>
+            <SaveFooter />
           </div>
         )}
 
@@ -379,9 +459,7 @@ export default function SettingsClient() {
               ))}
             </Card>
 
-            <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end" }}>
-              <SaveBtn />
-            </div>
+            <SaveFooter />
           </div>
         )}
 
@@ -439,13 +517,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
-function SaveBtn() {
-  return (
-    <button style={{ padding: "8px 20px", borderRadius: "7px", background: "var(--color-primary)", color: "#fff", border: "none", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>
-      저장
-    </button>
-  );
-}
+// SaveBtn은 SettingsClient 안에서 클로저로 접근하므로 외부 컴포넌트 아님
 
 function UsageBar({ label, used, total, color, style: s }: { label: string; used: number; total: number; color: string; style?: React.CSSProperties }) {
   const pct = Math.min((used / total) * 100, 100);
