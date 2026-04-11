@@ -135,7 +135,14 @@ export default function LibraryClient({
   const [pendingLessonId, setPendingLessonId] = useState<string | null>(initialLessonId);
   const [activePanel, setActivePanel] = useState<"comments" | "activities" | null>(initialPanel);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+
+  // Refs to break callback dependency cycles (lessons → loadLessonDetail → loadLessons → setLessons → ...)
+  const lessonsRef = useRef<LessonSummary[]>([]);
+  const selectedLessonRef = useRef<LessonSummary | null>(null);
+  useEffect(() => { lessonsRef.current = lessons; }, [lessons]);
+  useEffect(() => { selectedLessonRef.current = selectedLesson; }, [selectedLesson]);
 
   // ── Load projects ──────────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -153,8 +160,8 @@ export default function LibraryClient({
     const data = await res.json();
     const nextSummary =
       lessonSummary ??
-      lessons.find((item) => item.id === lessonId) ??
-      selectedLesson;
+      lessonsRef.current.find((item) => item.id === lessonId) ??
+      selectedLessonRef.current;
 
     if (nextSummary) {
       setSelectedLesson(nextSummary);
@@ -171,7 +178,10 @@ export default function LibraryClient({
     });
     setComments(data.comments ?? []);
     setActivities(data.activities ?? []);
-  }, [lessons, selectedLesson]);
+  }, []); // No deps — uses refs to avoid identity churn
+
+  const loadLessonDetailRef = useRef(loadLessonDetail);
+  useEffect(() => { loadLessonDetailRef.current = loadLessonDetail; }, [loadLessonDetail]);
 
   const loadLessons = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -180,36 +190,50 @@ export default function LibraryClient({
     } else {
       setLoading(true);
     }
-    const params = new URLSearchParams();
-    if (selectedProject) params.set("project_id", selectedProject);
-    if (search)          params.set("search", search);
-    if (favOnly)         params.set("favorite", "true");
-    if (canManageReview) params.set("scope", scope);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (reassignedFilter !== "all") params.set("reassigned", reassignedFilter);
+    try {
+      const params = new URLSearchParams();
+      if (selectedProject) params.set("project_id", selectedProject);
+      if (search)          params.set("search", search);
+      if (favOnly)         params.set("favorite", "true");
+      if (canManageReview) params.set("scope", scope);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (reassignedFilter !== "all") params.set("reassigned", reassignedFilter);
 
-    const res = await fetch(`/api/lessons?${params}`);
-    if (res.ok) {
+      const res = await fetch(`/api/lessons?${params}`);
+      if (!res.ok) {
+        let message = `레슨 목록을 불러오지 못했습니다 (HTTP ${res.status})`;
+        try {
+          const errJson = await res.json();
+          if (errJson?.error) message = errJson.error;
+        } catch {}
+        console.error("[Library] loadLessons failed:", res.status, message);
+        if (isMountedRef.current) setLoadError(message);
+        return;
+      }
       const { lessons: nextLessons } = await res.json();
       if (!isMountedRef.current) return;
       const lessonRows = nextLessons ?? [];
       setLessons(lessonRows);
       setLastUpdatedAt(new Date().toISOString());
+      setLoadError(null);
 
-      if (selectedLesson) {
-        const refreshedSelectedLesson = lessonRows.find((lesson: LessonSummary) => lesson.id === selectedLesson.id) ?? null;
-        if (refreshedSelectedLesson) {
-          void loadLessonDetail(refreshedSelectedLesson.id, refreshedSelectedLesson);
-        }
+      const currentSelected = selectedLessonRef.current;
+      if (currentSelected) {
+        const refreshed = lessonRows.find((l: LessonSummary) => l.id === currentSelected.id) ?? null;
+        if (refreshed) void loadLessonDetailRef.current(refreshed.id, refreshed);
+      }
+    } catch (err) {
+      console.error("[Library] loadLessons error:", err);
+      if (isMountedRef.current) {
+        setLoadError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다");
+      }
+    } finally {
+      if (isMountedRef.current) {
+        if (silent) setRefreshing(false);
+        else setLoading(false);
       }
     }
-    if (!isMountedRef.current) return;
-    if (silent) {
-      setRefreshing(false);
-    } else {
-      setLoading(false);
-    }
-  }, [selectedProject, search, favOnly, scope, canManageReview, statusFilter, reassignedFilter, selectedLesson, loadLessonDetail]);
+  }, [selectedProject, search, favOnly, scope, canManageReview, statusFilter, reassignedFilter]);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
   useEffect(() => { void loadLessons(); }, [loadLessons]);
@@ -967,6 +991,18 @@ export default function LibraryClient({
           {loading ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "200px", color: "var(--color-text-muted)", fontSize: "13px" }}>
               불러오는 중...
+            </div>
+          ) : loadError ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "10px", padding: "0 20px" }}>
+              <div style={{ fontSize: "28px", opacity: .5 }}>⚠️</div>
+              <div style={{ fontSize: "13px", color: "#B91C1C", fontWeight: "600", textAlign: "center" }}>레슨을 불러오지 못했습니다</div>
+              <div style={{ fontSize: "11px", color: "var(--color-text-muted)", textAlign: "center", maxWidth: "320px", lineHeight: "1.5" }}>{loadError}</div>
+              <button
+                onClick={() => { setLoadError(null); void loadLessons(); }}
+                style={{ marginTop: "4px", padding: "6px 14px", borderRadius: "6px", background: "var(--color-primary)", color: "#fff", border: "none", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+              >
+                다시 시도
+              </button>
             </div>
           ) : filteredLessons.length === 0 ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "10px", color: "var(--color-text-muted)" }}>
