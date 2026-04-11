@@ -186,12 +186,27 @@ export interface LessonWorkflowState {
   publisher?: PublisherOutput;
 }
 
+export interface ContentCounts {
+  reading?: number;           // default 5 — 독해 문항 수
+  vocabulary?: number;        // default 8 — 어휘 단어 수
+  assessment?: number;        // default 10 — 평가 문항 수
+  grammarExercises?: number;  // default 8 — 문법 연습 문제 총 개수
+}
+
+export const DEFAULT_CONTENT_COUNTS: Required<ContentCounts> = {
+  reading: 5,
+  vocabulary: 8,
+  assessment: 10,
+  grammarExercises: 8,
+};
+
 export interface LessonRequest {
   userInput: string;
   provider: AIProvider;
   difficulty?: DifficultyLevel;
   providedPassage?: string;
   approvalMode?: "auto" | "require_review";
+  contentCounts?: ContentCounts;
 }
 
 export interface LessonPackage {

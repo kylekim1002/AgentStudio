@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { AgentName, AIProvider, DifficultyLevel, LessonPackage, AgentStatus } from "@/lib/agents/types";
+import { AgentName, AIProvider, ContentCounts, DifficultyLevel, LessonPackage, AgentStatus } from "@/lib/agents/types";
 
 export interface AgentProgressState {
   agent: AgentName;
@@ -60,6 +60,7 @@ export function useLessonGenerate() {
       difficulty?: DifficultyLevel;
       providedPassage?: string;
       approvalMode?: "auto" | "require_review";
+      contentCounts?: ContentCounts;
     }) => {
       abortRef.current?.abort();
       const controller = new AbortController();

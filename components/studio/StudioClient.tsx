@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { AIProvider } from "@/lib/agents/types";
+import { AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import AgentPanel from "./AgentPanel";
@@ -38,6 +38,8 @@ export default function StudioClient({
   const [approvalMode, setApprovalMode] = useState<"auto" | "require_review">("auto");
   const [showSave, setShowSave] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const [showCounts, setShowCounts] = useState(false);
+  const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
 
   const { isRunning, agentStates, lessonPackage, error, generate, reset } = useLessonGenerate();
   const prevPackage = useRef<typeof lessonPackage>(null);
@@ -57,6 +59,7 @@ export default function StudioClient({
       userInput: chatSummary || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      contentCounts,
     });
   }
 
@@ -65,6 +68,7 @@ export default function StudioClient({
       userInput: userInput || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      contentCounts,
     });
   }
 
@@ -231,6 +235,119 @@ export default function StudioClient({
         </button>
           </>
         )}
+
+        {/* 문항 수 설정 */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowCounts((v) => !v)}
+            disabled={isRunning}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "5px 10px", borderRadius: "6px",
+              border: `1px solid ${showCounts ? "var(--color-primary)" : "var(--color-border)"}`,
+              background: showCounts ? "var(--color-primary-light)" : "var(--color-surface)",
+              color: showCounts ? "var(--color-primary)" : "var(--color-text-muted)",
+              fontSize: "12px", fontWeight: "500",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.5 : 1,
+              transition: ".15s",
+            }}
+            title="각 영역별 문항 수를 조정합니다"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 2h8M2 6h8M2 10h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            문항수 {contentCounts.reading}·{contentCounts.vocabulary}·{contentCounts.assessment}·{contentCounts.grammarExercises}
+          </button>
+
+          {showCounts && (
+            <>
+              {/* Click-outside backdrop */}
+              <div
+                onClick={() => setShowCounts(false)}
+                style={{ position: "fixed", inset: 0, zIndex: 40 }}
+              />
+              {/* Popover */}
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0,
+                minWidth: "260px", padding: "12px 14px",
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "9px",
+                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+                zIndex: 50,
+              }}>
+                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px", letterSpacing: ".3px", textTransform: "uppercase" }}>
+                  영역별 문항 수
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "10px", lineHeight: "1.4" }}>
+                  생성 시작 전에 각 영역의 문항 수를 지정할 수 있습니다
+                </div>
+
+                {([
+                  { key: "reading" as const,          label: "독해 문항",    hint: "ex. 5",  min: 1,  max: 30 },
+                  { key: "vocabulary" as const,       label: "어휘 단어",    hint: "ex. 8",  min: 1,  max: 30 },
+                  { key: "assessment" as const,       label: "평가 문항",    hint: "ex. 10", min: 1,  max: 30 },
+                  { key: "grammarExercises" as const, label: "문법 연습",    hint: "ex. 8",  min: 2,  max: 20 },
+                ]).map((row) => (
+                  <div key={row.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "12px", color: "var(--color-text)", fontWeight: "500" }}>{row.label}</div>
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>기본 {DEFAULT_CONTENT_COUNTS[row.key]}</div>
+                    </div>
+                    <input
+                      type="number"
+                      min={row.min}
+                      max={row.max}
+                      value={contentCounts[row.key]}
+                      onChange={(e) => {
+                        const raw = Number(e.target.value);
+                        if (!Number.isFinite(raw)) return;
+                        const clamped = Math.min(Math.max(Math.floor(raw), row.min), row.max);
+                        setContentCounts((prev) => ({ ...prev, [row.key]: clamped }));
+                      }}
+                      style={{
+                        width: "58px", padding: "5px 8px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--color-border-strong)",
+                        fontSize: "12px", textAlign: "center",
+                        color: "var(--color-text)",
+                        background: "var(--color-bg)",
+                        outline: "none", fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                ))}
+
+                <div style={{ display: "flex", gap: "6px", marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--color-border)" }}>
+                  <button
+                    onClick={() => setContentCounts({ ...DEFAULT_CONTENT_COUNTS })}
+                    style={{
+                      flex: 1, padding: "6px 10px", borderRadius: "6px",
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-surface)",
+                      color: "var(--color-text-muted)",
+                      fontSize: "11px", fontWeight: "500", cursor: "pointer",
+                    }}
+                  >
+                    기본값
+                  </button>
+                  <button
+                    onClick={() => setShowCounts(false)}
+                    style={{
+                      flex: 1, padding: "6px 10px", borderRadius: "6px",
+                      border: "none",
+                      background: "var(--color-primary)", color: "#fff",
+                      fontSize: "11px", fontWeight: "600", cursor: "pointer",
+                    }}
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Toolbar right */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "7px" }}>

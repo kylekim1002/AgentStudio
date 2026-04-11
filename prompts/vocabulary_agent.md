@@ -13,7 +13,7 @@ Select key vocabulary words from the locked passage and create learning material
 ```
 
 ## Rules
-- Select exactly 8 words from the passage
+- Select exactly `input.targetCount` words from the passage (default: 8 if not provided)
 - Choose words that are likely unfamiliar to students at the target level
 - Avoid proper nouns and overly technical jargon unless essential to the topic
 - Definition must be written in simple English at or below the passage difficulty level

@@ -5,6 +5,7 @@ import { AIProvider } from "@/lib/workflows/core/types";
 import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 import {
+  ContentCounts,
   DifficultyLevel,
   LessonRequest,
 } from "@/lib/workflows/lesson/types";
@@ -42,12 +43,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { userInput, provider, difficulty, providedPassage } = body as {
+  const { userInput, provider, difficulty, providedPassage, contentCounts } = body as {
     userInput?: string;
     provider?: string;
     difficulty?: string;
     providedPassage?: string;
     approvalMode?: "auto" | "require_review";
+    contentCounts?: ContentCounts;
   };
 
   if (!userInput || typeof userInput !== "string") {
@@ -57,6 +59,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Sanitize contentCounts — clamp to safe ranges (1..30)
+  const clamp = (n: unknown, min: number, max: number, fallback: number) => {
+    const num = typeof n === "number" ? n : Number(n);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.min(Math.max(Math.floor(num), min), max);
+  };
+  const safeCounts: ContentCounts | undefined = contentCounts
+    ? {
+        reading: contentCounts.reading !== undefined ? clamp(contentCounts.reading, 1, 30, 5) : undefined,
+        vocabulary: contentCounts.vocabulary !== undefined ? clamp(contentCounts.vocabulary, 1, 30, 8) : undefined,
+        assessment: contentCounts.assessment !== undefined ? clamp(contentCounts.assessment, 1, 30, 10) : undefined,
+        grammarExercises: contentCounts.grammarExercises !== undefined ? clamp(contentCounts.grammarExercises, 2, 20, 8) : undefined,
+      }
+    : undefined;
+
   const lessonRequest: LessonRequest = {
     userInput,
     provider: access.features.includes("studio.provider_select")
@@ -64,6 +81,7 @@ export async function POST(req: NextRequest) {
       : AIProvider.CLAUDE,
     difficulty: difficulty as DifficultyLevel | undefined,
     providedPassage,
+    contentCounts: safeCounts,
     approvalMode: access.features.includes("studio.approval_toggle")
       ? (body && typeof body === "object"
         ? (body as { approvalMode?: "auto" | "require_review" }).approvalMode

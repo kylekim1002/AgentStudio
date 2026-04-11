@@ -7,6 +7,7 @@ import {
   AgentName,
   ApprovedPassageLockOutput,
   AssessmentOutput,
+  DEFAULT_CONTENT_COUNTS,
   LessonPackage,
   LessonRequest,
   LessonWorkflowState,
@@ -161,12 +162,19 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       teachingFrame: state.teachingFrame,
     };
 
+    const counts = {
+      reading: request.contentCounts?.reading ?? DEFAULT_CONTENT_COUNTS.reading,
+      vocabulary: request.contentCounts?.vocabulary ?? DEFAULT_CONTENT_COUNTS.vocabulary,
+      assessment: request.contentCounts?.assessment ?? DEFAULT_CONTENT_COUNTS.assessment,
+      grammarExercises: request.contentCounts?.grammarExercises ?? DEFAULT_CONTENT_COUNTS.grammarExercises,
+    };
+
     const [reading, vocabulary, grammar, writing, assessment] = await Promise.all([
-      runLessonAgent<ReadingOutput>(AgentName.READING, request.provider, lockedContext),
-      runLessonAgent<VocabularyOutput>(AgentName.VOCABULARY, request.provider, lockedContext),
-      runLessonAgent<GrammarOutput>(AgentName.GRAMMAR, request.provider, lockedContext),
+      runLessonAgent<ReadingOutput>(AgentName.READING, request.provider, { ...lockedContext, targetCount: counts.reading }),
+      runLessonAgent<VocabularyOutput>(AgentName.VOCABULARY, request.provider, { ...lockedContext, targetCount: counts.vocabulary }),
+      runLessonAgent<GrammarOutput>(AgentName.GRAMMAR, request.provider, { ...lockedContext, targetCount: counts.grammarExercises }),
       runLessonAgent<WritingOutput>(AgentName.WRITING, request.provider, lockedContext),
-      runLessonAgent<AssessmentOutput>(AgentName.ASSESSMENT, request.provider, lockedContext),
+      runLessonAgent<AssessmentOutput>(AgentName.ASSESSMENT, request.provider, { ...lockedContext, targetCount: counts.assessment }),
     ]);
 
     state.reading = reading;

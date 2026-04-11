@@ -13,8 +13,8 @@ Generate reading comprehension questions based on the locked passage.
 ```
 
 ## Rules
-- Generate exactly 5 questions
-- Mix question types: at least 2 comprehension, 1 inference, 1 vocabulary-in-context
+- Generate exactly `input.targetCount` questions (default: 5 if not provided)
+- Mix question types proportionally: roughly 40% comprehension, 20% inference, 20% vocabulary-in-context, 20% flexible. Ensure at least one of each type when targetCount ≥ 4.
 - Each question must have 4 answer options (A, B, C, D)
 - Correct answer must be unambiguously supported by the passage text
 - Difficulty of questions must match difficultyLock.difficulty

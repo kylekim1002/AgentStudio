@@ -17,9 +17,10 @@ Create a focused grammar mini-lesson based on a grammar point found in the locke
 - Grammar focus must be appropriate for difficultyLock.difficulty
 - Explanation must be clear and use simple metalanguage appropriate for gradeLevel
 - Provide 3 examples extracted or adapted from the passage
-- Create 2 practice exercises:
-  - Exercise 1: fill-in-the-blank (5 items)
-  - Exercise 2: sentence transformation (3 items)
+- Create 2 practice exercises with a total of `input.targetCount` items (default: 8 if not provided)
+  - Exercise 1: fill-in-the-blank — roughly 60% of the items (rounded)
+  - Exercise 2: sentence transformation — remaining items
+  - Minimum 1 item per exercise regardless of rounding
 - Include answer keys for both exercises
 - Output ONLY valid JSON — no markdown, no explanation, no code fences
 
