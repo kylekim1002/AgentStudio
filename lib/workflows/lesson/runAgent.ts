@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
-import { AIProvider, AgentName } from "./types";
+import { AIProvider, AgentName, ApiKeys } from "./types";
 
 let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
@@ -30,6 +30,18 @@ function getGemini(): GoogleGenerativeAI {
   return gemini;
 }
 
+export function getApiKeyStatus(): {
+  anthropic: boolean;
+  openai: boolean;
+  google: boolean;
+} {
+  return {
+    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+    openai: Boolean(process.env.OPENAI_API_KEY),
+    google: Boolean(process.env.GOOGLE_API_KEY),
+  };
+}
+
 function loadSystemPrompt(agentName: AgentName): string {
   const promptPath = path.join(process.cwd(), "prompts", `${agentName}.md`);
   if (fs.existsSync(promptPath)) {
@@ -46,8 +58,13 @@ function extractJSON(raw: string): unknown {
   return JSON.parse(stripped);
 }
 
-async function callClaude(systemPrompt: string, userMessage: string): Promise<string> {
-  const response = await getAnthropic().messages.create({
+async function callClaude(
+  systemPrompt: string,
+  userMessage: string,
+  apiKey?: string
+): Promise<string> {
+  const client = apiKey ? new Anthropic({ apiKey }) : getAnthropic();
+  const response = await client.messages.create({
     model: "claude-opus-4-6",
     max_tokens: 4096,
     system: systemPrompt,
@@ -60,8 +77,13 @@ async function callClaude(systemPrompt: string, userMessage: string): Promise<st
   return block.text;
 }
 
-async function callGPT(systemPrompt: string, userMessage: string): Promise<string> {
-  const response = await getOpenAI().chat.completions.create({
+async function callGPT(
+  systemPrompt: string,
+  userMessage: string,
+  apiKey?: string
+): Promise<string> {
+  const client = apiKey ? new OpenAI({ apiKey }) : getOpenAI();
+  const response = await client.chat.completions.create({
     model: "gpt-4o",
     messages: [
       { role: "system", content: systemPrompt },
@@ -72,8 +94,13 @@ async function callGPT(systemPrompt: string, userMessage: string): Promise<strin
   return response.choices[0].message.content ?? "{}";
 }
 
-async function callGemini(systemPrompt: string, userMessage: string): Promise<string> {
-  const model = getGemini().getGenerativeModel({
+async function callGemini(
+  systemPrompt: string,
+  userMessage: string,
+  apiKey?: string
+): Promise<string> {
+  const client = apiKey ? new GoogleGenerativeAI(apiKey) : getGemini();
+  const model = client.getGenerativeModel({
     model: "gemini-1.5-pro",
     systemInstruction: systemPrompt,
   });
@@ -84,7 +111,8 @@ async function callGemini(systemPrompt: string, userMessage: string): Promise<st
 export async function runLessonAgent<T = unknown>(
   agentName: AgentName,
   provider: AIProvider,
-  input: unknown
+  input: unknown,
+  apiKeys?: ApiKeys
 ): Promise<T> {
   const systemPrompt = loadSystemPrompt(agentName);
   const userMessage = JSON.stringify(input, null, 2);
@@ -93,13 +121,13 @@ export async function runLessonAgent<T = unknown>(
 
   switch (provider) {
     case AIProvider.CLAUDE:
-      rawOutput = await callClaude(systemPrompt, userMessage);
+      rawOutput = await callClaude(systemPrompt, userMessage, apiKeys?.anthropic);
       break;
     case AIProvider.GPT:
-      rawOutput = await callGPT(systemPrompt, userMessage);
+      rawOutput = await callGPT(systemPrompt, userMessage, apiKeys?.openai);
       break;
     case AIProvider.GEMINI:
-      rawOutput = await callGemini(systemPrompt, userMessage);
+      rawOutput = await callGemini(systemPrompt, userMessage, apiKeys?.google);
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);

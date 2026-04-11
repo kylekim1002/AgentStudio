@@ -200,6 +200,12 @@ export const DEFAULT_CONTENT_COUNTS: Required<ContentCounts> = {
   grammarExercises: 8,
 };
 
+export interface ApiKeys {
+  anthropic?: string;
+  openai?: string;
+  google?: string;
+}
+
 export interface LessonRequest {
   userInput: string;
   provider: AIProvider;
@@ -207,6 +213,7 @@ export interface LessonRequest {
   providedPassage?: string;
   approvalMode?: "auto" | "require_review";
   contentCounts?: ContentCounts;
+  apiKeys?: ApiKeys;
 }
 
 export interface LessonPackage {

@@ -56,15 +56,18 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
   async run(request, runtime) {
     const state: LessonWorkflowState = {};
 
+    const callAgent = <T>(name: AgentName, input: unknown): Promise<T> =>
+      runLessonAgent<T>(name, request.provider, input, request.apiKeys);
+
     state.intentRouter = await runtime.step<IntentRouterOutput>(
       AgentName.INTENT_ROUTER,
-      () => runLessonAgent(AgentName.INTENT_ROUTER, request.provider, { userInput: request.userInput })
+      () => callAgent(AgentName.INTENT_ROUTER, { userInput: request.userInput })
     );
 
     state.teachingFrame = await runtime.step<TeachingFrameOutput>(
       AgentName.TEACHING_FRAME,
       () =>
-        runLessonAgent(AgentName.TEACHING_FRAME, request.provider, {
+        callAgent(AgentName.TEACHING_FRAME, {
           intentRouter: state.intentRouter,
           userInput: request.userInput,
         })
@@ -73,7 +76,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     state.difficultyLock = await runtime.step<DifficultyLockOutput>(
       AgentName.DIFFICULTY_LOCK,
       () =>
-        runLessonAgent(AgentName.DIFFICULTY_LOCK, request.provider, {
+        callAgent(AgentName.DIFFICULTY_LOCK, {
           teachingFrame: state.teachingFrame,
           requestedDifficulty: request.difficulty,
         })
@@ -82,7 +85,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     state.sourceModeRouter = await runtime.step<SourceModeRouterOutput>(
       AgentName.SOURCE_MODE_ROUTER,
       () =>
-        runLessonAgent(AgentName.SOURCE_MODE_ROUTER, request.provider, {
+        callAgent(AgentName.SOURCE_MODE_ROUTER, {
           intentRouter: state.intentRouter,
           providedPassage: request.providedPassage,
         })
@@ -92,7 +95,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.topicSelection = await runtime.step<TopicSelectionOutput>(
         AgentName.TOPIC_SELECTION,
         () =>
-          runLessonAgent(AgentName.TOPIC_SELECTION, request.provider, {
+          callAgent(AgentName.TOPIC_SELECTION, {
             teachingFrame: state.teachingFrame,
             difficultyLock: state.difficultyLock,
             userInput: request.userInput,
@@ -106,7 +109,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.researchCuration = await runtime.step<ResearchCurationOutput>(
         AgentName.RESEARCH_CURATION,
         () =>
-          runLessonAgent(AgentName.RESEARCH_CURATION, request.provider, {
+          callAgent(AgentName.RESEARCH_CURATION, {
             topicSelection: state.topicSelection,
           })
       );
@@ -117,7 +120,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     state.passageGeneration = await runtime.step<PassageGenerationOutput>(
       AgentName.PASSAGE_GENERATION,
       () =>
-        runLessonAgent(AgentName.PASSAGE_GENERATION, request.provider, {
+        callAgent(AgentName.PASSAGE_GENERATION, {
           mode: state.sourceModeRouter?.mode,
           providedPassage: state.sourceModeRouter?.providedPassage,
           topicSelection: state.topicSelection,
@@ -130,7 +133,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     state.passageValidation = await runtime.step<PassageValidationOutput>(
       AgentName.PASSAGE_VALIDATION,
       () =>
-        runLessonAgent(AgentName.PASSAGE_VALIDATION, request.provider, {
+        callAgent(AgentName.PASSAGE_VALIDATION, {
           passage: state.passageGeneration,
           difficultyLock: state.difficultyLock,
         })
@@ -145,7 +148,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     state.approvedPassageLock = await runtime.step<ApprovedPassageLockOutput>(
       AgentName.APPROVED_PASSAGE_LOCK,
       () =>
-        runLessonAgent(AgentName.APPROVED_PASSAGE_LOCK, request.provider, {
+        callAgent(AgentName.APPROVED_PASSAGE_LOCK, {
           passageGeneration: state.passageGeneration,
         })
     );
@@ -170,11 +173,11 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     };
 
     const [reading, vocabulary, grammar, writing, assessment] = await Promise.all([
-      runLessonAgent<ReadingOutput>(AgentName.READING, request.provider, { ...lockedContext, targetCount: counts.reading }),
-      runLessonAgent<VocabularyOutput>(AgentName.VOCABULARY, request.provider, { ...lockedContext, targetCount: counts.vocabulary }),
-      runLessonAgent<GrammarOutput>(AgentName.GRAMMAR, request.provider, { ...lockedContext, targetCount: counts.grammarExercises }),
-      runLessonAgent<WritingOutput>(AgentName.WRITING, request.provider, lockedContext),
-      runLessonAgent<AssessmentOutput>(AgentName.ASSESSMENT, request.provider, { ...lockedContext, targetCount: counts.assessment }),
+      callAgent<ReadingOutput>(AgentName.READING, { ...lockedContext, targetCount: counts.reading }),
+      callAgent<VocabularyOutput>(AgentName.VOCABULARY, { ...lockedContext, targetCount: counts.vocabulary }),
+      callAgent<GrammarOutput>(AgentName.GRAMMAR, { ...lockedContext, targetCount: counts.grammarExercises }),
+      callAgent<WritingOutput>(AgentName.WRITING, lockedContext),
+      callAgent<AssessmentOutput>(AgentName.ASSESSMENT, { ...lockedContext, targetCount: counts.assessment }),
     ]);
 
     state.reading = reading;
@@ -190,7 +193,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     runtime.emit({ step: AgentName.ASSESSMENT, status: "done", output: assessment });
 
     state.qa = await runtime.step<QAOutput>(AgentName.QA, () =>
-      runLessonAgent(AgentName.QA, request.provider, {
+      callAgent(AgentName.QA, {
         passage: state.approvedPassageLock,
         reading: state.reading,
         vocabulary: state.vocabulary,
@@ -230,7 +233,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
 
     const publisherMeta = await runtime.step<PublisherMetaOutput>(
       AgentName.PUBLISHER,
-      () => runLessonAgent(AgentName.PUBLISHER, request.provider, { qa: state.qa })
+      () => callAgent(AgentName.PUBLISHER, { qa: state.qa })
     );
 
     state.publisher = {
@@ -254,7 +257,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     }
 
     await runtime.step<PublisherMetaOutput>(AgentName.PUBLISHER, () =>
-      runLessonAgent(AgentName.PUBLISHER, request.provider, { qa: resumePoint.qa })
+      runLessonAgent(AgentName.PUBLISHER, request.provider, { qa: resumePoint.qa }, request.apiKeys)
     );
     runtime.setCheckpoint(undefined);
 

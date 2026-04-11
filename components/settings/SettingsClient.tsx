@@ -75,29 +75,53 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
     needs_revision: [],
   });
 
+  // API key state
+  const [apiKeyStatus, setApiKeyStatus] = useState<{
+    anthropic?: { hasKey: boolean; maskedKey?: string };
+    openai?: { hasKey: boolean; maskedKey?: string };
+    google?: { hasKey: boolean; maskedKey?: string };
+  }>({});
+  // Input drafts — empty string means "no change" on save
+  const [anthropicKeyDraft, setAnthropicKeyDraft] = useState("");
+  const [openaiKeyDraft, setOpenaiKeyDraft] = useState("");
+  const [googleKeyDraft, setGoogleKeyDraft] = useState("");
+
   // Save state
   const [saving, setSaving]   = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Load settings on mount
   useEffect(() => {
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then(({ settings }) => {
-        if (!settings) return;
-        if (settings.defaultProvider !== undefined) setDefaultProvider(settings.defaultProvider);
-        if (settings.agentProviders  !== undefined) setAgentProviders({ ...initAgentProviders(), ...settings.agentProviders });
-        if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit);
-        if (settings.warnMinutes     !== undefined) setWarnMinutes(settings.warnMinutes);
-        if (settings.blockOnLimit    !== undefined) setBlockOnLimit(settings.blockOnLimit);
-        if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
-        if (settings.reviewAlerts    !== undefined) setReviewAlerts(settings.reviewAlerts);
-        if (settings.revisionAlerts  !== undefined) setRevisionAlerts(settings.revisionAlerts);
-        if (settings.quietStartHour  !== undefined) setQuietStartHour(settings.quietStartHour);
-        if (settings.quietEndHour    !== undefined) setQuietEndHour(settings.quietEndHour);
-      })
-      .catch(() => {});
+    refreshSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyLoadedSettings(data: { settings?: Record<string, unknown> | null; apiKeyStatus?: typeof apiKeyStatus }) {
+    const settings = data?.settings;
+    if (settings) {
+      if (settings.defaultProvider !== undefined) setDefaultProvider(settings.defaultProvider as AIProvider);
+      if (settings.agentProviders  !== undefined) setAgentProviders({ ...initAgentProviders(), ...(settings.agentProviders as Partial<AgentProviderMap>) });
+      if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit as number);
+      if (settings.warnMinutes     !== undefined) setWarnMinutes(settings.warnMinutes as number);
+      if (settings.blockOnLimit    !== undefined) setBlockOnLimit(settings.blockOnLimit as boolean);
+      if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled as boolean);
+      if (settings.reviewAlerts    !== undefined) setReviewAlerts(settings.reviewAlerts as boolean);
+      if (settings.revisionAlerts  !== undefined) setRevisionAlerts(settings.revisionAlerts as boolean);
+      if (settings.quietStartHour  !== undefined) setQuietStartHour(settings.quietStartHour as number);
+      if (settings.quietEndHour    !== undefined) setQuietEndHour(settings.quietEndHour as number);
+    }
+    if (data?.apiKeyStatus) {
+      setApiKeyStatus(data.apiKeyStatus);
+    }
+  }
+
+  async function refreshSettings() {
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json();
+      applyLoadedSettings(data);
+    } catch {}
+  }
 
   useEffect(() => {
     if (!canManageReviewTemplates) return;
@@ -154,10 +178,19 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
           revisionAlerts,
           quietStartHour,
           quietEndHour,
+          anthropicApiKey: anthropicKeyDraft || undefined,
+          openaiApiKey:    openaiKeyDraft    || undefined,
+          googleApiKey:    googleKeyDraft    || undefined,
         }),
       });
       const personalData = await personalRes.json();
       if (!personalRes.ok) throw new Error(personalData.error ?? "저장 실패");
+
+      // Clear drafts after successful save and refresh status
+      setAnthropicKeyDraft("");
+      setOpenaiKeyDraft("");
+      setGoogleKeyDraft("");
+      await refreshSettings();
 
       if (canManageReviewTemplates) {
         const templates = {
@@ -185,6 +218,27 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
       }
 
       setSaveMsg({ ok: true, text: "저장되었습니다." });
+    } catch (e) {
+      setSaveMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 3000);
+    }
+  }
+
+  async function handleDeleteApiKey(field: "anthropicApiKey" | "openaiApiKey" | "googleApiKey") {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "삭제 실패");
+      await refreshSettings();
+      setSaveMsg({ ok: true, text: "API 키가 삭제되었습니다." });
     } catch (e) {
       setSaveMsg({ ok: false, text: (e as Error).message });
     } finally {
@@ -266,46 +320,87 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
             </p>
 
             <div style={{ marginBottom: "14px", padding: "10px 12px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "7px", fontSize: "11px", color: "#1E40AF", lineHeight: "1.5" }}>
-              ℹ️ API 키는 Vercel 환경 변수(<code style={{ fontFamily: "monospace", fontSize: "11px" }}>ANTHROPIC_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>OPENAI_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>GOOGLE_API_KEY</code>)로 설정합니다. 환경 변수가 설정되지 않은 제공자는 런타임에 자동으로 비활성화됩니다.
+              ℹ️ API 키는 아래 입력란에 직접 저장하거나, Vercel 환경 변수(<code style={{ fontFamily: "monospace", fontSize: "11px" }}>ANTHROPIC_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>OPENAI_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>GOOGLE_API_KEY</code>)로 설정할 수 있습니다. 직접 저장한 키가 환경 변수보다 우선 사용됩니다.
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {[
-                { id: AIProvider.CLAUDE,  label: "Anthropic Claude", sub: "claude-opus-4-6", color: "#D97706", envKey: "ANTHROPIC_API_KEY" },
-                { id: AIProvider.GPT,     label: "OpenAI GPT",       sub: "gpt-4o",          color: "#10A37F", envKey: "OPENAI_API_KEY" },
-                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-1.5-pro",  color: "#4285F4", envKey: "GOOGLE_API_KEY" },
-              ].map((p) => (
-                <Card key={p.id}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: p.color, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
-                      {p.label[0]}
+              {([
+                { id: AIProvider.CLAUDE,  label: "Anthropic Claude", sub: "claude-opus-4-6", color: "#D97706", envKey: "ANTHROPIC_API_KEY", statusKey: "anthropic" as const, draft: anthropicKeyDraft, setDraft: setAnthropicKeyDraft, field: "anthropicApiKey" as const },
+                { id: AIProvider.GPT,     label: "OpenAI GPT",       sub: "gpt-4o",          color: "#10A37F", envKey: "OPENAI_API_KEY",    statusKey: "openai"    as const, draft: openaiKeyDraft,    setDraft: setOpenaiKeyDraft,    field: "openaiApiKey"    as const },
+                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-1.5-pro",  color: "#4285F4", envKey: "GOOGLE_API_KEY",    statusKey: "google"    as const, draft: googleKeyDraft,    setDraft: setGoogleKeyDraft,    field: "googleApiKey"    as const },
+              ]).map((p) => {
+                const status = apiKeyStatus[p.statusKey];
+                const hasKey = Boolean(status?.hasKey);
+                return (
+                  <Card key={p.id}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: p.color, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
+                        {p.label[0]}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)" }}>{p.label}</div>
+                        <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{p.sub}</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "5px", cursor: "pointer" }}>
+                          <input
+                            type="radio"
+                            name="defaultProvider"
+                            checked={defaultProvider === p.id}
+                            onChange={() => setDefaultProvider(p.id)}
+                          />
+                          <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>기본</span>
+                        </label>
+                      </div>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)" }}>{p.label}</div>
-                      <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{p.sub}</div>
+
+                    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)" }}>API 키</label>
+                        {hasKey && (
+                          <>
+                            <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "#ECFDF5", color: "#059669", fontWeight: "600" }}>
+                              ✓ 저장됨
+                            </span>
+                            <span style={{ fontSize: "10px", color: "var(--color-text-muted)", fontFamily: "monospace" }}>
+                              {status?.maskedKey}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteApiKey(p.field)}
+                              disabled={saving}
+                              style={{ marginLeft: "auto", fontSize: "10px", padding: "3px 8px", borderRadius: "4px", border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", cursor: saving ? "not-allowed" : "pointer", fontWeight: "600" }}
+                            >
+                              지우기
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <input
+                        type="password"
+                        value={p.draft}
+                        onChange={(e) => p.setDraft(e.target.value)}
+                        placeholder={hasKey ? "새 키 입력 (기존 키 유지하려면 비워두기)" : "새 키 입력"}
+                        autoComplete="off"
+                        style={{
+                          width: "100%",
+                          padding: "8px 10px",
+                          borderRadius: "6px",
+                          border: "1px solid var(--color-border-strong)",
+                          fontSize: "12px",
+                          fontFamily: "monospace",
+                          outline: "none",
+                          background: "var(--color-bg)",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                        저장된 키는 Vercel 환경 변수보다 우선 사용됩니다. 비워두면 <code style={{ fontFamily: "monospace" }}>{p.envKey}</code> 환경 변수가 사용됩니다.
+                      </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: "5px", cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name="defaultProvider"
-                          checked={defaultProvider === p.id}
-                          onChange={() => setDefaultProvider(p.id)}
-                        />
-                        <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>기본</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", color: "var(--color-text-muted)", fontFamily: "monospace", background: "var(--color-bg)", padding: "4px 8px", borderRadius: "5px", border: "1px solid var(--color-border)" }}>
-                      {p.envKey}
-                    </span>
-                    <span style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>
-                      Vercel → Settings → Environment Variables에서 설정
-                    </span>
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
             </div>
 
             <SaveFooter />

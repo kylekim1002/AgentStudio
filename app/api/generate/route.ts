@@ -52,6 +52,20 @@ export async function POST(req: NextRequest) {
     contentCounts?: ContentCounts;
   };
 
+  // Load user's saved API keys from profile settings
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("settings")
+    .eq("id", user.id)
+    .single();
+
+  const settings = (profile?.settings ?? {}) as Record<string, unknown>;
+  const apiKeys = (settings.apiKeys ?? {}) as {
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+  };
+
   if (!userInput || typeof userInput !== "string") {
     return new Response(JSON.stringify({ error: "userInput is required" }), {
       status: 400,
@@ -87,6 +101,11 @@ export async function POST(req: NextRequest) {
         ? (body as { approvalMode?: "auto" | "require_review" }).approvalMode
         : undefined)
       : "auto",
+    apiKeys: {
+      anthropic: typeof apiKeys.anthropic === "string" && apiKeys.anthropic ? apiKeys.anthropic : undefined,
+      openai:    typeof apiKeys.openai    === "string" && apiKeys.openai    ? apiKeys.openai    : undefined,
+      google:    typeof apiKeys.google    === "string" && apiKeys.google    ? apiKeys.google    : undefined,
+    },
   };
 
   const { stream } = createWorkflowEventStream({
