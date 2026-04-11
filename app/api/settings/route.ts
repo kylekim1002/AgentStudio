@@ -13,9 +13,6 @@ const PERSONAL_SETTING_KEYS = [
 ] as const;
 
 const ADVANCED_SETTING_KEYS = [
-  "useClaudeCode",
-  "useGPTSubscription",
-  "useGeminiSubscription",
   "defaultProvider",
   "agentProviders",
   "tokenLimit",

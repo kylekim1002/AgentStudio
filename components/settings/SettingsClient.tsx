@@ -48,9 +48,6 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
   const [tab, setTab] = useState<SettingsTab>(visibleTabs[0]?.key ?? "notifications");
 
   // AI provider settings
-  const [useClaudeCode, setUseClaudeCode] = useState(false);
-  const [useGPTSubscription, setUseGPTSubscription] = useState(false);
-  const [useGeminiSubscription, setUseGeminiSubscription] = useState(false);
   const [defaultProvider, setDefaultProvider] = useState<AIProvider>(AIProvider.CLAUDE);
   const [agentProviders, setAgentProviders] = useState<AgentProviderMap>(initAgentProviders);
 
@@ -88,9 +85,6 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
       .then((r) => r.json())
       .then(({ settings }) => {
         if (!settings) return;
-        if (settings.useClaudeCode        !== undefined) setUseClaudeCode(settings.useClaudeCode);
-        if (settings.useGPTSubscription   !== undefined) setUseGPTSubscription(settings.useGPTSubscription);
-        if (settings.useGeminiSubscription!== undefined) setUseGeminiSubscription(settings.useGeminiSubscription);
         if (settings.defaultProvider !== undefined) setDefaultProvider(settings.defaultProvider);
         if (settings.agentProviders  !== undefined) setAgentProviders({ ...initAgentProviders(), ...settings.agentProviders });
         if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit);
@@ -150,9 +144,6 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          useClaudeCode,
-          useGPTSubscription,
-          useGeminiSubscription,
           defaultProvider,
           agentProviders,
           tokenLimit,
@@ -274,71 +265,23 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
               레슨 생성에 사용할 AI 서비스를 설정합니다.
             </p>
 
-            {/* Subscription modes — one per provider */}
-            <Card>
-              <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)", marginBottom: "10px", letterSpacing: ".3px", textTransform: "uppercase" }}>
-                구독 모드
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "14px", lineHeight: "1.5" }}>
-                이미 구독 중인 AI 서비스가 있다면 활성화하여 사용할 수 있습니다. 활성화된 제공자는 API 키 입력을 무시합니다.
-              </div>
+            <div style={{ marginBottom: "14px", padding: "10px 12px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "7px", fontSize: "11px", color: "#1E40AF", lineHeight: "1.5" }}>
+              ℹ️ API 키는 Vercel 환경 변수(<code style={{ fontFamily: "monospace", fontSize: "11px" }}>ANTHROPIC_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>OPENAI_API_KEY</code>, <code style={{ fontFamily: "monospace", fontSize: "11px" }}>GOOGLE_API_KEY</code>)로 설정합니다. 환경 변수가 설정되지 않은 제공자는 런타임에 자동으로 비활성화됩니다.
+            </div>
 
-              {([
-                { key: "claude" as const, label: "Claude Code 구독",  sub: "claude.ai/code 구독 사용",           color: "#D97706", icon: "C",  value: useClaudeCode,        setter: setUseClaudeCode },
-                { key: "gpt"    as const, label: "ChatGPT Plus 구독", sub: "OpenAI ChatGPT Plus/Pro 구독 사용",  color: "#10A37F", icon: "G",  value: useGPTSubscription,   setter: setUseGPTSubscription },
-                { key: "gemini" as const, label: "Gemini Advanced 구독", sub: "Google Gemini Advanced 구독 사용", color: "#4285F4", icon: "Ge", value: useGeminiSubscription, setter: setUseGeminiSubscription },
-              ]).map((s, idx) => (
-                <div key={s.key} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "10px 0",
-                  borderTop: idx === 0 ? "none" : "1px solid var(--color-border)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: s.color, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>
-                      {s.icon}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)" }}>{s.label}</div>
-                      <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "1px" }}>{s.sub}</div>
-                    </div>
-                  </div>
-                  <Toggle value={s.value} onChange={s.setter} />
-                </div>
-              ))}
-
-              {(useClaudeCode || useGPTSubscription || useGeminiSubscription) && (
-                <div style={{ marginTop: "10px", padding: "10px 12px", background: "var(--color-primary-light)", borderRadius: "6px", fontSize: "11px", color: "var(--color-primary)", lineHeight: "1.5" }}>
-                  ✓ 구독 모드 활성화:{" "}
-                  {[
-                    useClaudeCode && "Claude Code",
-                    useGPTSubscription && "ChatGPT Plus",
-                    useGeminiSubscription && "Gemini Advanced",
-                  ].filter(Boolean).join(", ")}
-                  . 해당 제공자의 API 키 설정은 무시됩니다.
-                </div>
-              )}
-            </Card>
-
-            <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {[
-                { id: AIProvider.CLAUDE,  label: "Anthropic Claude", sub: "claude-opus-4-6", color: "#D97706", envKey: "ANTHROPIC_API_KEY",  subscription: useClaudeCode },
-                { id: AIProvider.GPT,     label: "OpenAI GPT",       sub: "gpt-4o",          color: "#10A37F", envKey: "OPENAI_API_KEY",     subscription: useGPTSubscription },
-                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-1.5-pro",  color: "#4285F4", envKey: "GOOGLE_AI_API_KEY",  subscription: useGeminiSubscription },
+                { id: AIProvider.CLAUDE,  label: "Anthropic Claude", sub: "claude-opus-4-6", color: "#D97706", envKey: "ANTHROPIC_API_KEY" },
+                { id: AIProvider.GPT,     label: "OpenAI GPT",       sub: "gpt-4o",          color: "#10A37F", envKey: "OPENAI_API_KEY" },
+                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-1.5-pro",  color: "#4285F4", envKey: "GOOGLE_API_KEY" },
               ].map((p) => (
-                <Card key={p.id} style={{ opacity: p.subscription ? 0.45 : 1, pointerEvents: p.subscription ? "none" : undefined }}>
+                <Card key={p.id}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                     <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: p.color, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
                       {p.label[0]}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)" }}>
-                        {p.label}
-                        {p.subscription && (
-                          <span style={{ marginLeft: "8px", fontSize: "10px", padding: "1px 7px", borderRadius: "10px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "600" }}>
-                            구독 모드
-                          </span>
-                        )}
-                      </div>
+                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)" }}>{p.label}</div>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{p.sub}</div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -348,23 +291,18 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
                           name="defaultProvider"
                           checked={defaultProvider === p.id}
                           onChange={() => setDefaultProvider(p.id)}
-                          disabled={p.subscription}
                         />
                         <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>기본</span>
                       </label>
                     </div>
                   </div>
-                  <div style={{ marginTop: "10px" }}>
-                    <label style={{ fontSize: "11px", color: "var(--color-text-muted)", display: "block", marginBottom: "4px" }}>API 키</label>
-                    <input
-                      type="password"
-                      placeholder={`${p.envKey}=...`}
-                      disabled={p.subscription}
-                      style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid var(--color-border-strong)", fontSize: "12px", fontFamily: "monospace", outline: "none", boxSizing: "border-box", background: "var(--color-bg)" }}
-                    />
-                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "3px" }}>
-                      .env.local 또는 Vercel 환경 변수에 설정하는 것을 권장합니다
-                    </div>
+                  <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--color-text-muted)", fontFamily: "monospace", background: "var(--color-bg)", padding: "4px 8px", borderRadius: "5px", border: "1px solid var(--color-border)" }}>
+                      {p.envKey}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>
+                      Vercel → Settings → Environment Variables에서 설정
+                    </span>
                   </div>
                 </Card>
               ))}
