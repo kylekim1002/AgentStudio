@@ -1,15 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AgentName, AIProvider } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
+import { AppRole } from "@/lib/authz/roles";
+import { DEFAULT_REVIEW_NOTE_TEMPLATES } from "@/lib/reviewTemplates";
+import { DEFAULT_REVIEW_SLA_HOURS } from "@/lib/reviewSettings";
 
-type SettingsTab = "ai" | "agents" | "tokens" | "users" | "folders";
+type SettingsTab = "ai" | "agents" | "tokens" | "review" | "notifications" | "users" | "folders";
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "ai",      label: "AI 제공자",   icon: "🤖" },
   { key: "agents",  label: "에이전트 매트릭스", icon: "⚡" },
   { key: "tokens",  label: "토큰 관리",   icon: "🪙" },
+  { key: "review",  label: "검토 기준",   icon: "📝" },
+  { key: "notifications", label: "알림", icon: "🔔" },
   { key: "users",   label: "사용자 관리", icon: "👥" },
   { key: "folders", label: "폴더 관리",   icon: "📁" },
 ];
@@ -30,8 +35,17 @@ function initAgentProviders(): AgentProviderMap {
   return m;
 }
 
-export default function SettingsClient() {
-  const [tab, setTab] = useState<SettingsTab>("ai");
+export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) {
+  const canManageReviewTemplates = viewerRole === "admin" || viewerRole === "lead_teacher";
+  const visibleTabs = useMemo(() => {
+    if (viewerRole === "admin") return TABS;
+    if (viewerRole === "lead_teacher") {
+      return TABS.filter((tab) => tab.key !== "users");
+    }
+    return TABS.filter((tab) => tab.key === "notifications");
+  }, [viewerRole]);
+
+  const [tab, setTab] = useState<SettingsTab>(visibleTabs[0]?.key ?? "notifications");
 
   // AI provider settings
   const [useClaudeCode, setUseClaudeCode] = useState(false);
@@ -42,6 +56,25 @@ export default function SettingsClient() {
   const [tokenLimit, setTokenLimit]       = useState(200000);
   const [warnMinutes, setWarnMinutes]     = useState(5);
   const [blockOnLimit, setBlockOnLimit]   = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [reviewAlerts, setReviewAlerts] = useState(true);
+  const [revisionAlerts, setRevisionAlerts] = useState(true);
+  const [quietStartHour, setQuietStartHour] = useState(22);
+  const [quietEndHour, setQuietEndHour] = useState(8);
+  const [approvedTemplatesText, setApprovedTemplatesText] = useState(
+    DEFAULT_REVIEW_NOTE_TEMPLATES.approved.join("\n")
+  );
+  const [revisionTemplatesText, setRevisionTemplatesText] = useState(
+    DEFAULT_REVIEW_NOTE_TEMPLATES.needs_revision.join("\n")
+  );
+  const [reviewSlaHours, setReviewSlaHours] = useState(DEFAULT_REVIEW_SLA_HOURS);
+  const [reviewTemplateStats, setReviewTemplateStats] = useState<{
+    approved: { template: string; count: number }[];
+    needs_revision: { template: string; count: number }[];
+  }>({
+    approved: [],
+    needs_revision: [],
+  });
 
   // Save state
   const [saving, setSaving]   = useState(false);
@@ -59,21 +92,101 @@ export default function SettingsClient() {
         if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit);
         if (settings.warnMinutes     !== undefined) setWarnMinutes(settings.warnMinutes);
         if (settings.blockOnLimit    !== undefined) setBlockOnLimit(settings.blockOnLimit);
+        if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
+        if (settings.reviewAlerts    !== undefined) setReviewAlerts(settings.reviewAlerts);
+        if (settings.revisionAlerts  !== undefined) setRevisionAlerts(settings.revisionAlerts);
+        if (settings.quietStartHour  !== undefined) setQuietStartHour(settings.quietStartHour);
+        if (settings.quietEndHour    !== undefined) setQuietEndHour(settings.quietEndHour);
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!canManageReviewTemplates) return;
+
+    fetch("/api/system-settings/review-templates")
+      .then((r) => r.json())
+      .then(({ templates, slaHours }) => {
+        if (!templates) return;
+        if (Array.isArray(templates.approved)) {
+          setApprovedTemplatesText(templates.approved.join("\n"));
+        }
+        if (Array.isArray(templates.needs_revision)) {
+          setRevisionTemplatesText(templates.needs_revision.join("\n"));
+        }
+        if (slaHours !== undefined) {
+          setReviewSlaHours(Number(slaHours));
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/system-settings/review-templates/stats")
+      .then((r) => r.json())
+      .then(({ stats }) => {
+        if (!stats) return;
+        setReviewTemplateStats({
+          approved: Array.isArray(stats.approved) ? stats.approved : [],
+          needs_revision: Array.isArray(stats.needs_revision) ? stats.needs_revision : [],
+        });
+      })
+      .catch(() => {});
+  }, [canManageReviewTemplates]);
+
+  useEffect(() => {
+    if (!visibleTabs.some((item) => item.key === tab)) {
+      setTab(visibleTabs[0]?.key ?? "notifications");
+    }
+  }, [tab, visibleTabs]);
 
   async function handleSave() {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res = await fetch("/api/settings", {
+      const personalRes = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ useClaudeCode, defaultProvider, agentProviders, tokenLimit, warnMinutes, blockOnLimit }),
+        body: JSON.stringify({
+          useClaudeCode,
+          defaultProvider,
+          agentProviders,
+          tokenLimit,
+          warnMinutes,
+          blockOnLimit,
+          notificationsEnabled,
+          reviewAlerts,
+          revisionAlerts,
+          quietStartHour,
+          quietEndHour,
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "저장 실패");
+      const personalData = await personalRes.json();
+      if (!personalRes.ok) throw new Error(personalData.error ?? "저장 실패");
+
+      if (canManageReviewTemplates) {
+        const templates = {
+          approved: approvedTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
+          needs_revision: revisionTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
+        };
+
+        const sharedRes = await fetch("/api/system-settings/review-templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ templates, slaHours: reviewSlaHours }),
+        });
+        const sharedData = await sharedRes.json();
+        if (!sharedRes.ok) throw new Error(sharedData.error ?? "검토 기준 저장 실패");
+        setReviewTemplateStats((prev) => ({
+          approved: templates.approved.map((template) => ({
+            template,
+            count: prev.approved.find((item) => item.template === template)?.count ?? 0,
+          })),
+          needs_revision: templates.needs_revision.map((template) => ({
+            template,
+            count: prev.needs_revision.find((item) => item.template === template)?.count ?? 0,
+          })),
+        }));
+      }
+
       setSaveMsg({ ok: true, text: "저장되었습니다." });
     } catch (e) {
       setSaveMsg({ ok: false, text: (e as Error).message });
@@ -93,7 +206,7 @@ export default function SettingsClient() {
   function Sidebar() {
     return (
       <aside style={{ width: "200px", flexShrink: 0, borderRight: "1px solid var(--color-border)", background: "var(--color-surface)", padding: "12px 8px" }}>
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -363,6 +476,197 @@ export default function SettingsClient() {
               <UsageBar label="Claude" used={42800} total={tokenLimit} color="#D97706" />
               <UsageBar label="GPT-4o" used={12400} total={tokenLimit} color="#10A37F" style={{ marginTop: "8px" }} />
               <UsageBar label="Gemini" used={5200}  total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
+            </Card>
+
+            <SaveFooter />
+          </div>
+        )}
+
+        {/* ── 검토 기준 ── */}
+        {tab === "review" && canManageReviewTemplates && (
+          <div style={{ maxWidth: "720px" }}>
+            <SectionTitle>검토 기준 템플릿</SectionTitle>
+            <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px" }}>
+              검토함, 카드 인라인 액션, 상세 패널에서 공통으로 쓰는 승인/수정 요청 문구입니다. 한 줄에 하나씩 입력하면 팀 전체 기본 템플릿으로 반영됩니다.
+            </p>
+
+            <Card>
+              <div style={{ display: "grid", gap: "16px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>
+                    검토 SLA 기준
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={reviewSlaHours}
+                      onChange={(e) => setReviewSlaHours(Number(e.target.value))}
+                      style={{
+                        width: "88px",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--color-border-strong)",
+                        fontSize: "13px",
+                        fontFamily: "inherit",
+                        background: "var(--color-bg)",
+                      }}
+                    />
+                    <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>시간</span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                    이 시간을 넘긴 검토는 작업함과 자료실에서 지연 경고로 표시됩니다.
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>
+                    승인 템플릿
+                  </label>
+                  <textarea
+                    value={approvedTemplatesText}
+                    onChange={(e) => setApprovedTemplatesText(e.target.value)}
+                    rows={5}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--color-border-strong)",
+                      fontSize: "13px",
+                      lineHeight: 1.6,
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                      fontFamily: "inherit",
+                      background: "var(--color-bg)",
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>
+                    수정 요청 템플릿
+                  </label>
+                  <textarea
+                    value={revisionTemplatesText}
+                    onChange={(e) => setRevisionTemplatesText(e.target.value)}
+                    rows={5}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--color-border-strong)",
+                      fontSize: "13px",
+                      lineHeight: 1.6,
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                      fontFamily: "inherit",
+                      background: "var(--color-bg)",
+                    }}
+                  />
+                </div>
+              </div>
+            </Card>
+
+            <Card style={{ marginTop: "14px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>운영 팁</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.7 }}>
+                승인 템플릿은 바로 수업에 투입해도 되는 기준을 짧고 명확하게,
+                수정 요청 템플릿은 강사가 다음 액션을 바로 알 수 있게 쓰는 편이 가장 효율적입니다.
+              </div>
+            </Card>
+
+            <Card style={{ marginTop: "14px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "10px" }}>최근 템플릿 사용 현황</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: "600", color: "#3730A3", marginBottom: "8px" }}>승인 템플릿</div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    {reviewTemplateStats.approved.length === 0 ? (
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>아직 사용 기록이 없습니다.</div>
+                    ) : (
+                      reviewTemplateStats.approved.map((item) => (
+                        <div key={`approved-stat-${item.template}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                          <span style={{ flex: 1 }}>{item.template}</span>
+                          <span style={{ fontWeight: "700", color: "var(--color-text)" }}>{item.count}회</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: "600", color: "#92400E", marginBottom: "8px" }}>수정 요청 템플릿</div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    {reviewTemplateStats.needs_revision.length === 0 ? (
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>아직 사용 기록이 없습니다.</div>
+                    ) : (
+                      reviewTemplateStats.needs_revision.map((item) => (
+                        <div key={`revision-stat-${item.template}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                          <span style={{ flex: 1 }}>{item.template}</span>
+                          <span style={{ fontWeight: "700", color: "var(--color-text)" }}>{item.count}회</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <SaveFooter />
+          </div>
+        )}
+
+        {/* ── 알림 ── */}
+        {tab === "notifications" && (
+          <div style={{ maxWidth: "560px" }}>
+            <SectionTitle>알림 설정</SectionTitle>
+            <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px" }}>
+              새 검토 요청이나 수정 요청이 생겼을 때 상단 알림 배지와 토스트를 어떻게 보여줄지 설정합니다.
+            </p>
+
+            <Card>
+              <SettingRow label="인앱 알림 사용" sub="상단 배지와 토스트 알림을 활성화합니다.">
+                <Toggle value={notificationsEnabled} onChange={setNotificationsEnabled} />
+              </SettingRow>
+
+              <Divider />
+
+              <SettingRow label="검토 요청 알림" sub="내 검토함에 새 레슨이 들어오면 즉시 알려줍니다.">
+                <Toggle value={reviewAlerts} onChange={setReviewAlerts} />
+              </SettingRow>
+
+              <Divider />
+
+              <SettingRow label="수정 요청 알림" sub="내 레슨이 수정 필요 상태가 되면 바로 알려줍니다.">
+                <Toggle value={revisionAlerts} onChange={setRevisionAlerts} />
+              </SettingRow>
+            </Card>
+
+            <Card style={{ marginTop: "14px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "12px" }}>조용한 시간대</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={quietStartHour}
+                  onChange={(e) => setQuietStartHour(Number(e.target.value))}
+                  style={{ width: "64px", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border-strong)", fontSize: "13px", outline: "none", fontFamily: "inherit" }}
+                />
+                <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>시부터</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={quietEndHour}
+                  onChange={(e) => setQuietEndHour(Number(e.target.value))}
+                  style={{ width: "64px", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border-strong)", fontSize: "13px", outline: "none", fontFamily: "inherit" }}
+                />
+                <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>시까지</span>
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", marginTop: "8px", lineHeight: 1.6 }}>
+                조용한 시간대에는 배지는 유지하고, 새 토스트 알림만 띄우지 않습니다.
+              </div>
             </Card>
 
             <SaveFooter />

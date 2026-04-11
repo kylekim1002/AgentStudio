@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import SettingsClient from "@/components/settings/SettingsClient";
+import WorkInboxClient from "@/components/work/WorkInboxClient";
 import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 
-export default async function SettingsPage() {
+export default async function WorkPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -13,5 +13,10 @@ export default async function SettingsPage() {
 
   const access = await getViewerAccess(supabase, user);
 
-  return <SettingsClient viewerRole={access.role} />;
+  return (
+    <WorkInboxClient
+      viewerRole={access.role}
+      canManageReview={access.features.includes("approval.manage")}
+    />
+  );
 }

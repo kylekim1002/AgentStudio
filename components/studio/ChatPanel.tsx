@@ -25,6 +25,7 @@ interface ChatPanelProps {
   error: string | null;
   onConfirmGenerate: (chatSummary: string) => void;
   onReset: () => void;
+  approvalMode: "auto" | "require_review";
 }
 
 // ─── Agent status colours ─────────────────────────────────────
@@ -55,6 +56,7 @@ const QUICK = [
 
 export default function ChatPanel({
   agentStates, isRunning, lessonPackage, error, onConfirmGenerate, onReset,
+  approvalMode,
 }: ChatPanelProps) {
   const [displayMessages, setDisplayMessages] = useState<DisplayMsg[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory>([]);
@@ -278,6 +280,22 @@ export default function ChatPanel({
 
       {/* ── Messages area ── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: "14px" }}>
+
+        <div
+          style={{
+            alignSelf: "center",
+            fontSize: "12px",
+            color: approvalMode === "require_review" ? "#B45309" : "var(--color-text-subtle)",
+            background: approvalMode === "require_review" ? "#FEF3C7" : "var(--color-surface)",
+            border: `1px solid ${approvalMode === "require_review" ? "#FCD34D" : "var(--color-border)"}`,
+            borderRadius: "999px",
+            padding: "6px 10px",
+          }}
+        >
+          {approvalMode === "require_review"
+            ? "현재 모드: 최종 발행 전 관리자 승인 필요"
+            : "현재 모드: 승인 없이 바로 발행"}
+        </div>
 
         {isEmpty ? (
           /* Empty / welcome state */

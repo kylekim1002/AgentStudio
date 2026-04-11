@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { getViewerAccess } from "@/lib/authz/server";
+import { normalizeRole } from "@/lib/authz/roles";
 
 // POST /api/admin/invite — 교사 초대 (관리자 전용)
 export async function POST(req: NextRequest) {
@@ -11,14 +13,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 관리자 권한 확인
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
+  const access = await getViewerAccess(supabase, user);
+  if (!access.features.includes("admin.manage_users")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -38,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${siteUrl}/auth/callback`,
-    data: { role },
+    data: { role: normalizeRole(role) },
   });
 
   if (error) {
@@ -57,13 +53,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
+  const access = await getViewerAccess(supabase, user);
+  if (!access.features.includes("admin.manage_users")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

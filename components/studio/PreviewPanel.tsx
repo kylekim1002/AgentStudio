@@ -8,11 +8,12 @@ interface PreviewPanelProps {
   lessonPackage: LessonPackage | null;
   onClose?: () => void;
   onSave?: () => void;
+  canExportTeacher?: boolean;
 }
 
 type Layout = "simple" | "advanced";
 
-export default function PreviewPanel({ lessonPackage, onClose, onSave }: PreviewPanelProps) {
+export default function PreviewPanel({ lessonPackage, onClose, onSave, canExportTeacher = true }: PreviewPanelProps) {
   const [layout, setLayout] = useState<Layout>("simple");
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["passage"]));
   const [exporting, setExporting] = useState<string | null>(null);
@@ -184,9 +185,9 @@ export default function PreviewPanel({ lessonPackage, onClose, onSave }: Preview
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px" }}>
           {([
             { label: "학생용 PDF",  icon: "📄", type: "student" as const, format: "pdf"  as const },
-            { label: "교사용 PDF",  icon: "📋", type: "teacher" as const, format: "pdf"  as const },
+            ...(canExportTeacher ? [{ label: "교사용 PDF",  icon: "📋", type: "teacher" as const, format: "pdf"  as const }] : []),
             { label: "학생용 DOCX", icon: "📝", type: "student" as const, format: "docx" as const },
-            { label: "교사용 DOCX", icon: "🗒", type: "teacher" as const, format: "docx" as const },
+            ...(canExportTeacher ? [{ label: "교사용 DOCX", icon: "🗒", type: "teacher" as const, format: "docx" as const }] : []),
           ] as const).map(({ label, icon, type, format }) => {
             const key = `${type}-${format}`;
             const busy = exporting === key;

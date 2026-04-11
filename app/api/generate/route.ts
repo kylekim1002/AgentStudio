@@ -1,15 +1,37 @@
 import { NextRequest } from "next/server";
-import { runPipeline } from "@/lib/agents/pipeline";
-import { LessonRequest, AIProvider, DifficultyLevel, AgentProgress } from "@/lib/agents/types";
+import { createWorkflowEventStream } from "@/lib/workflows/core/executeWorkflow";
+import { registerBuiltinWorkflows } from "@/lib/workflows/registerBuiltins";
+import { AIProvider } from "@/lib/workflows/core/types";
+import { createClient } from "@/lib/supabase/server";
+import { getViewerAccess } from "@/lib/authz/server";
+import {
+  DifficultyLevel,
+  LessonRequest,
+} from "@/lib/workflows/lesson/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function sseMessage(data: unknown): string {
-  return `data: ${JSON.stringify(data)}\n\n`;
-}
-
 export async function POST(req: NextRequest) {
+  registerBuiltinWorkflows();
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const access = await getViewerAccess(supabase, user);
+  if (!access.features.includes("studio.generate")) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -25,6 +47,7 @@ export async function POST(req: NextRequest) {
     provider?: string;
     difficulty?: string;
     providedPassage?: string;
+    approvalMode?: "auto" | "require_review";
   };
 
   if (!userInput || typeof userInput !== "string") {
@@ -36,32 +59,56 @@ export async function POST(req: NextRequest) {
 
   const lessonRequest: LessonRequest = {
     userInput,
-    provider: (provider as AIProvider) ?? AIProvider.CLAUDE,
+    provider: access.features.includes("studio.provider_select")
+      ? ((provider as AIProvider) ?? AIProvider.CLAUDE)
+      : AIProvider.CLAUDE,
     difficulty: difficulty as DifficultyLevel | undefined,
     providedPassage,
+    approvalMode: access.features.includes("studio.approval_toggle")
+      ? (body && typeof body === "object"
+        ? (body as { approvalMode?: "auto" | "require_review" }).approvalMode
+        : undefined)
+      : "auto",
   };
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const enqueue = (data: unknown) => {
-        controller.enqueue(encoder.encode(sseMessage(data)));
+  const { stream } = createWorkflowEventStream({
+    workflow: "lesson_generation",
+    input: lessonRequest,
+    formatProgress(event) {
+      return {
+        type: "progress",
+        executionId: event.executionId,
+        workflow: event.workflow,
+        agent: event.step,
+        status: event.status,
+        output: event.output,
+        error: event.error,
       };
-
-      try {
-        const onProgress = (progress: AgentProgress) => {
-          enqueue({ type: "progress", ...progress });
-        };
-
-        const lessonPackage = await runPipeline(lessonRequest, onProgress);
-
-        enqueue({ type: "complete", package: lessonPackage });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Pipeline failed";
-        enqueue({ type: "error", error: message });
-      } finally {
-        controller.close();
-      }
+    },
+    formatComplete(event) {
+      return {
+        type: "complete",
+        executionId: event.executionId,
+        package: event.result,
+      };
+    },
+    formatError(event) {
+      return {
+        type: "error",
+        executionId: event.executionId,
+        error: event.error,
+      };
+    },
+    formatApprovalRequired(event) {
+      return {
+        type: "approval_required",
+        executionId: event.executionId,
+        approvalId: event.approvalId,
+        workflow: event.workflow,
+        title: event.title,
+        summary: event.summary,
+        riskLevel: event.riskLevel,
+      };
     },
   });
 

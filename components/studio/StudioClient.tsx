@@ -2,14 +2,23 @@
 
 import { useState, useEffect, useRef } from "react";
 import { AIProvider } from "@/lib/agents/types";
+import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
 import PreviewPanel from "./PreviewPanel";
 import SaveDialog from "./SaveDialog";
+import { dispatchInboxSync } from "@/lib/ui/inboxSync";
 
 type Mode = "chat" | "pipeline";
+interface StudioClientProps {
+  canViewPipeline: boolean;
+  canSelectProvider: boolean;
+  canToggleApproval: boolean;
+  canExportTeacher: boolean;
+  defaultProvider?: AIProvider;
+}
 
 const PROVIDERS: { value: AIProvider; label: string; color: string; short: string }[] = [
   { value: AIProvider.CLAUDE,  label: "Claude",  color: "#D97706", short: "C" },
@@ -17,9 +26,16 @@ const PROVIDERS: { value: AIProvider; label: string; color: string; short: strin
   { value: AIProvider.GEMINI,  label: "Gemini",  color: "#4285F4", short: "Ge" },
 ];
 
-export default function StudioClient() {
+export default function StudioClient({
+  canViewPipeline,
+  canSelectProvider,
+  canToggleApproval,
+  canExportTeacher,
+  defaultProvider,
+}: StudioClientProps) {
   const [mode, setMode] = useState<Mode>("chat");
-  const [provider, setProvider] = useState<AIProvider>(AIProvider.CLAUDE);
+  const [provider, setProvider] = useState<AIProvider>(defaultProvider ?? AIProvider.CLAUDE);
+  const [approvalMode, setApprovalMode] = useState<"auto" | "require_review">("auto");
   const [showSave, setShowSave] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
 
@@ -37,14 +53,28 @@ export default function StudioClient() {
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
 
   function handleConfirmGenerate(chatSummary: string) {
-    generate({ userInput: chatSummary || "전체 파이프라인을 실행해 주세요.", provider });
+    generate({
+      userInput: chatSummary || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+    });
   }
 
   function handleRunAll(userInput?: string) {
-    generate({ userInput: userInput || "전체 파이프라인을 실행해 주세요.", provider });
+    generate({
+      userInput: userInput || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+    });
   }
 
-  async function handleSave(projectId: string | null, lessonName: string, tags: string) {
+  async function handleSave(
+    projectId: string | null,
+    lessonName: string,
+    tags: string,
+    status: LessonStatus,
+    reviewerId: string | null
+  ) {
     if (!lessonPackage) return;
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
     await fetch("/api/lessons", {
@@ -55,8 +85,11 @@ export default function StudioClient() {
         provider,
         project_id: projectId,
         tags: tagList,
+        status,
+        reviewer_id: reviewerId,
       }),
     });
+    dispatchInboxSync("lesson_saved");
   }
 
   // Convert Map<AgentName, AgentProgressState> → Map<AgentName, AgentStatus>
@@ -86,6 +119,7 @@ export default function StudioClient() {
           borderRadius: "7px", padding: "3px",
         }}>
           {(["chat", "pipeline"] as Mode[]).map((m) => (
+            (!canViewPipeline && m === "pipeline") ? null : (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -111,6 +145,7 @@ export default function StudioClient() {
                 </>
               )}
             </button>
+            )
           ))}
         </div>
 
@@ -118,6 +153,7 @@ export default function StudioClient() {
         <div style={{ width: "1px", height: "20px", background: "var(--color-border)", margin: "0 4px" }} />
 
         {/* Provider selector */}
+        {canSelectProvider && (
         <div style={{ position: "relative" }}>
           <select
             value={provider}
@@ -149,6 +185,52 @@ export default function StudioClient() {
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
           </div>
         </div>
+        )}
+
+        {canToggleApproval && (
+          <>
+            <div style={{ width: "1px", height: "20px", background: "var(--color-border)", margin: "0 4px" }} />
+
+        <button
+          onClick={() =>
+            setApprovalMode((prev) =>
+              prev === "auto" ? "require_review" : "auto"
+            )
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "5px 10px",
+            borderRadius: "6px",
+            border: `1px solid ${
+              approvalMode === "require_review"
+                ? "var(--color-primary)"
+                : "var(--color-border)"
+            }`,
+            background:
+              approvalMode === "require_review"
+                ? "var(--color-primary-light)"
+                : "var(--color-surface)",
+            color:
+              approvalMode === "require_review"
+                ? "var(--color-primary)"
+                : "var(--color-text-muted)",
+            fontSize: "12px",
+            fontWeight: "500",
+            cursor: "pointer",
+            transition: ".15s",
+          }}
+          title="최종 발행 전에 관리자 승인을 받도록 설정합니다."
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1l4 1.5v3c0 2.6-1.7 4.7-4 5.5-2.3-.8-4-2.9-4-5.5v-3L6 1z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <path d="M4.2 6.1l1.1 1.1 2.5-2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {approvalMode === "require_review" ? "발행 승인 ON" : "발행 승인 OFF"}
+        </button>
+          </>
+        )}
 
         {/* Toolbar right */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "7px" }}>
@@ -228,6 +310,7 @@ export default function StudioClient() {
             error={error}
             onConfirmGenerate={handleConfirmGenerate}
             onReset={reset}
+            approvalMode={approvalMode}
           />
         ) : (
           <PipelinePanel
@@ -244,6 +327,7 @@ export default function StudioClient() {
             lessonPackage={lessonPackage}
             onClose={() => setShowPreview(false)}
             onSave={() => setShowSave(true)}
+            canExportTeacher={canExportTeacher}
           />
         )}
       </div>

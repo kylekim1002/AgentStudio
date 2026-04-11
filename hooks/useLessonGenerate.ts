@@ -59,6 +59,7 @@ export function useLessonGenerate() {
       provider: AIProvider;
       difficulty?: DifficultyLevel;
       providedPassage?: string;
+      approvalMode?: "auto" | "require_review";
     }) => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -134,6 +135,16 @@ export function useLessonGenerate() {
                 ...prev,
                 isRunning: false,
                 lessonPackage: event.package as LessonPackage,
+              }));
+            } else if (event.type === "approval_required") {
+              const summary =
+                typeof event.summary === "string"
+                  ? event.summary
+                  : "승인 대기 중입니다. 운영 센터에서 검토해 주세요.";
+              setState((prev) => ({
+                ...prev,
+                isRunning: false,
+                error: `승인 필요: ${summary}`,
               }));
             } else if (event.type === "error") {
               let errorMsg = event.error as string;

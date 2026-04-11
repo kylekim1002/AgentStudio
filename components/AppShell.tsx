@@ -1,18 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeInboxSync } from "@/lib/ui/inboxSync";
 
 interface AppShellProps {
   userEmail: string;
   userName: string;
   userRole: string;
+  userFeatures: string[];
   children: React.ReactNode;
 }
 
-const NAV_TABS = [
+interface InboxSummary {
+  myDrafts: number;
+  myNeedsRevision: number;
+  myInReview: number;
+  myApproved: number;
+  reviewQueue: number;
+  reassignedToMeCount: number;
+  reassignedFromMeCount: number;
+  inboxTotal: number;
+}
+
+interface NotificationSettings {
+  notificationsEnabled?: boolean;
+  reviewAlerts?: boolean;
+  revisionAlerts?: boolean;
+  quietStartHour?: number;
+  quietEndHour?: number;
+}
+
+const BASE_NAV_TABS = [
+  {
+    href: "/work",
+    label: "내 작업함",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M3 3.5h10v9H3v-9z" stroke="currentColor" strokeWidth="1.4"/>
+        <path d="M5.5 2v3M10.5 2v3M5 7h6M5 10h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
   {
     href: "/studio",
     label: "스튜디오",
@@ -50,11 +81,127 @@ export default function AppShell({
   userEmail,
   userName,
   userRole,
+  userFeatures,
   children,
 }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
+    notificationsEnabled: true,
+    reviewAlerts: true,
+    revisionAlerts: true,
+    quietStartHour: 22,
+    quietEndHour: 8,
+  });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const previousSummaryRef = useRef<InboxSummary | null>(null);
+
+  const isQuietHours = useMemo(() => {
+    const currentHour = new Date().getHours();
+    const start = notificationSettings.quietStartHour ?? 22;
+    const end = notificationSettings.quietEndHour ?? 8;
+
+    if (start === end) return false;
+    if (start < end) {
+      return currentHour >= start && currentHour < end;
+    }
+    return currentHour >= start || currentHour < end;
+  }, [notificationSettings.quietEndHour, notificationSettings.quietStartHour]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotificationSettings() {
+      const res = await fetch("/api/settings", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!cancelled) {
+        setNotificationSettings((prev) => ({
+          ...prev,
+          ...(data.settings ?? {}),
+        }));
+      }
+    }
+
+    loadNotificationSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+
+    function maybeNotify(next: InboxSummary) {
+      const previous = previousSummaryRef.current;
+      previousSummaryRef.current = next;
+      setInboxCount(next.inboxTotal ?? 0);
+
+      if (!previous || !notificationSettings.notificationsEnabled) return;
+      if (isQuietHours) return;
+
+      if (
+        notificationSettings.reviewAlerts &&
+        next.reviewQueue > previous.reviewQueue
+      ) {
+        setToastMessage(`새 검토 요청 ${next.reviewQueue - previous.reviewQueue}건이 들어왔습니다.`);
+        return;
+      }
+
+      if (
+        notificationSettings.revisionAlerts &&
+        next.myNeedsRevision > previous.myNeedsRevision
+      ) {
+        setToastMessage(`수정 요청된 레슨이 ${next.myNeedsRevision - previous.myNeedsRevision}건 생겼습니다.`);
+        return;
+      }
+
+      if (next.reassignedToMeCount > previous.reassignedToMeCount) {
+        setToastMessage(`새 검토가 ${next.reassignedToMeCount - previous.reassignedToMeCount}건 재배정되었습니다.`);
+        return;
+      }
+
+      if (next.reassignedFromMeCount > previous.reassignedFromMeCount) {
+        setToastMessage(`내 검토 항목 ${next.reassignedFromMeCount - previous.reassignedFromMeCount}건이 다른 검토자로 이동했습니다.`);
+      }
+    }
+
+    async function pollInbox() {
+      const res = await fetch("/api/inbox/summary", { cache: "no-store" });
+      if (!res.ok || cancelled) return;
+      const data = await res.json();
+      maybeNotify(data.summary as InboxSummary);
+    }
+
+    pollInbox();
+    timer = window.setInterval(pollInbox, 45000);
+
+    function handleInboxSync() {
+      void pollInbox();
+    }
+
+    const unsubscribe = subscribeInboxSync(handleInboxSync);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      if (timer) window.clearInterval(timer);
+    };
+  }, [
+    isQuietHours,
+    notificationSettings.notificationsEnabled,
+    notificationSettings.reviewAlerts,
+    notificationSettings.revisionAlerts,
+  ]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
 
   async function handleLogout() {
     const supabase = createClient();
@@ -63,6 +210,26 @@ export default function AppShell({
   }
 
   const displayName = userName || userEmail;
+  const navTabs = [
+    ...BASE_NAV_TABS,
+    ...(userFeatures.includes("ops.view")
+      ? [
+          {
+            href: "/ops",
+            label: "운영 센터",
+            icon: (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 12h12M3 10l2.2-3 2 2 3.3-4L13 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="3" cy="10" r="1" fill="currentColor"/>
+                <circle cx="7.2" cy="9" r="1" fill="currentColor"/>
+                <circle cx="10.5" cy="5" r="1" fill="currentColor"/>
+                <circle cx="13" cy="8" r="1" fill="currentColor"/>
+              </svg>
+            ),
+          },
+        ]
+      : []),
+  ];
   const initials = displayName
     .split(/[\s@]/)
     .filter(Boolean)
@@ -126,7 +293,7 @@ export default function AppShell({
 
         {/* Tabs */}
         <nav style={{ display: "flex", alignItems: "stretch", height: "100%", flex: 1 }}>
-          {NAV_TABS.map((tab) => {
+          {navTabs.map((tab) => {
             const isActive = pathname.startsWith(tab.href);
             return (
               <Link
@@ -151,6 +318,25 @@ export default function AppShell({
               >
                 {tab.icon}
                 {tab.label}
+                {tab.href === "/work" && inboxCount > 0 && (
+                  <span
+                    style={{
+                      minWidth: "18px",
+                      height: "18px",
+                      padding: "0 6px",
+                      borderRadius: "999px",
+                      background: "var(--color-primary-light)",
+                      color: "var(--color-primary)",
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {inboxCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -158,7 +344,7 @@ export default function AppShell({
 
         {/* Right: admin badge + user menu */}
         <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
-          {userRole === "admin" && (
+          {userFeatures.includes("admin.manage_users") && (
             <Link
               href="/admin"
               style={{
@@ -256,7 +442,13 @@ export default function AppShell({
                         fontWeight: "500",
                       }}
                     >
-                      {userRole === "admin" ? "관리자" : "선생님"}
+                      {userRole === "admin"
+                        ? "관리자"
+                        : userRole === "lead_teacher"
+                          ? "수석 강사"
+                          : userRole === "reviewer"
+                            ? "검토자"
+                            : "선생님"}
                     </div>
                   </div>
 
@@ -293,6 +485,64 @@ export default function AppShell({
       <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
         {children}
       </main>
+
+      {toastMessage && (
+        <div
+          style={{
+            position: "fixed",
+            right: "20px",
+            bottom: "20px",
+            zIndex: 220,
+            minWidth: "280px",
+            maxWidth: "360px",
+            padding: "14px 16px",
+            borderRadius: "12px",
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            boxShadow: "0 12px 32px rgba(15, 23, 42, 0.14)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "8px",
+                background: "var(--color-primary-light)",
+                color: "var(--color-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "14px",
+                flexShrink: 0,
+              }}
+            >
+              🔔
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px" }}>
+                새 작업 알림
+              </div>
+              <div style={{ fontSize: "13px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                {toastMessage}
+              </div>
+            </div>
+            <button
+              onClick={() => setToastMessage(null)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "var(--color-text-subtle)",
+                cursor: "pointer",
+                fontSize: "16px",
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
