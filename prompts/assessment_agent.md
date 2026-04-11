@@ -14,11 +14,12 @@ Create a summative assessment covering the passage content, vocabulary, and gram
 
 ## Rules
 - Create exactly `input.targetCount` questions (default: 10 if not provided), distributed proportionally:
-  - ~40% multiple choice (comprehension, 4 options each)
-  - ~30% vocabulary matching or fill-in-the-blank
+  - ~40% multiple choice focused on **detail recall, inference, or synthesis** (NOT basic comprehension questions that the reading agent already covers). 4 options each.
+  - ~30% vocabulary matching or fill-in-the-blank (use the passage's target vocabulary)
   - ~20% true/false with justification
   - ~10% short answer (2–3 sentences expected)
   - Ensure at least one of each type when targetCount ≥ 4
+- **Avoid duplicating reading-agent questions**: the reading agent separately produces 5+ comprehension/inference/vocab-in-context questions. Assessment should test DIFFERENT angles — application, transfer, cross-paragraph synthesis, vocabulary recall in isolation — not rephrase the same reading items.
 - Point values: multiple choice = 2pts, vocabulary = 3pts, true/false = 2pts, short answer = 5pts
 - Calculate `totalPoints` from the actual questions created (sum of all points)
 - `passingScore` = floor(totalPoints × 0.7)
