@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 import { AIProvider } from "@/lib/agents/types";
 import {
+  AUTO_DOCUMENT_TEMPLATE,
+  AUTO_DOCUMENT_TEMPLATE_ID,
   DEFAULT_DOCUMENT_TEMPLATES,
   normalizeDocumentTemplates,
 } from "@/lib/documentTemplates";
@@ -46,9 +48,12 @@ export default async function StudioPage() {
     .eq("key", "document_templates")
     .maybeSingle();
 
-  const documentTemplates = normalizeDocumentTemplates(
-    templateSetting?.value ?? DEFAULT_DOCUMENT_TEMPLATES
-  );
+  const documentTemplates = [
+    AUTO_DOCUMENT_TEMPLATE,
+    ...normalizeDocumentTemplates(templateSetting?.value ?? DEFAULT_DOCUMENT_TEMPLATES).filter(
+      (template) => template.id !== AUTO_DOCUMENT_TEMPLATE_ID
+    ),
+  ];
 
   return (
     <StudioClient

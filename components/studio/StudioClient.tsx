@@ -5,7 +5,11 @@ import { AgentName, AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
-import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import {
+  AUTO_DOCUMENT_TEMPLATE_ID,
+  DocumentTemplate,
+  resolveDocumentTemplate,
+} from "@/lib/documentTemplates";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 import { getTemplateImageItems } from "@/lib/documentTemplateRender";
 import AgentPanel from "./AgentPanel";
@@ -77,7 +81,7 @@ export default function StudioClient({
   const [showCounts, setShowCounts] = useState(false);
   const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
   const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
-  const [selectedTemplateId, setSelectedTemplateId] = useState(initialDocumentTemplates[0]?.id ?? "");
+  const [selectedTemplateId, setSelectedTemplateId] = useState(AUTO_DOCUMENT_TEMPLATE_ID);
   const [generationTarget, setGenerationTarget] = useState<"full" | "passage_review" | "content_review" | "passage_and_content_review">("full");
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewPassage, setReviewPassage] = useState("");
@@ -101,7 +105,11 @@ export default function StudioClient({
 
   useEffect(() => {
     const savedTemplateId = window.localStorage.getItem(STUDIO_TEMPLATE_STORAGE_KEY);
-    if (savedTemplateId && initialDocumentTemplates.some((template) => template.id === savedTemplateId)) {
+    if (
+      savedTemplateId &&
+      (savedTemplateId === AUTO_DOCUMENT_TEMPLATE_ID ||
+        initialDocumentTemplates.some((template) => template.id === savedTemplateId))
+    ) {
       setSelectedTemplateId(savedTemplateId);
     }
 

@@ -183,6 +183,11 @@ export function renderCanvasTemplatePages(
   pkg: LessonPackage,
   isTeacher: boolean
 ): RenderedCanvasPage[] {
+  const PAGE_WIDTH_MM = 210;
+  const PAGE_HEIGHT_MM = 297;
+  const OVERFLOW_MARGIN_X = 8;
+  const OVERFLOW_MARGIN_Y = 8;
+  const OVERFLOW_GAP_Y = 4;
   const remainingText = new Map<string, string>();
   const sourceOrder: string[] = [];
   const sourcePrototype = new Map<string, TemplateCanvasItem>();
@@ -233,8 +238,9 @@ export function renderCanvasTemplatePages(
       const prototype = sourcePrototype.get(sourceKey);
       if (!prototype) continue;
 
-      const overflowHeight = prototype.sectionKey === "passage" ? 108 : Math.max(prototype.h, 34);
-      if (y + overflowHeight > 126 && overflowItems.length > 0) {
+      const overflowHeight = prototype.sectionKey === "passage" ? Math.max(prototype.h, 108) : Math.max(prototype.h, 34);
+      const maxOverflowHeight = PAGE_HEIGHT_MM - OVERFLOW_MARGIN_Y - y;
+      if (y + overflowHeight > PAGE_HEIGHT_MM - OVERFLOW_MARGIN_Y && overflowItems.length > 0) {
         break;
       }
 
@@ -242,10 +248,10 @@ export function renderCanvasTemplatePages(
         ...prototype,
         id: `${prototype.id}-overflow-${overflowPageIndex}-${overflowItems.length + 1}`,
         label: `${prototype.label} (계속)`,
-        x: 8,
+        x: OVERFLOW_MARGIN_X,
         y,
-        w: 84,
-        h: Math.min(overflowHeight, 126 - y),
+        w: PAGE_WIDTH_MM - OVERFLOW_MARGIN_X * 2,
+        h: Math.min(overflowHeight, maxOverflowHeight),
       };
 
       const { chunk, rest: nextRest } = splitTextIntoChunk(rest, getCanvasItemCharacterLimit(overflowItem));
@@ -254,7 +260,7 @@ export function renderCanvasTemplatePages(
         ...overflowItem,
         renderedText: chunk,
       });
-      y += overflowItem.h + 4;
+      y += overflowItem.h + OVERFLOW_GAP_Y;
     }
 
     renderedPages.push({

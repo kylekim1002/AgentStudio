@@ -136,6 +136,8 @@ export interface DocumentTemplate {
   updatedAt?: string;
 }
 
+export const AUTO_DOCUMENT_TEMPLATE_ID = "auto-template";
+
 const SECTION_KEYS: DocumentSectionKey[] = [
   "passage",
   "reading",
@@ -302,6 +304,19 @@ export const DEFAULT_DOCUMENT_TEMPLATES: DocumentTemplate[] = [
   },
 ];
 
+export const AUTO_DOCUMENT_TEMPLATE: DocumentTemplate = {
+  id: AUTO_DOCUMENT_TEMPLATE_ID,
+  name: "자동 템플릿",
+  description: "템플릿을 직접 고르지 않고 기본 문서 레이아웃으로 생성합니다.",
+  previewLabel: "자동",
+  pageSize: "A4",
+  layout: "simple",
+  accentColor: "#4F46E5",
+  visibleSections: ["passage", "reading", "vocabulary", "grammar", "writing", "assessment"],
+  blocks: [],
+  pages: [],
+};
+
 function normalizeBlock(block: unknown, index: number): DocumentTemplateBlock {
   const source = (block ?? {}) as Record<string, unknown>;
   const type =
@@ -342,6 +357,11 @@ function normalizeCanvasItem(item: unknown, index: number): TemplateCanvasItem {
       ? (source.sectionKey as DocumentSectionKey)
       : undefined;
 
+  const x = clampNumber(source.x, 8, 0, 210);
+  const y = clampNumber(source.y, 8 + index * 8, 0, 297);
+  const w = clampNumber(source.w, 40, 8, 210 - x);
+  const h = clampNumber(source.h, 24, 6, 297 - y);
+
   return {
     id: typeof source.id === "string" && source.id ? source.id : `item-${index + 1}`,
     type,
@@ -351,10 +371,10 @@ function normalizeCanvasItem(item: unknown, index: number): TemplateCanvasItem {
         : sectionKey
           ? sectionKey
           : `아이템 ${index + 1}`,
-    x: clampNumber(source.x, 8, 0, 90),
-    y: clampNumber(source.y, 8 + index * 8, 0, 130),
-    w: clampNumber(source.w, 40, 8, 92),
-    h: clampNumber(source.h, 24, 6, 130),
+    x,
+    y,
+    w,
+    h,
     sectionKey,
     textContent: typeof source.textContent === "string" ? source.textContent : "",
     imagePromptPresetId:
@@ -526,9 +546,12 @@ export function resolveDocumentTemplate(
   templates: DocumentTemplate[],
   templateId?: string | null
 ): DocumentTemplate {
+  if (templateId === AUTO_DOCUMENT_TEMPLATE_ID) {
+    return AUTO_DOCUMENT_TEMPLATE;
+  }
   return (
     templates.find((template) => template.id === templateId) ??
     templates[0] ??
-    DEFAULT_DOCUMENT_TEMPLATES[0]
+    AUTO_DOCUMENT_TEMPLATE
   );
 }
