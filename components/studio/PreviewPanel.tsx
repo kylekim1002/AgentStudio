@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { LessonPackage } from "@/lib/agents/types";
 import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
-import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { DEFAULT_TEMPLATE_TEXT_STYLE, DocumentTemplate, getTemplateFontOption, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import {
   canvasLayoutLabel,
   renderCanvasTemplatePages,
@@ -31,6 +31,19 @@ export default function PreviewPanel({
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["passage"]));
   const [exporting, setExporting] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(templates, selectedTemplateId);
+
+  function getPreviewTextStyle(item: { fontFamily?: string; fontSize?: number; fontColor?: string; highlightColor?: string | null; bold?: boolean; italic?: boolean; underline?: boolean }, fallbackColor: string) {
+    const font = getTemplateFontOption(item.fontFamily);
+    return {
+      fontFamily: font.webFamily,
+      fontSize: `${Math.max(9, (item.fontSize ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontSize) - 1)}px`,
+      color: item.fontColor || fallbackColor,
+      background: item.highlightColor || "transparent",
+      fontWeight: item.bold ? 700 : 500,
+      fontStyle: item.italic ? "italic" : "normal",
+      textDecoration: item.underline ? "underline" : "none",
+    } as const;
+  }
 
   async function handleExport(type: "student" | "teacher", format: "pdf" | "docx") {
     if (!lessonPackage) return;
@@ -186,7 +199,7 @@ export default function PreviewPanel({
                               gap: "4px",
                             }}
                           >
-                            <div style={{ fontSize: "9px", fontWeight: "700", color: "var(--color-text)" }}>
+                            <div style={{ ...getPreviewTextStyle(item, "var(--color-text)"), fontWeight: item.bold ? 700 : 600 }}>
                               {item.label}
                             </div>
                             {item.type === "image" ? (
@@ -197,12 +210,12 @@ export default function PreviewPanel({
                                   style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "6px" }}
                                 />
                               ) : (
-                                <div style={{ fontSize: "9px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                                <div style={{ ...getPreviewTextStyle(item, "var(--color-text-subtle)"), lineHeight: 1.5 }}>
                                   연결된 생성 이미지가 없습니다.
                                 </div>
                               )
                             ) : (
-                              <div style={{ fontSize: "9px", color: "var(--color-text-muted)", lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                              <div style={{ ...getPreviewTextStyle(item, "var(--color-text-muted)"), lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
                                 {item.renderedText || "내용 없음"}
                               </div>
                             )}

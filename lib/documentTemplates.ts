@@ -17,6 +17,69 @@ export type TemplateCanvasItemType =
   | "text"
   | "image";
 
+export type TemplateFontPreset =
+  | "system-sans"
+  | "korean-gothic"
+  | "serif"
+  | "mono";
+
+export const TEMPLATE_FONT_OPTIONS: Array<{
+  value: TemplateFontPreset;
+  label: string;
+  webFamily: string;
+  pdfFamily: "Helvetica" | "Times-Roman" | "Courier";
+  pdfBoldFamily: string;
+  pdfItalicFamily: string;
+  pdfBoldItalicFamily: string;
+}> = [
+  {
+    value: "system-sans",
+    label: "기본 산세리프",
+    webFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    pdfFamily: "Helvetica",
+    pdfBoldFamily: "Helvetica-Bold",
+    pdfItalicFamily: "Helvetica-Oblique",
+    pdfBoldItalicFamily: "Helvetica-BoldOblique",
+  },
+  {
+    value: "korean-gothic",
+    label: "고딕체",
+    webFamily: '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif',
+    pdfFamily: "Helvetica",
+    pdfBoldFamily: "Helvetica-Bold",
+    pdfItalicFamily: "Helvetica-Oblique",
+    pdfBoldItalicFamily: "Helvetica-BoldOblique",
+  },
+  {
+    value: "serif",
+    label: "명조체",
+    webFamily: 'Georgia, "Times New Roman", serif',
+    pdfFamily: "Times-Roman",
+    pdfBoldFamily: "Times-Bold",
+    pdfItalicFamily: "Times-Italic",
+    pdfBoldItalicFamily: "Times-BoldItalic",
+  },
+  {
+    value: "mono",
+    label: "고정폭",
+    webFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    pdfFamily: "Courier",
+    pdfBoldFamily: "Courier-Bold",
+    pdfItalicFamily: "Courier-Oblique",
+    pdfBoldItalicFamily: "Courier-BoldOblique",
+  },
+];
+
+export const DEFAULT_TEMPLATE_TEXT_STYLE = {
+  fontFamily: "system-sans" as TemplateFontPreset,
+  fontSize: 12,
+  fontColor: "#334155",
+  highlightColor: null as string | null,
+  bold: false,
+  italic: false,
+  underline: false,
+};
+
 export interface DocumentTemplateBlock {
   id: string;
   type: TemplateBlockType;
@@ -38,7 +101,18 @@ export interface TemplateCanvasItem {
   imagePromptText?: string;
   imageBindingIndex?: number | null;
   imageBindingId?: string | null;
+  fontFamily?: TemplateFontPreset;
+  fontSize?: number;
+  fontColor?: string;
+  highlightColor?: string | null;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
   locked?: boolean;
+}
+
+export function getTemplateFontOption(value?: string | null) {
+  return TEMPLATE_FONT_OPTIONS.find((option) => option.value === value) ?? TEMPLATE_FONT_OPTIONS[0];
 }
 
 export interface TemplateCanvasPage {
@@ -92,6 +166,13 @@ function createSectionItem(
     y,
     w,
     h,
+    fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+    fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+    fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+    highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+    bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+    italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+    underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
   };
 }
 
@@ -105,6 +186,13 @@ function createTextItem(label: string, textContent: string, x: number, y: number
     y,
     w,
     h,
+    fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+    fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+    fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+    highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+    bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+    italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+    underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
   };
 }
 
@@ -121,6 +209,13 @@ function createImageItem(label: string, x: number, y: number, w: number, h: numb
     imagePromptText: "",
     imageBindingIndex: null,
     imageBindingId: null,
+    fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+    fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+    fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+    highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+    bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+    italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+    underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
   };
 }
 
@@ -276,6 +371,23 @@ function normalizeCanvasItem(item: unknown, index: number): TemplateCanvasItem {
       typeof source.imageBindingId === "string" && source.imageBindingId.trim()
         ? source.imageBindingId.trim()
         : null,
+    fontFamily:
+      typeof source.fontFamily === "string" &&
+      TEMPLATE_FONT_OPTIONS.some((option) => option.value === source.fontFamily)
+        ? (source.fontFamily as TemplateFontPreset)
+        : DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+    fontSize: clampNumber(source.fontSize, DEFAULT_TEMPLATE_TEXT_STYLE.fontSize, 8, 48),
+    fontColor:
+      typeof source.fontColor === "string" && source.fontColor.trim()
+        ? source.fontColor.trim()
+        : DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+    highlightColor:
+      typeof source.highlightColor === "string" && source.highlightColor.trim()
+        ? source.highlightColor.trim()
+        : null,
+    bold: source.bold === true,
+    italic: source.italic === true,
+    underline: source.underline === true,
     locked: source.locked === true,
   };
 }

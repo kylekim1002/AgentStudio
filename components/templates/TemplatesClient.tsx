@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  DEFAULT_TEMPLATE_TEXT_STYLE,
   DEFAULT_DOCUMENT_TEMPLATES,
   DocumentSectionKey,
   DocumentTemplate,
+  getTemplateFontOption,
+  TEMPLATE_FONT_OPTIONS,
   TemplateCanvasItem,
   TemplateCanvasItemType,
   TemplateCanvasPage,
@@ -174,6 +177,19 @@ function mmToPercentX(mm: number) {
 
 function mmToPercentY(mm: number) {
   return (mm / PAGE_HEIGHT_MM) * 100;
+}
+
+function getItemTextStyle(item: TemplateCanvasItem, fallbackColor: string) {
+  const font = getTemplateFontOption(item.fontFamily);
+  return {
+    fontFamily: font.webFamily,
+    fontSize: `${item.fontSize ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontSize}px`,
+    color: item.fontColor || fallbackColor,
+    backgroundColor: item.highlightColor || "transparent",
+    fontWeight: item.bold ? 700 : 500,
+    fontStyle: item.italic ? "italic" : "normal",
+    textDecoration: item.underline ? "underline" : "none",
+  } as const;
 }
 
 function pageSectionList(pages: TemplateCanvasPage[]) {
@@ -836,6 +852,13 @@ export default function TemplatesClient() {
             y: 12,
             w: 60,
             h: 28,
+            fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+            fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+            fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+            highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+            bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+            italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+            underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
           }
         : type === "image"
           ? {
@@ -849,6 +872,14 @@ export default function TemplatesClient() {
               imagePromptPresetId: imagePrompts[0]?.id ?? null,
               imagePromptText: imagePrompts[0]?.prompt ?? "",
               imageBindingIndex: null,
+              imageBindingId: null,
+              fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+              fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+              fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+              highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+              bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+              italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+              underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
             }
           : {
               id: createId("item"),
@@ -859,6 +890,13 @@ export default function TemplatesClient() {
               w: 50,
               h: 18,
               textContent: "텍스트를 입력하세요",
+              fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+              fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+              fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+              highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+              bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+              italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+              underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
             };
     const nextPages = selectedTemplate.pages.map((page) =>
       page.id === selectedPage.id
@@ -1500,15 +1538,15 @@ export default function TemplatesClient() {
                               boxShadow: isSelected ? "0 0 0 3px rgba(37,99,235,0.12)" : "none",
                             }}
                           >
-                            <div style={{ fontSize: "11px", fontWeight: "800", color: item.type === "section" ? selectedTemplate.accentColor : "var(--color-text)", display: "flex", alignItems: "center", gap: "6px" }}>
-                              {item.label}
+                            <div style={{ ...getItemTextStyle(item, item.type === "section" ? selectedTemplate.accentColor : "var(--color-text)"), display: "flex", alignItems: "center", gap: "6px", fontWeight: item.bold ? 800 : 700 }}>
+                              <span>{item.label}</span>
                               {item.locked && (
                                 <span style={{ fontSize: "10px", color: "#B45309", background: "#FEF3C7", padding: "2px 6px", borderRadius: "999px" }}>
                                   잠금
                                 </span>
                               )}
                             </div>
-                            <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--color-text-muted)", lineHeight: 1.5 }}>
+                            <div style={{ ...getItemTextStyle(item, "var(--color-text-muted)"), marginTop: "6px", lineHeight: 1.5 }}>
                               {item.type === "section" && (SECTION_OPTIONS.find((section) => section.key === item.sectionKey)?.label ?? "섹션")}
                               {item.type === "text" && (item.textContent || "텍스트 블록")}
                               {item.type === "image" && (
@@ -1742,6 +1780,74 @@ export default function TemplatesClient() {
                   />
                   이 블록 잠금
                 </label>
+
+                <div style={{ display: "grid", gap: "8px", padding: "10px", borderRadius: "10px", background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>텍스트 스타일</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>폰트</span>
+                      <select
+                        value={selectedItem.fontFamily ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily}
+                        onChange={(e) => updateItem(selectedItem.id, { fontFamily: e.target.value as typeof DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily })}
+                        style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
+                      >
+                        {TEMPLATE_FONT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>폰트 크기</span>
+                      <input
+                        type="number"
+                        min={8}
+                        max={48}
+                        value={Math.round(selectedItem.fontSize ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontSize)}
+                        onChange={(e) => updateItem(selectedItem.id, { fontSize: clamp(Number(e.target.value), 8, 48) })}
+                        style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>폰트 색상</span>
+                      <input
+                        type="color"
+                        value={selectedItem.fontColor ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontColor}
+                        onChange={(e) => updateItem(selectedItem.id, { fontColor: e.target.value })}
+                        style={{ width: "100%", minHeight: "42px", padding: "4px", borderRadius: "8px", border: "1px solid var(--color-border)", background: "#fff" }}
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>하이라이트 색상</span>
+                      <input
+                        type="color"
+                        value={selectedItem.highlightColor ?? "#FEF3C7"}
+                        onChange={(e) => updateItem(selectedItem.id, { highlightColor: e.target.value })}
+                        style={{ width: "100%", minHeight: "42px", padding: "4px", borderRadius: "8px", border: "1px solid var(--color-border)", background: "#fff" }}
+                      />
+                    </label>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-text)" }}>
+                      <input type="checkbox" checked={selectedItem.bold === true} onChange={(e) => updateItem(selectedItem.id, { bold: e.target.checked })} />
+                      강조
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-text)" }}>
+                      <input type="checkbox" checked={selectedItem.italic === true} onChange={(e) => updateItem(selectedItem.id, { italic: e.target.checked })} />
+                      기울기
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-text)" }}>
+                      <input type="checkbox" checked={selectedItem.underline === true} onChange={(e) => updateItem(selectedItem.id, { underline: e.target.checked })} />
+                      밑줄
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { highlightColor: null })}
+                      style={{ padding: "7px 10px", borderRadius: "999px", border: "1px solid var(--color-border)", background: "var(--color-surface)", fontSize: "11px", fontWeight: "700", color: "var(--color-text-muted)", cursor: "pointer" }}
+                    >
+                      하이라이트 제거
+                    </button>
+                  </div>
+                </div>
 
                 {selectedItem.type === "section" && (
                   <label style={{ display: "grid", gap: "6px" }}>

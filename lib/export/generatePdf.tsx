@@ -3,7 +3,7 @@ import {
   Document, Page, Text, View, StyleSheet, pdf, Font, Image,
 } from "@react-pdf/renderer";
 import { LessonPackage } from "@/lib/agents/types";
-import { DocumentTemplate } from "@/lib/documentTemplates";
+import { DEFAULT_TEMPLATE_TEXT_STYLE, DocumentTemplate, getTemplateFontOption, TemplateCanvasItem } from "@/lib/documentTemplates";
 import {
   renderCanvasTemplatePages,
 } from "@/lib/documentTemplateRender";
@@ -72,6 +72,27 @@ function mmToPoints(mm: number) {
   return (mm * 72) / 25.4;
 }
 
+function getCanvasPdfTextStyle(item: TemplateCanvasItem, fallbackColor: string) {
+  const font = getTemplateFontOption(item.fontFamily);
+  const useBold = item.bold === true;
+  const useItalic = item.italic === true;
+  const resolvedFontFamily = useBold && useItalic
+    ? font.pdfBoldItalicFamily
+    : useBold
+      ? font.pdfBoldFamily
+      : useItalic
+        ? font.pdfItalicFamily
+        : font.pdfFamily;
+
+  return {
+    fontFamily: resolvedFontFamily,
+    fontSize: Math.max(7, (item.fontSize ?? DEFAULT_TEMPLATE_TEXT_STYLE.fontSize) * 0.72),
+    color: item.fontColor || fallbackColor,
+    backgroundColor: item.highlightColor || undefined,
+    textDecoration: item.underline ? "underline" : "none",
+  } as const;
+}
+
 function CanvasDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
   const pageWidth = mmToPoints(210);
   const pageHeight = mmToPoints(297);
@@ -99,15 +120,15 @@ function CanvasDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
                   },
                 ]}
               >
-                <Text style={S.canvasItemLabel}>{item.label}</Text>
+                <Text style={[S.canvasItemLabel, getCanvasPdfTextStyle(item, "#0F172A")]}>{item.label}</Text>
                 {item.type === "image" ? (
                   item.resolvedImage ? (
                     <Image src={item.resolvedImage.url} style={S.canvasImage} />
                   ) : (
-                    <Text style={S.canvasPlaceholder}>연결된 이미지가 없습니다.</Text>
+                    <Text style={[S.canvasPlaceholder, getCanvasPdfTextStyle(item, "#64748B")]}>연결된 이미지가 없습니다.</Text>
                   )
                 ) : (
-                  <Text style={S.canvasItemText}>{item.renderedText || "내용 없음"}</Text>
+                  <Text style={[S.canvasItemText, getCanvasPdfTextStyle(item, "#334155")]}>{item.renderedText || "내용 없음"}</Text>
                 )}
               </View>
             );
