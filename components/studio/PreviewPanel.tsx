@@ -3,20 +3,30 @@
 import { useState } from "react";
 import { LessonPackage } from "@/lib/agents/types";
 import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
+import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
 
 interface PreviewPanelProps {
   lessonPackage: LessonPackage | null;
   onClose?: () => void;
   onSave?: () => void;
   canExportTeacher?: boolean;
+  templates: DocumentTemplate[];
+  selectedTemplateId: string;
+  onSelectTemplate: (templateId: string) => void;
 }
 
-type Layout = "simple" | "advanced";
-
-export default function PreviewPanel({ lessonPackage, onClose, onSave, canExportTeacher = true }: PreviewPanelProps) {
-  const [layout, setLayout] = useState<Layout>("simple");
+export default function PreviewPanel({
+  lessonPackage,
+  onClose,
+  onSave,
+  canExportTeacher = true,
+  templates,
+  selectedTemplateId,
+  onSelectTemplate,
+}: PreviewPanelProps) {
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["passage"]));
   const [exporting, setExporting] = useState<string | null>(null);
+  const activeTemplate = resolveDocumentTemplate(templates, selectedTemplateId);
 
   async function handleExport(type: "student" | "teacher", format: "pdf" | "docx") {
     if (!lessonPackage) return;
@@ -26,12 +36,12 @@ export default function PreviewPanel({ lessonPackage, onClose, onSave, canExport
       const fname = safeFilename(lessonPackage.title);
       if (format === "pdf") {
         const { generatePdf } = await import("@/lib/export/generatePdf");
-        const blob = await generatePdf(lessonPackage, type, layout);
-        downloadBlob(blob, `${fname}_${type === "teacher" ? "교사용" : "학생용"}_${layout}.pdf`);
+        const blob = await generatePdf(lessonPackage, type, activeTemplate);
+        downloadBlob(blob, `${fname}_${type === "teacher" ? "교사용" : "학생용"}_${activeTemplate.id}.pdf`);
       } else {
         const { generateDocx } = await import("@/lib/export/generateDocx");
-        const blob = await generateDocx(lessonPackage, type);
-        downloadBlob(blob, `${fname}_${type === "teacher" ? "교사용" : "학생용"}.docx`);
+        const blob = await generateDocx(lessonPackage, type, activeTemplate);
+        downloadBlob(blob, `${fname}_${type === "teacher" ? "교사용" : "학생용"}_${activeTemplate.id}.docx`);
       }
     } finally {
       setExporting(null);
@@ -54,7 +64,7 @@ export default function PreviewPanel({ lessonPackage, onClose, onSave, canExport
     { key: "grammar",    icon: "📐", title: "문법 미니레슨", badge: null, content: `${lessonPackage.grammar.focusPoint}\n\n${lessonPackage.grammar.explanation}` },
     { key: "writing",    icon: "✍️", title: "쓰기 과제", badge: null, content: lessonPackage.writing.prompt },
     { key: "assessment", icon: "📊", title: "평가지", badge: `${lessonPackage.assessment.questions.length}문항 / ${lessonPackage.assessment.totalPoints}점`, content: lessonPackage.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
-  ] : [];
+  ].filter((section) => activeTemplate.visibleSections.includes(section.key as typeof activeTemplate.visibleSections[number])) : [];
 
   return (
     <aside style={{
@@ -71,7 +81,6 @@ export default function PreviewPanel({ lessonPackage, onClose, onSave, canExport
       }}>
         <span style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)" }}>📄 문서 미리보기</span>
         <div style={{ display: "flex", gap: "4px" }}>
-          <button title="새로고침" style={{ width: "24px", height: "24px", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "13px" }}>↺</button>
           {onClose && (
             <button onClick={onClose} title="닫기" style={{ width: "24px", height: "24px", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "13px" }}>✕</button>
           )}
@@ -161,24 +170,30 @@ export default function PreviewPanel({ lessonPackage, onClose, onSave, canExport
 
       {/* Export footer */}
       <div style={{ padding: "11px 12px", borderTop: "1px solid var(--color-border)", flexShrink: 0 }}>
-        {/* Layout toggle */}
-        <div style={{ display: "flex", gap: "5px", marginBottom: "8px" }}>
-          <div style={{ fontSize: "10px", fontWeight: "600", color: "var(--color-text-muted)", alignSelf: "center", marginRight: "3px" }}>레이아웃</div>
-          {(["simple", "advanced"] as Layout[]).map((l) => (
-            <button
-              key={l}
-              onClick={() => setLayout(l)}
-              style={{
-                flex: 1, padding: "4px 8px", borderRadius: "5px",
-                border: `1px solid ${layout === l ? "var(--color-primary)" : "var(--color-border)"}`,
-                background: layout === l ? "var(--color-primary-light)" : "var(--color-surface)",
-                color: layout === l ? "var(--color-primary)" : "var(--color-text-muted)",
-                fontSize: "10px", fontWeight: "600", cursor: "pointer", transition: ".15s",
-              }}
-            >
-              {l === "simple" ? "심플" : "고급"}
-            </button>
-          ))}
+        <div style={{ display: "grid", gap: "8px", marginBottom: "8px" }}>
+          <div style={{ fontSize: "10px", fontWeight: "600", color: "var(--color-text-muted)" }}>템플릿</div>
+          <select
+            value={selectedTemplateId}
+            onChange={(e) => onSelectTemplate(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "7px 9px",
+              borderRadius: "6px",
+              border: "1px solid var(--color-border)",
+              fontSize: "11px",
+              color: "var(--color-text)",
+              background: "var(--color-surface)",
+            }}
+          >
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+            {activeTemplate.pageSize} · {activeTemplate.layout === "advanced" ? "고급" : "심플"} · {activeTemplate.previewLabel}
+          </div>
         </div>
 
         {/* Export buttons */}

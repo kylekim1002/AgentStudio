@@ -7,6 +7,8 @@ import {
 
 export { AIProvider };
 
+import { DocumentTemplate } from "@/lib/documentTemplates";
+
 export enum AgentName {
   INTENT_ROUTER = "intent_router_agent",
   TEACHING_FRAME = "teaching_frame_agent",
@@ -91,6 +93,30 @@ export interface ApprovedPassageLockOutput {
   title: string;
   wordCount: number;
   locked: true;
+}
+
+export interface PassageCheckpoint {
+  approvedPassageLock: ApprovedPassageLockOutput;
+  difficultyLock: DifficultyLockOutput;
+  teachingFrame: TeachingFrameOutput;
+}
+
+export interface PassageReviewResult {
+  kind: "passage_review";
+  checkpoint: PassageCheckpoint;
+}
+
+export interface ContentCheckpoint extends PassageCheckpoint {
+  reading: ReadingOutput;
+  vocabulary: VocabularyOutput;
+  grammar: GrammarOutput;
+  writing: WritingOutput;
+  assessment: AssessmentOutput;
+}
+
+export interface ContentReviewResult {
+  kind: "content_review";
+  checkpoint: ContentCheckpoint;
 }
 
 export interface ReadingOutput {
@@ -214,6 +240,11 @@ export interface LessonRequest {
   approvalMode?: "auto" | "require_review";
   contentCounts?: ContentCounts;
   apiKeys?: ApiKeys;
+  generationTarget?: "full" | "passage_review" | "content_review" | "passage_and_content_review";
+  passageCheckpoint?: PassageCheckpoint;
+  contentCheckpoint?: ContentCheckpoint;
+  regenerateAgents?: AgentName[];
+  revisionInstructions?: Partial<Record<AgentName, string>>;
 }
 
 export interface LessonPackage {
@@ -221,6 +252,7 @@ export interface LessonPackage {
   difficulty: DifficultyLevel;
   passage: string;
   wordCount: number;
+  documentTemplate?: DocumentTemplate;
   reading: ReadingOutput;
   vocabulary: VocabularyOutput;
   grammar: GrammarOutput;

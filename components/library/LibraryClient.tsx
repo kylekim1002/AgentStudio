@@ -9,6 +9,7 @@ import { AppRole } from "@/lib/authz/roles";
 import { DEFAULT_REVIEW_NOTE_TEMPLATES, ReviewNoteTemplates } from "@/lib/reviewTemplates";
 import { DEFAULT_REVIEW_SLA_HOURS, getReviewWarningHours } from "@/lib/reviewSettings";
 import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
+import { DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -336,14 +337,21 @@ export default function LibraryClient({
     try {
       const fname = safeFilename(lessonDetail.package.title);
       const label = type === "teacher" ? "교사용" : "학생용";
+      const template =
+        lessonDetail.package.documentTemplate
+          ? resolveDocumentTemplate(
+              [lessonDetail.package.documentTemplate, ...DEFAULT_DOCUMENT_TEMPLATES],
+              lessonDetail.package.documentTemplate.id
+            )
+          : DEFAULT_DOCUMENT_TEMPLATES[0];
       if (format === "pdf") {
         const { generatePdf } = await import("@/lib/export/generatePdf");
-        const blob = await generatePdf(lessonDetail.package, type, "simple");
-        downloadBlob(blob, `${fname}_${label}.pdf`);
+        const blob = await generatePdf(lessonDetail.package, type, template);
+        downloadBlob(blob, `${fname}_${label}_${template.id}.pdf`);
       } else {
         const { generateDocx } = await import("@/lib/export/generateDocx");
-        const blob = await generateDocx(lessonDetail.package, type);
-        downloadBlob(blob, `${fname}_${label}.docx`);
+        const blob = await generateDocx(lessonDetail.package, type, template);
+        downloadBlob(blob, `${fname}_${label}_${template.id}.docx`);
       }
     } catch (e) {
       console.error("Export failed:", e);
@@ -1387,6 +1395,11 @@ export default function LibraryClient({
                     <span style={{ fontSize: "11px", color: lessonDetail.reviewer_name ? "var(--color-text-muted)" : "var(--color-text-subtle)" }}>
                       검토자: {lessonDetail.reviewer_name ?? "미배정"}
                     </span>
+                    {lessonDetail.package.documentTemplate?.name && (
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
+                        템플릿: {lessonDetail.package.documentTemplate.name}
+                      </span>
+                    )}
                     {lessonDetail.assignment_mode && (
                       <span
                         style={{
@@ -1615,6 +1628,11 @@ export default function LibraryClient({
             {/* Export buttons */}
             <div style={{ padding: "11px 14px", borderTop: "1px solid var(--color-border)" }}>
               <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text-muted)", marginBottom: "7px" }}>내보내기</div>
+              {lessonDetail?.package.documentTemplate?.name && (
+                <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginBottom: "8px", lineHeight: 1.5 }}>
+                  현재 저장된 템플릿: {lessonDetail.package.documentTemplate.name}
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px" }}>
                 {([
                   { label: "학생용 PDF",  type: "student" as const, format: "pdf"  as const },

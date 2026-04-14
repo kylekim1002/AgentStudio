@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
+import { AgentName, AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
+import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
+import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
@@ -18,6 +20,7 @@ interface StudioClientProps {
   canToggleApproval: boolean;
   canExportTeacher: boolean;
   defaultProvider?: AIProvider;
+  initialDocumentTemplates: DocumentTemplate[];
 }
 
 const PROVIDERS: { value: AIProvider; label: string; color: string; short: string }[] = [
@@ -26,12 +29,29 @@ const PROVIDERS: { value: AIProvider; label: string; color: string; short: strin
   { value: AIProvider.GEMINI,  label: "Gemini",  color: "#4285F4", short: "Ge" },
 ];
 
+const CONTENT_REVIEW_AGENTS: Array<{
+  key: keyof ContentCheckpoint;
+  agent: AgentName;
+  title: string;
+  mention: string;
+}> = [
+  { key: "reading", agent: AgentName.READING, title: "독해", mention: "@reading" },
+  { key: "vocabulary", agent: AgentName.VOCABULARY, title: "어휘", mention: "@vocabulary" },
+  { key: "grammar", agent: AgentName.GRAMMAR, title: "문법", mention: "@grammar" },
+  { key: "writing", agent: AgentName.WRITING, title: "쓰기", mention: "@writing" },
+  { key: "assessment", agent: AgentName.ASSESSMENT, title: "평가지", mention: "@assessment" },
+];
+
+const STUDIO_TEMPLATE_STORAGE_KEY = "cyj-studio:selected-template";
+const STUDIO_TARGET_STORAGE_KEY = "cyj-studio:generation-target";
+
 export default function StudioClient({
   canViewPipeline,
   canSelectProvider,
   canToggleApproval,
   canExportTeacher,
   defaultProvider,
+  initialDocumentTemplates,
 }: StudioClientProps) {
   const [mode, setMode] = useState<Mode>("chat");
   const [provider, setProvider] = useState<AIProvider>(defaultProvider ?? AIProvider.CLAUDE);
@@ -40,9 +60,46 @@ export default function StudioClient({
   const [showPreview, setShowPreview] = useState(true);
   const [showCounts, setShowCounts] = useState(false);
   const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
+  const [documentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(initialDocumentTemplates[0]?.id ?? "");
+  const [generationTarget, setGenerationTarget] = useState<"full" | "passage_review" | "content_review" | "passage_and_content_review">("full");
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewPassage, setReviewPassage] = useState("");
+  const [revisionPrompt, setRevisionPrompt] = useState("");
+  const [contentRevisionNotes, setContentRevisionNotes] = useState<Partial<Record<AgentName, string>>>({});
+  const [lastUserInput, setLastUserInput] = useState("");
+  const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
 
-  const { isRunning, agentStates, lessonPackage, error, generate, reset } = useLessonGenerate();
+  const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
   const prevPackage = useRef<typeof lessonPackage>(null);
+  const prevCheckpoint = useRef<PassageCheckpoint | null>(null);
+  const prevContentCheckpoint = useRef<ContentCheckpoint | null>(null);
+
+  useEffect(() => {
+    const savedTemplateId = window.localStorage.getItem(STUDIO_TEMPLATE_STORAGE_KEY);
+    if (savedTemplateId && initialDocumentTemplates.some((template) => template.id === savedTemplateId)) {
+      setSelectedTemplateId(savedTemplateId);
+    }
+
+    const savedGenerationTarget = window.localStorage.getItem(STUDIO_TARGET_STORAGE_KEY);
+    if (
+      savedGenerationTarget === "full" ||
+      savedGenerationTarget === "passage_review" ||
+      savedGenerationTarget === "content_review" ||
+      savedGenerationTarget === "passage_and_content_review"
+    ) {
+      setGenerationTarget(savedGenerationTarget);
+    }
+  }, [initialDocumentTemplates]);
+
+  useEffect(() => {
+    if (!selectedTemplateId) return;
+    window.localStorage.setItem(STUDIO_TEMPLATE_STORAGE_KEY, selectedTemplateId);
+  }, [selectedTemplateId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(STUDIO_TARGET_STORAGE_KEY, generationTarget);
+  }, [generationTarget]);
 
   // Auto-open save dialog when a new lesson package is generated
   useEffect(() => {
@@ -52,24 +109,167 @@ export default function StudioClient({
     prevPackage.current = lessonPackage;
   }, [lessonPackage]);
 
+  useEffect(() => {
+    if (passageCheckpoint && passageCheckpoint !== prevCheckpoint.current) {
+      setReviewTitle(passageCheckpoint.approvedPassageLock.title);
+      setReviewPassage(passageCheckpoint.approvedPassageLock.passage);
+      setRevisionPrompt("");
+      setShowPreview(true);
+    }
+    prevCheckpoint.current = passageCheckpoint;
+  }, [passageCheckpoint]);
+
+  useEffect(() => {
+    if (contentCheckpoint && contentCheckpoint !== prevContentCheckpoint.current) {
+      setContentRevisionNotes({});
+      setShowPreview(true);
+    }
+    prevContentCheckpoint.current = contentCheckpoint;
+  }, [contentCheckpoint]);
+
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
 
   function handleConfirmGenerate(chatSummary: string) {
+    setLastUserInput(chatSummary || "전체 파이프라인을 실행해 주세요.");
     generate({
       userInput: chatSummary || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
       contentCounts,
+      generationTarget,
     });
   }
 
   function handleRunAll(userInput?: string) {
+    const nextInput = userInput || "전체 파이프라인을 실행해 주세요.";
+    setLastUserInput(nextInput);
     generate({
-      userInput: userInput || "전체 파이프라인을 실행해 주세요.",
+      userInput: nextInput,
       provider,
       approvalMode,
       contentCounts,
+      generationTarget,
     });
+  }
+
+  function buildEditedCheckpoint() {
+    if (!passageCheckpoint) return null;
+    const trimmedPassage = reviewPassage.trim();
+    const trimmedTitle = reviewTitle.trim() || passageCheckpoint.approvedPassageLock.title;
+    const wordCount = trimmedPassage
+      ? trimmedPassage
+          .split(/\s+/)
+          .map((token) => token.trim())
+          .filter(Boolean).length
+      : passageCheckpoint.approvedPassageLock.wordCount;
+
+    return {
+      ...passageCheckpoint,
+      approvedPassageLock: {
+        ...passageCheckpoint.approvedPassageLock,
+        title: trimmedTitle,
+        passage: trimmedPassage || passageCheckpoint.approvedPassageLock.passage,
+        wordCount,
+      },
+    };
+  }
+
+  function handleContinueFromPassage() {
+    const checkpoint = buildEditedCheckpoint();
+    if (!checkpoint) return;
+    generate({
+      userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+      contentCounts,
+      generationTarget:
+        generationTarget === "passage_and_content_review"
+          ? "content_review"
+          : "full",
+      passageCheckpoint: checkpoint,
+    });
+  }
+
+  function handleRegeneratePassage(fullReset: boolean) {
+    const baseInput = lastUserInput || "전체 파이프라인을 실행해 주세요.";
+    const revisionText = revisionPrompt.trim();
+    const nextInput =
+      !fullReset && revisionText
+        ? `${baseInput}\n\n지문 수정 요청:\n${revisionText}`
+        : baseInput;
+
+    setLastUserInput(nextInput);
+    generate({
+      userInput: nextInput,
+      provider,
+      approvalMode,
+      contentCounts,
+      generationTarget:
+        generationTarget === "passage_and_content_review"
+          ? "passage_and_content_review"
+          : "passage_review",
+    });
+  }
+
+  function handleContinueFromContent() {
+    if (!contentCheckpoint) return;
+    generate({
+      userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+      contentCounts,
+      generationTarget: "full",
+      contentCheckpoint,
+    });
+  }
+
+  function handleRegenerateContentAgent(agent: AgentName) {
+    if (!contentCheckpoint) return;
+    generate({
+      userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+      contentCounts,
+      generationTarget: "content_review",
+      contentCheckpoint,
+      regenerateAgents: [agent],
+      revisionInstructions: contentRevisionNotes,
+    });
+  }
+
+  function handleRegenerateAllContent() {
+    if (!contentCheckpoint) return;
+    generate({
+      userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
+      provider,
+      approvalMode,
+      contentCounts,
+      generationTarget: "content_review",
+      passageCheckpoint: {
+        approvedPassageLock: contentCheckpoint.approvedPassageLock,
+        difficultyLock: contentCheckpoint.difficultyLock,
+        teachingFrame: contentCheckpoint.teachingFrame,
+      },
+    });
+  }
+
+  function summarizeContentSection(checkpoint: ContentCheckpoint, key: keyof ContentCheckpoint) {
+    if (key === "reading") {
+      return checkpoint.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n");
+    }
+    if (key === "vocabulary") {
+      return checkpoint.vocabulary.words.map((w) => `${w.word} — ${w.definition}`).join("\n");
+    }
+    if (key === "grammar") {
+      return `${checkpoint.grammar.focusPoint}\n\n${checkpoint.grammar.explanation}`;
+    }
+    if (key === "writing") {
+      return checkpoint.writing.prompt;
+    }
+    if (key === "assessment") {
+      return checkpoint.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n");
+    }
+    return "";
   }
 
   async function handleSave(
@@ -85,7 +285,11 @@ export default function StudioClient({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        package: { ...lessonPackage, title: lessonName || lessonPackage.title },
+        package: {
+          ...lessonPackage,
+          title: lessonName || lessonPackage.title,
+          documentTemplate: activeTemplate,
+        },
         provider,
         project_id: projectId,
         tags: tagList,
@@ -349,6 +553,60 @@ export default function StudioClient({
           )}
         </div>
 
+        <div style={{ position: "relative" }}>
+          <select
+            value={selectedTemplateId}
+            onChange={(e) => setSelectedTemplateId(e.target.value)}
+            disabled={isRunning}
+            style={{
+              appearance: "none",
+              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+              borderRadius: "6px", border: "1px solid var(--color-border)",
+              fontSize: "12px", color: "var(--color-text-muted)",
+              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.6 : 1,
+              maxWidth: "180px",
+            }}
+            title="문서 템플릿을 선택합니다"
+          >
+            {documentTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+
+        <div style={{ position: "relative" }}>
+          <select
+            value={generationTarget}
+            onChange={(e) => setGenerationTarget(e.target.value as "full" | "passage_review")}
+            disabled={isRunning}
+            style={{
+              appearance: "none",
+              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+              borderRadius: "6px", border: "1px solid var(--color-border)",
+              fontSize: "12px", color: "var(--color-text-muted)",
+              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.6 : 1,
+            }}
+            title="생성 범위를 선택합니다"
+          >
+            <option value="full">01~16 전체 생성</option>
+            <option value="passage_review">09 지문 확정까지 생성 후 검토</option>
+            <option value="content_review">14 콘텐츠 생성까지 완료 후 검토</option>
+            <option value="passage_and_content_review">지문 검토 후 콘텐츠도 검토</option>
+          </select>
+          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+
         {/* Toolbar right */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "7px" }}>
           {/* Preview toggle */}
@@ -409,6 +667,306 @@ export default function StudioClient({
       </div>
 
       {/* ── Body (3 panels) ── */}
+      {passageCheckpoint && (
+        <div style={{
+          background: "#FFFBEB",
+          borderBottom: "1px solid #FDE68A",
+          padding: "14px 16px",
+          display: "grid",
+          gridTemplateColumns: showPreview ? "minmax(0, 1.2fr) minmax(280px, 0.8fr)" : "1fr",
+          gap: "14px",
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: "13px", fontWeight: "700", color: "#92400E", marginBottom: "6px" }}>
+              지문 1차 검토 단계
+            </div>
+            <div style={{ fontSize: "12px", color: "#A16207", lineHeight: 1.6, marginBottom: "10px" }}>
+              09 지문 확정 잠금기까지 생성했습니다. 제목과 지문을 검토한 뒤 그대로 다음 단계로 진행하거나, 수정 요청을 반영해 지문만 다시 생성할 수 있습니다.
+            </div>
+            <input
+              value={reviewTitle}
+              onChange={(e) => setReviewTitle(e.target.value)}
+              disabled={isRunning}
+              style={{
+                width: "100%",
+                marginBottom: "8px",
+                padding: "8px 10px",
+                borderRadius: "8px",
+                border: "1px solid #FCD34D",
+                background: "#fff",
+                fontSize: "13px",
+                color: "var(--color-text)",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <textarea
+              value={reviewPassage}
+              onChange={(e) => setReviewPassage(e.target.value)}
+              disabled={isRunning}
+              rows={8}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: "1px solid #FCD34D",
+                background: "#fff",
+                fontSize: "12px",
+                lineHeight: 1.7,
+                color: "var(--color-text)",
+                outline: "none",
+                boxSizing: "border-box",
+                resize: "vertical",
+              }}
+            />
+          </div>
+          <div style={{
+            background: "rgba(255,255,255,0.75)",
+            border: "1px solid #FDE68A",
+            borderRadius: "10px",
+            padding: "12px",
+            minWidth: 0,
+          }}>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: "#92400E", marginBottom: "6px" }}>
+              다음 액션
+            </div>
+            <div style={{ fontSize: "11px", color: "#A16207", lineHeight: 1.6, marginBottom: "10px" }}>
+              수정 방향이 있다면 아래에 적고 지문만 다시 생성하세요. 그대로 괜찮으면 다음 단계로 이어서 10~16을 생성합니다.
+            </div>
+            <textarea
+              value={revisionPrompt}
+              onChange={(e) => setRevisionPrompt(e.target.value)}
+              disabled={isRunning}
+              placeholder="예: 도입 문장을 더 자연스럽게, 문단 2는 초등부 어휘로 낮춰줘"
+              rows={5}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                borderRadius: "8px",
+                border: "1px solid var(--color-border)",
+                background: "#fff",
+                fontSize: "12px",
+                lineHeight: 1.6,
+                color: "var(--color-text)",
+                outline: "none",
+                boxSizing: "border-box",
+                resize: "vertical",
+                marginBottom: "10px",
+              }}
+            />
+            <div style={{ display: "grid", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={handleContinueFromPassage}
+                disabled={isRunning}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "var(--color-primary)",
+                  color: "#fff",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: isRunning ? "not-allowed" : "pointer",
+                  opacity: isRunning ? 0.7 : 1,
+                }}
+              >
+                이 지문으로 다음 단계 진행
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRegeneratePassage(false)}
+                disabled={isRunning}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: isRunning ? "not-allowed" : "pointer",
+                  opacity: isRunning ? 0.7 : 1,
+                }}
+              >
+                수정 요청 반영해 지문 다시 생성
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRegeneratePassage(true)}
+                disabled={isRunning}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #FCA5A5",
+                  background: "#FEF2F2",
+                  color: "#B91C1C",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: isRunning ? "not-allowed" : "pointer",
+                  opacity: isRunning ? 0.7 : 1,
+                }}
+              >
+                처음부터 완전 다시 생성
+              </button>
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6, marginTop: "10px" }}>
+              세부 논의가 필요하면 채팅 모드에서 <strong>@passage_generation</strong> 또는 <strong>@passage_validation</strong>를 호출해 수정 방향을 먼저 정리할 수 있습니다.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contentCheckpoint && (
+        <div style={{
+          background: "#EFF6FF",
+          borderBottom: "1px solid #BFDBFE",
+          padding: "14px 16px",
+          display: "grid",
+          gap: "12px",
+        }}>
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: "700", color: "#1D4ED8", marginBottom: "6px" }}>
+              콘텐츠 2차 검토 단계
+            </div>
+            <div style={{ fontSize: "12px", color: "#1E40AF", lineHeight: 1.6 }}>
+              독해, 어휘, 문법, 쓰기, 평가지가 생성되었습니다. 각 섹션별로 수정 지시를 남기고 부분 재생성하거나, 그대로 QA/발행 단계로 진행할 수 있습니다.
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "12px" }}>
+            {CONTENT_REVIEW_AGENTS.map((section) => (
+              <div
+                key={section.agent}
+                style={{
+                  background: "rgba(255,255,255,0.75)",
+                  border: "1px solid #BFDBFE",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "#1D4ED8" }}>
+                    {section.title}
+                  </div>
+                  <div style={{ fontSize: "10px", color: "#1E40AF", background: "#DBEAFE", padding: "3px 7px", borderRadius: "999px" }}>
+                    {section.mention}
+                  </div>
+                </div>
+                <pre style={{
+                  margin: 0,
+                  fontSize: "11px",
+                  lineHeight: 1.6,
+                  color: "var(--color-text)",
+                  background: "#fff",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "8px",
+                  padding: "10px",
+                  maxHeight: "180px",
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}>
+                  {summarizeContentSection(contentCheckpoint, section.key)}
+                </pre>
+                <textarea
+                  value={contentRevisionNotes[section.agent] ?? ""}
+                  onChange={(e) =>
+                    setContentRevisionNotes((prev) => ({
+                      ...prev,
+                      [section.agent]: e.target.value,
+                    }))
+                  }
+                  disabled={isRunning}
+                  placeholder={`${section.mention} 에게 수정 방향을 지시하세요`}
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    marginTop: "8px",
+                    padding: "9px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--color-border)",
+                    background: "#fff",
+                    fontSize: "12px",
+                    lineHeight: 1.6,
+                    color: "var(--color-text)",
+                    outline: "none",
+                    boxSizing: "border-box",
+                    resize: "vertical",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRegenerateContentAgent(section.agent)}
+                  disabled={isRunning}
+                  style={{
+                    width: "100%",
+                    marginTop: "8px",
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid #93C5FD",
+                    background: "#DBEAFE",
+                    color: "#1D4ED8",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    cursor: isRunning ? "not-allowed" : "pointer",
+                    opacity: isRunning ? 0.7 : 1,
+                  }}
+                >
+                  {section.title}만 다시 생성
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "flex-end",
+          }}>
+            <button
+              type="button"
+              onClick={handleRegenerateAllContent}
+              disabled={isRunning}
+              style={{
+                padding: "9px 12px",
+                borderRadius: "8px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                opacity: isRunning ? 0.7 : 1,
+              }}
+            >
+              콘텐츠 전체 다시 생성
+            </button>
+            <button
+              type="button"
+              onClick={handleContinueFromContent}
+              disabled={isRunning}
+              style={{
+                padding: "9px 12px",
+                borderRadius: "8px",
+                border: "none",
+                background: "var(--color-primary)",
+                color: "#fff",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                opacity: isRunning ? 0.7 : 1,
+              }}
+            >
+              이 상태로 QA/발행 진행
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
         {/* Left: Agent panel */}
@@ -445,6 +1003,9 @@ export default function StudioClient({
             onClose={() => setShowPreview(false)}
             onSave={() => setShowSave(true)}
             canExportTeacher={canExportTeacher}
+            templates={documentTemplates}
+            selectedTemplateId={selectedTemplateId}
+            onSelectTemplate={setSelectedTemplateId}
           />
         )}
       </div>
@@ -453,6 +1014,7 @@ export default function StudioClient({
       {showSave && (
         <SaveDialog
           lessonPackage={lessonPackage}
+          selectedTemplateName={activeTemplate.name}
           onClose={() => setShowSave(false)}
           onSave={handleSave}
         />

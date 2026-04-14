@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { AgentName, AIProvider, ContentCounts, DifficultyLevel, LessonPackage, AgentStatus } from "@/lib/agents/types";
+import { AgentName as LessonAgentName, ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
 
 export interface AgentProgressState {
   agent: AgentName;
@@ -14,6 +15,8 @@ export interface GenerateState {
   isRunning: boolean;
   agentStates: Map<AgentName, AgentProgressState>;
   lessonPackage: LessonPackage | null;
+  passageCheckpoint: PassageCheckpoint | null;
+  contentCheckpoint: ContentCheckpoint | null;
   error: string | null;
 }
 
@@ -49,6 +52,8 @@ export function useLessonGenerate() {
     isRunning: false,
     agentStates: initialAgentStates(),
     lessonPackage: null,
+    passageCheckpoint: null,
+    contentCheckpoint: null,
     error: null,
   });
   const abortRef = useRef<AbortController | null>(null);
@@ -61,6 +66,11 @@ export function useLessonGenerate() {
       providedPassage?: string;
       approvalMode?: "auto" | "require_review";
       contentCounts?: ContentCounts;
+      generationTarget?: "full" | "passage_review" | "content_review" | "passage_and_content_review";
+      passageCheckpoint?: PassageCheckpoint;
+      contentCheckpoint?: ContentCheckpoint;
+      regenerateAgents?: LessonAgentName[];
+      revisionInstructions?: Partial<Record<LessonAgentName, string>>;
     }) => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -70,6 +80,8 @@ export function useLessonGenerate() {
         isRunning: true,
         agentStates: initialAgentStates(),
         lessonPackage: null,
+        passageCheckpoint: null,
+        contentCheckpoint: null,
         error: null,
       });
 
@@ -136,6 +148,24 @@ export function useLessonGenerate() {
                 ...prev,
                 isRunning: false,
                 lessonPackage: event.package as LessonPackage,
+                passageCheckpoint: null,
+                contentCheckpoint: null,
+              }));
+            } else if (event.type === "passage_review") {
+              setState((prev) => ({
+                ...prev,
+                isRunning: false,
+                lessonPackage: null,
+                passageCheckpoint: (event.checkpoint as PassageCheckpoint) ?? null,
+                contentCheckpoint: null,
+              }));
+            } else if (event.type === "content_review") {
+              setState((prev) => ({
+                ...prev,
+                isRunning: false,
+                lessonPackage: null,
+                passageCheckpoint: null,
+                contentCheckpoint: (event.checkpoint as ContentCheckpoint) ?? null,
               }));
             } else if (event.type === "approval_required") {
               const summary =
@@ -178,6 +208,8 @@ export function useLessonGenerate() {
       isRunning: false,
       agentStates: initialAgentStates(),
       lessonPackage: null,
+      passageCheckpoint: null,
+      contentCheckpoint: null,
       error: null,
     });
   }, []);

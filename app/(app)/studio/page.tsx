@@ -3,6 +3,10 @@ import StudioClient from "@/components/studio/StudioClient";
 import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 import { AIProvider } from "@/lib/agents/types";
+import {
+  DEFAULT_DOCUMENT_TEMPLATES,
+  normalizeDocumentTemplates,
+} from "@/lib/documentTemplates";
 
 function resolveProvider(value: unknown): AIProvider | undefined {
   if (value === AIProvider.CLAUDE || value === AIProvider.GPT || value === AIProvider.GEMINI) {
@@ -36,6 +40,16 @@ export default async function StudioPage() {
     ? (savedProvider ?? AIProvider.CLAUDE)
     : AIProvider.CLAUDE;
 
+  const { data: templateSetting } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "document_templates")
+    .maybeSingle();
+
+  const documentTemplates = normalizeDocumentTemplates(
+    templateSetting?.value ?? DEFAULT_DOCUMENT_TEMPLATES
+  );
+
   return (
     <StudioClient
       canViewPipeline={access.features.includes("studio.pipeline_view")}
@@ -43,6 +57,7 @@ export default async function StudioPage() {
       canToggleApproval={access.features.includes("studio.approval_toggle")}
       canExportTeacher={access.features.includes("library.export_teacher")}
       defaultProvider={defaultProvider}
+      initialDocumentTemplates={documentTemplates}
     />
   );
 }

@@ -5,9 +5,12 @@ import { AIProvider } from "@/lib/workflows/core/types";
 import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 import {
+  AgentName,
   ContentCounts,
+  ContentCheckpoint,
   DifficultyLevel,
   LessonRequest,
+  PassageCheckpoint,
 } from "@/lib/workflows/lesson/types";
 
 export const runtime = "nodejs";
@@ -43,13 +46,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { userInput, provider, difficulty, providedPassage, contentCounts } = body as {
+  const { userInput, provider, difficulty, providedPassage, contentCounts, generationTarget, passageCheckpoint, contentCheckpoint, regenerateAgents, revisionInstructions } = body as {
     userInput?: string;
     provider?: string;
     difficulty?: string;
     providedPassage?: string;
     approvalMode?: "auto" | "require_review";
     contentCounts?: ContentCounts;
+    generationTarget?: "full" | "passage_review" | "content_review" | "passage_and_content_review";
+    passageCheckpoint?: PassageCheckpoint;
+    contentCheckpoint?: ContentCheckpoint;
+    regenerateAgents?: AgentName[];
+    revisionInstructions?: Partial<Record<AgentName, string>>;
   };
 
   // Load user's saved API keys from profile settings
@@ -66,8 +74,22 @@ export async function POST(req: NextRequest) {
     google?: string;
   };
 
+  const resolvedProvider =
+    provider === AIProvider.CLAUDE ||
+    provider === AIProvider.GPT ||
+    provider === AIProvider.GEMINI
+      ? provider
+      : null;
+
   if (!userInput || typeof userInput !== "string") {
     return new Response(JSON.stringify({ error: "userInput is required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (access.features.includes("studio.provider_select") && !resolvedProvider) {
+    return new Response(JSON.stringify({ error: "Invalid provider" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
@@ -91,10 +113,20 @@ export async function POST(req: NextRequest) {
   const lessonRequest: LessonRequest = {
     userInput,
     provider: access.features.includes("studio.provider_select")
-      ? ((provider as AIProvider) ?? AIProvider.CLAUDE)
+      ? (resolvedProvider ?? AIProvider.CLAUDE)
       : AIProvider.CLAUDE,
     difficulty: difficulty as DifficultyLevel | undefined,
     providedPassage,
+    generationTarget:
+      generationTarget === "passage_review" ||
+      generationTarget === "content_review" ||
+      generationTarget === "passage_and_content_review"
+        ? generationTarget
+        : "full",
+    passageCheckpoint,
+    contentCheckpoint,
+    regenerateAgents,
+    revisionInstructions,
     contentCounts: safeCounts,
     approvalMode: access.features.includes("studio.approval_toggle")
       ? (body && typeof body === "object"
@@ -123,6 +155,21 @@ export async function POST(req: NextRequest) {
       };
     },
     formatComplete(event) {
+      const result = event.result as Record<string, unknown>;
+      if (result?.kind === "passage_review") {
+        return {
+          type: "passage_review",
+          executionId: event.executionId,
+          checkpoint: result.checkpoint,
+        };
+      }
+      if (result?.kind === "content_review") {
+        return {
+          type: "content_review",
+          executionId: event.executionId,
+          checkpoint: result.checkpoint,
+        };
+      }
       return {
         type: "complete",
         executionId: event.executionId,

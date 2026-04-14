@@ -212,6 +212,20 @@ export default function AppShell({
   const displayName = userName || userEmail;
   const navTabs = [
     ...BASE_NAV_TABS,
+    ...((userRole === "admin" || userRole === "lead_teacher")
+      ? [
+          {
+            href: "/templates",
+            label: "템플릿 관리",
+            icon: (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            ),
+          },
+        ]
+      : []),
     ...(userFeatures.includes("ops.view")
       ? [
           {

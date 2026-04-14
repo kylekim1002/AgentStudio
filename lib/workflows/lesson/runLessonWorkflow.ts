@@ -7,10 +7,14 @@ import {
   AgentName,
   ApprovedPassageLockOutput,
   AssessmentOutput,
+  ContentCheckpoint,
+  ContentReviewResult,
+  PassageCheckpoint,
   DEFAULT_CONTENT_COUNTS,
   LessonPackage,
   LessonRequest,
   LessonWorkflowState,
+  PassageReviewResult,
   PassageGenerationOutput,
   PassageValidationOutput,
   PublisherMetaOutput,
@@ -32,7 +36,7 @@ export const LESSON_WORKFLOW_NAME = "lesson_generation";
 
 export const lessonWorkflowDefinition: WorkflowDefinition<
   LessonRequest,
-  LessonPackage,
+  LessonPackage | PassageReviewResult | ContentReviewResult,
   AgentName
 > = {
   name: LESSON_WORKFLOW_NAME,
@@ -59,138 +63,272 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     const callAgent = <T>(name: AgentName, input: unknown): Promise<T> =>
       runLessonAgent<T>(name, request.provider, input, request.apiKeys);
 
-    state.intentRouter = await runtime.step<IntentRouterOutput>(
-      AgentName.INTENT_ROUTER,
-      () => callAgent(AgentName.INTENT_ROUTER, { userInput: request.userInput })
-    );
+    const runContentStage = async () => {
+      const lockedContext = {
+        passage: state.approvedPassageLock,
+        difficultyLock: state.difficultyLock,
+        teachingFrame: state.teachingFrame,
+      };
 
-    state.teachingFrame = await runtime.step<TeachingFrameOutput>(
-      AgentName.TEACHING_FRAME,
-      () =>
-        callAgent(AgentName.TEACHING_FRAME, {
-          intentRouter: state.intentRouter,
-          userInput: request.userInput,
-        })
-    );
+      const counts = {
+        reading: request.contentCounts?.reading ?? DEFAULT_CONTENT_COUNTS.reading,
+        vocabulary: request.contentCounts?.vocabulary ?? DEFAULT_CONTENT_COUNTS.vocabulary,
+        assessment: request.contentCounts?.assessment ?? DEFAULT_CONTENT_COUNTS.assessment,
+        grammarExercises: request.contentCounts?.grammarExercises ?? DEFAULT_CONTENT_COUNTS.grammarExercises,
+      };
 
-    state.difficultyLock = await runtime.step<DifficultyLockOutput>(
-      AgentName.DIFFICULTY_LOCK,
-      () =>
-        callAgent(AgentName.DIFFICULTY_LOCK, {
-          teachingFrame: state.teachingFrame,
-          requestedDifficulty: request.difficulty,
-        })
-    );
+      const regenerateAgents = new Set(request.regenerateAgents ?? []);
+      const revisionInstructions = request.revisionInstructions ?? {};
 
-    state.sourceModeRouter = await runtime.step<SourceModeRouterOutput>(
-      AgentName.SOURCE_MODE_ROUTER,
-      () =>
-        callAgent(AgentName.SOURCE_MODE_ROUTER, {
-          intentRouter: state.intentRouter,
-          providedPassage: request.providedPassage,
-        })
-    );
+      const getAgentInput = (agent: AgentName) => ({
+        ...lockedContext,
+        ...(agent === AgentName.READING ? { targetCount: counts.reading } : {}),
+        ...(agent === AgentName.VOCABULARY ? { targetCount: counts.vocabulary } : {}),
+        ...(agent === AgentName.GRAMMAR ? { targetCount: counts.grammarExercises } : {}),
+        ...(agent === AgentName.ASSESSMENT ? { targetCount: counts.assessment } : {}),
+        ...(revisionInstructions[agent]
+          ? {
+              revisionInstruction: revisionInstructions[agent],
+            }
+          : {}),
+      });
 
-    if (state.sourceModeRouter.mode === "topic") {
-      state.topicSelection = await runtime.step<TopicSelectionOutput>(
-        AgentName.TOPIC_SELECTION,
+      const readExistingOrRun = async <T>(
+        agent: AgentName,
+        existingOutput: T | undefined
+      ): Promise<T> => {
+        if (
+          request.contentCheckpoint &&
+          existingOutput !== undefined &&
+          !regenerateAgents.has(agent)
+        ) {
+          runtime.emit({
+            step: agent,
+            status: "done",
+            output: existingOutput,
+          });
+          return existingOutput;
+        }
+
+        return runtime.step<T>(agent, () => callAgent(agent, getAgentInput(agent)));
+      };
+
+      const [reading, vocabulary, grammar, writing, assessment] = await Promise.all([
+        readExistingOrRun<ReadingOutput>(AgentName.READING, state.reading),
+        readExistingOrRun<VocabularyOutput>(AgentName.VOCABULARY, state.vocabulary),
+        readExistingOrRun<GrammarOutput>(AgentName.GRAMMAR, state.grammar),
+        readExistingOrRun<WritingOutput>(AgentName.WRITING, state.writing),
+        readExistingOrRun<AssessmentOutput>(AgentName.ASSESSMENT, state.assessment),
+      ]);
+
+      state.reading = reading;
+      state.vocabulary = vocabulary;
+      state.grammar = grammar;
+      state.writing = writing;
+      state.assessment = assessment;
+    };
+
+    if (request.passageCheckpoint) {
+      state.approvedPassageLock = request.passageCheckpoint.approvedPassageLock;
+      state.difficultyLock = request.passageCheckpoint.difficultyLock;
+      state.teachingFrame = request.passageCheckpoint.teachingFrame;
+
+      runtime.emit({
+        step: AgentName.INTENT_ROUTER,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.TEACHING_FRAME,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.DIFFICULTY_LOCK,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.SOURCE_MODE_ROUTER,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.TOPIC_SELECTION,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.RESEARCH_CURATION,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.PASSAGE_GENERATION,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.PASSAGE_VALIDATION,
+        status: "skipped",
+      });
+      runtime.emit({
+        step: AgentName.APPROVED_PASSAGE_LOCK,
+        status: "done",
+        output: state.approvedPassageLock,
+      });
+    } else if (request.contentCheckpoint) {
+      state.approvedPassageLock = request.contentCheckpoint.approvedPassageLock;
+      state.difficultyLock = request.contentCheckpoint.difficultyLock;
+      state.teachingFrame = request.contentCheckpoint.teachingFrame;
+      state.reading = request.contentCheckpoint.reading;
+      state.vocabulary = request.contentCheckpoint.vocabulary;
+      state.grammar = request.contentCheckpoint.grammar;
+      state.writing = request.contentCheckpoint.writing;
+      state.assessment = request.contentCheckpoint.assessment;
+
+      runtime.emit({ step: AgentName.INTENT_ROUTER, status: "skipped" });
+      runtime.emit({ step: AgentName.TEACHING_FRAME, status: "skipped" });
+      runtime.emit({ step: AgentName.DIFFICULTY_LOCK, status: "skipped" });
+      runtime.emit({ step: AgentName.SOURCE_MODE_ROUTER, status: "skipped" });
+      runtime.emit({ step: AgentName.TOPIC_SELECTION, status: "skipped" });
+      runtime.emit({ step: AgentName.RESEARCH_CURATION, status: "skipped" });
+      runtime.emit({ step: AgentName.PASSAGE_GENERATION, status: "skipped" });
+      runtime.emit({ step: AgentName.PASSAGE_VALIDATION, status: "skipped" });
+      runtime.emit({
+        step: AgentName.APPROVED_PASSAGE_LOCK,
+        status: "done",
+        output: state.approvedPassageLock,
+      });
+    } else {
+      state.intentRouter = await runtime.step<IntentRouterOutput>(
+        AgentName.INTENT_ROUTER,
+        () => callAgent(AgentName.INTENT_ROUTER, { userInput: request.userInput })
+      );
+
+      state.teachingFrame = await runtime.step<TeachingFrameOutput>(
+        AgentName.TEACHING_FRAME,
         () =>
-          callAgent(AgentName.TOPIC_SELECTION, {
-            teachingFrame: state.teachingFrame,
-            difficultyLock: state.difficultyLock,
+          callAgent(AgentName.TEACHING_FRAME, {
+            intentRouter: state.intentRouter,
             userInput: request.userInput,
           })
       );
-    } else {
-      runtime.emit({ step: AgentName.TOPIC_SELECTION, status: "skipped" });
-    }
 
-    if (state.sourceModeRouter.mode === "topic" && state.topicSelection) {
-      state.researchCuration = await runtime.step<ResearchCurationOutput>(
-        AgentName.RESEARCH_CURATION,
+      state.difficultyLock = await runtime.step<DifficultyLockOutput>(
+        AgentName.DIFFICULTY_LOCK,
         () =>
-          callAgent(AgentName.RESEARCH_CURATION, {
-            topicSelection: state.topicSelection,
+          callAgent(AgentName.DIFFICULTY_LOCK, {
+            teachingFrame: state.teachingFrame,
+            requestedDifficulty: request.difficulty,
           })
       );
-    } else {
-      runtime.emit({ step: AgentName.RESEARCH_CURATION, status: "skipped" });
-    }
 
-    state.passageGeneration = await runtime.step<PassageGenerationOutput>(
-      AgentName.PASSAGE_GENERATION,
-      () =>
-        callAgent(AgentName.PASSAGE_GENERATION, {
-          mode: state.sourceModeRouter?.mode,
-          providedPassage: state.sourceModeRouter?.providedPassage,
-          topicSelection: state.topicSelection,
-          researchCuration: state.researchCuration,
-          difficultyLock: state.difficultyLock,
-          teachingFrame: state.teachingFrame,
-        })
-    );
+      state.sourceModeRouter = await runtime.step<SourceModeRouterOutput>(
+        AgentName.SOURCE_MODE_ROUTER,
+        () =>
+          callAgent(AgentName.SOURCE_MODE_ROUTER, {
+            intentRouter: state.intentRouter,
+            providedPassage: request.providedPassage,
+          })
+      );
 
-    state.passageValidation = await runtime.step<PassageValidationOutput>(
-      AgentName.PASSAGE_VALIDATION,
-      () =>
-        callAgent(AgentName.PASSAGE_VALIDATION, {
-          passage: state.passageGeneration,
-          difficultyLock: state.difficultyLock,
-        })
-    );
+      if (state.sourceModeRouter.mode === "topic") {
+        state.topicSelection = await runtime.step<TopicSelectionOutput>(
+          AgentName.TOPIC_SELECTION,
+          () =>
+            callAgent(AgentName.TOPIC_SELECTION, {
+              teachingFrame: state.teachingFrame,
+              difficultyLock: state.difficultyLock,
+              userInput: request.userInput,
+            })
+        );
+      } else {
+        runtime.emit({ step: AgentName.TOPIC_SELECTION, status: "skipped" });
+      }
 
-    if (!state.passageValidation.approved) {
-      throw new Error(
-        `Passage validation failed: ${state.passageValidation.issues.join(", ")}`
+      if (state.sourceModeRouter.mode === "topic" && state.topicSelection) {
+        state.researchCuration = await runtime.step<ResearchCurationOutput>(
+          AgentName.RESEARCH_CURATION,
+          () =>
+            callAgent(AgentName.RESEARCH_CURATION, {
+              topicSelection: state.topicSelection,
+            })
+        );
+      } else {
+        runtime.emit({ step: AgentName.RESEARCH_CURATION, status: "skipped" });
+      }
+
+      state.passageGeneration = await runtime.step<PassageGenerationOutput>(
+        AgentName.PASSAGE_GENERATION,
+        () =>
+          callAgent(AgentName.PASSAGE_GENERATION, {
+            mode: state.sourceModeRouter?.mode,
+            providedPassage: state.sourceModeRouter?.providedPassage,
+            topicSelection: state.topicSelection,
+            researchCuration: state.researchCuration,
+            difficultyLock: state.difficultyLock,
+            teachingFrame: state.teachingFrame,
+          })
+      );
+
+      state.passageValidation = await runtime.step<PassageValidationOutput>(
+        AgentName.PASSAGE_VALIDATION,
+        () =>
+          callAgent(AgentName.PASSAGE_VALIDATION, {
+            passage: state.passageGeneration,
+            difficultyLock: state.difficultyLock,
+          })
+      );
+
+      if (!state.passageValidation.approved) {
+        throw new Error(
+          `Passage validation failed: ${state.passageValidation.issues.join(", ")}`
+        );
+      }
+
+      state.approvedPassageLock = await runtime.step<ApprovedPassageLockOutput>(
+        AgentName.APPROVED_PASSAGE_LOCK,
+        () =>
+          callAgent(AgentName.APPROVED_PASSAGE_LOCK, {
+            passageGeneration: state.passageGeneration,
+          })
       );
     }
 
-    state.approvedPassageLock = await runtime.step<ApprovedPassageLockOutput>(
-      AgentName.APPROVED_PASSAGE_LOCK,
-      () =>
-        callAgent(AgentName.APPROVED_PASSAGE_LOCK, {
-          passageGeneration: state.passageGeneration,
-        })
-    );
+    if (
+      request.generationTarget === "passage_review" &&
+      state.approvedPassageLock &&
+      state.difficultyLock &&
+      state.teachingFrame
+    ) {
+      const checkpoint: PassageCheckpoint = {
+        approvedPassageLock: state.approvedPassageLock,
+        difficultyLock: state.difficultyLock,
+        teachingFrame: state.teachingFrame,
+      };
 
-    runtime.emit({ step: AgentName.READING, status: "running" });
-    runtime.emit({ step: AgentName.VOCABULARY, status: "running" });
-    runtime.emit({ step: AgentName.GRAMMAR, status: "running" });
-    runtime.emit({ step: AgentName.WRITING, status: "running" });
-    runtime.emit({ step: AgentName.ASSESSMENT, status: "running" });
+      return {
+        kind: "passage_review",
+        checkpoint,
+      };
+    }
 
-    const lockedContext = {
-      passage: state.approvedPassageLock,
-      difficultyLock: state.difficultyLock,
-      teachingFrame: state.teachingFrame,
-    };
+    await runContentStage();
 
-    const counts = {
-      reading: request.contentCounts?.reading ?? DEFAULT_CONTENT_COUNTS.reading,
-      vocabulary: request.contentCounts?.vocabulary ?? DEFAULT_CONTENT_COUNTS.vocabulary,
-      assessment: request.contentCounts?.assessment ?? DEFAULT_CONTENT_COUNTS.assessment,
-      grammarExercises: request.contentCounts?.grammarExercises ?? DEFAULT_CONTENT_COUNTS.grammarExercises,
-    };
+    if (
+      request.generationTarget === "content_review" ||
+      request.generationTarget === "passage_and_content_review"
+    ) {
+      const checkpoint: ContentCheckpoint = {
+        approvedPassageLock: state.approvedPassageLock!,
+        difficultyLock: state.difficultyLock!,
+        teachingFrame: state.teachingFrame!,
+        reading: state.reading!,
+        vocabulary: state.vocabulary!,
+        grammar: state.grammar!,
+        writing: state.writing!,
+        assessment: state.assessment!,
+      };
 
-    const [reading, vocabulary, grammar, writing, assessment] = await Promise.all([
-      callAgent<ReadingOutput>(AgentName.READING, { ...lockedContext, targetCount: counts.reading }),
-      callAgent<VocabularyOutput>(AgentName.VOCABULARY, { ...lockedContext, targetCount: counts.vocabulary }),
-      callAgent<GrammarOutput>(AgentName.GRAMMAR, { ...lockedContext, targetCount: counts.grammarExercises }),
-      callAgent<WritingOutput>(AgentName.WRITING, lockedContext),
-      callAgent<AssessmentOutput>(AgentName.ASSESSMENT, { ...lockedContext, targetCount: counts.assessment }),
-    ]);
-
-    state.reading = reading;
-    state.vocabulary = vocabulary;
-    state.grammar = grammar;
-    state.writing = writing;
-    state.assessment = assessment;
-
-    runtime.emit({ step: AgentName.READING, status: "done", output: reading });
-    runtime.emit({ step: AgentName.VOCABULARY, status: "done", output: vocabulary });
-    runtime.emit({ step: AgentName.GRAMMAR, status: "done", output: grammar });
-    runtime.emit({ step: AgentName.WRITING, status: "done", output: writing });
-    runtime.emit({ step: AgentName.ASSESSMENT, status: "done", output: assessment });
+      return {
+        kind: "content_review",
+        checkpoint,
+      };
+    }
 
     state.qa = await runtime.step<QAOutput>(AgentName.QA, () =>
       callAgent(AgentName.QA, {
@@ -215,11 +353,11 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       difficulty: state.difficultyLock.difficulty,
       passage: state.approvedPassageLock.passage,
       wordCount: state.approvedPassageLock.wordCount,
-      reading: state.reading,
-      vocabulary: state.vocabulary,
-      grammar: state.grammar,
-      writing: state.writing,
-      assessment: state.assessment,
+      reading: state.reading!,
+      vocabulary: state.vocabulary!,
+      grammar: state.grammar!,
+      writing: state.writing!,
+      assessment: state.assessment!,
     };
 
     await applyApprovalPolicy(lessonWorkflowDefinition, runtime, {
@@ -270,7 +408,7 @@ registerWorkflow(lessonWorkflowDefinition);
 export async function runLessonWorkflow(
   request: LessonRequest,
   onProgress: OnProgressCallback
-): Promise<LessonPackage> {
+): Promise<LessonPackage | PassageReviewResult | ContentReviewResult> {
   return lessonWorkflowDefinition.run(request, {
     workflow: lessonWorkflowDefinition.name,
     emit(progress) {

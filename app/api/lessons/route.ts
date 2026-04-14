@@ -206,6 +206,9 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getViewerAccess(supabase, user);
+  if (!access.features.includes("studio.generate")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let body: {
     package: LessonPackage;

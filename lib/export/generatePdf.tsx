@@ -3,9 +3,9 @@ import {
   Document, Page, Text, View, StyleSheet, pdf, Font,
 } from "@react-pdf/renderer";
 import { LessonPackage } from "@/lib/agents/types";
+import { DocumentTemplate } from "@/lib/documentTemplates";
 
 type ExportType  = "student" | "teacher";
-type LayoutType  = "simple" | "advanced";
 
 // ─── Styles ───────────────────────────────────────────────────
 
@@ -49,9 +49,9 @@ const S = StyleSheet.create({
 
 // ─── Helpers ──────────────────────────────────────────────────
 
-function SectionHeader({ title, advanced }: { title: string; advanced?: boolean }) {
+function SectionHeader({ title, advanced, accentColor }: { title: string; advanced?: boolean; accentColor: string }) {
   return (
-    <View style={advanced ? S.sectionHdrAdv : S.sectionHdr}>
+    <View style={[advanced ? S.sectionHdrAdv : S.sectionHdr, { backgroundColor: accentColor }]}>
       <Text style={S.sectionTitle}>{title}</Text>
     </View>
   );
@@ -61,7 +61,8 @@ function Rule() { return <View style={S.rule} />; }
 
 // ─── Simple Layout ─────────────────────────────────────────────
 
-function SimpleDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean }) {
+function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
+  const visible = new Set(template.visibleSections);
   return (
     <Document>
       <Page size="A4" style={S.page}>
@@ -71,15 +72,15 @@ function SimpleDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean 
         <Rule />
 
         {/* Passage */}
-        <SectionHeader title="📖 지문 (Reading Passage)" />
-        {pkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
+        {visible.has("passage") && <SectionHeader title="📖 지문 (Reading Passage)" accentColor={template.accentColor} />}
+        {visible.has("passage") && pkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
           <Text key={i} style={S.para}>{p.trim()}</Text>
         ))}
-        <Rule />
+        {visible.has("passage") && <Rule />}
 
         {/* Reading */}
-        <SectionHeader title="❓ 독해 문제 (Reading Questions)" />
-        {pkg.reading.questions.map((q, i) => (
+        {visible.has("reading") && <SectionHeader title="❓ 독해 문제 (Reading Questions)" accentColor={template.accentColor} />}
+        {visible.has("reading") && pkg.reading.questions.map((q, i) => (
           <View key={i} style={{ marginBottom: 10 }}>
             <Text style={[S.para, S.bold]}>Q{i + 1}. {q.question}</Text>
             {q.options.map((opt, j) => (
@@ -89,10 +90,11 @@ function SimpleDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean 
             {isTeacher && <Text style={[S.indent, S.muted]}>해설: {q.explanation}</Text>}
           </View>
         ))}
-        <Rule />
+        {visible.has("reading") && <Rule />}
 
         {/* Vocabulary */}
-        <SectionHeader title="📝 어휘 학습 (Vocabulary)" />
+        {visible.has("vocabulary") && <SectionHeader title="📝 어휘 학습 (Vocabulary)" accentColor={template.accentColor} />}
+        {visible.has("vocabulary") && (
         <View style={S.table}>
           <View style={S.tableHdr}>
             {["단어", "품사", "정의", "한국어", isTeacher ? "예문" : ""].map((h, i) => (
@@ -109,34 +111,35 @@ function SimpleDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean 
             </View>
           ))}
         </View>
-        <Rule />
+        )}
+        {visible.has("vocabulary") && <Rule />}
 
         {/* Grammar */}
-        <SectionHeader title="📐 문법 미니레슨 (Grammar)" />
-        <Text style={[S.para, S.bold]}>{pkg.grammar.focusPoint}</Text>
-        <Text style={S.para}>{pkg.grammar.explanation}</Text>
-        {pkg.grammar.examples.map((ex, i) => (
+        {visible.has("grammar") && <SectionHeader title="📐 문법 미니레슨 (Grammar)" accentColor={template.accentColor} />}
+        {visible.has("grammar") && <Text style={[S.para, S.bold]}>{pkg.grammar.focusPoint}</Text>}
+        {visible.has("grammar") && <Text style={S.para}>{pkg.grammar.explanation}</Text>}
+        {visible.has("grammar") && pkg.grammar.examples.map((ex, i) => (
           <Text key={i} style={S.indent}>• {ex}</Text>
         ))}
-        <Rule />
+        {visible.has("grammar") && <Rule />}
 
         {/* Writing */}
-        <SectionHeader title="✍️ 쓰기 과제 (Writing)" />
-        <Text style={[S.para, S.bold]}>{pkg.writing.prompt}</Text>
-        {pkg.writing.scaffolding.map((s, i) => (
+        {visible.has("writing") && <SectionHeader title="✍️ 쓰기 과제 (Writing)" accentColor={template.accentColor} />}
+        {visible.has("writing") && <Text style={[S.para, S.bold]}>{pkg.writing.prompt}</Text>}
+        {visible.has("writing") && pkg.writing.scaffolding.map((s, i) => (
           <Text key={i} style={S.indent}>• {s}</Text>
         ))}
-        {isTeacher && pkg.writing.modelAnswer && (
+        {visible.has("writing") && isTeacher && pkg.writing.modelAnswer && (
           <>
             <Text style={[S.para, S.answer, { marginTop: 6 }]}>▶ 모범 답안</Text>
             <Text style={S.para}>{pkg.writing.modelAnswer}</Text>
           </>
         )}
-        <Rule />
+        {visible.has("writing") && <Rule />}
 
         {/* Assessment */}
-        <SectionHeader title={`📊 평가지 (Assessment) — 총 ${pkg.assessment.totalPoints}점`} />
-        {pkg.assessment.questions.map((q, i) => (
+        {visible.has("assessment") && <SectionHeader title={`📊 평가지 (Assessment) — 총 ${pkg.assessment.totalPoints}점`} accentColor={template.accentColor} />}
+        {visible.has("assessment") && pkg.assessment.questions.map((q, i) => (
           <View key={i} style={{ marginBottom: 8 }}>
             <Text style={S.para}><Text style={S.bold}>Q{i + 1}.</Text> [{q.points}점] {q.question}</Text>
             {q.options?.map((opt, j) => (
@@ -152,29 +155,31 @@ function SimpleDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean 
 
 // ─── Advanced Layout ───────────────────────────────────────────
 
-function AdvancedDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolean }) {
+function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
+  const visible = new Set(template.visibleSections);
   return (
     <Document>
       {/* Page 1: Cover + Passage */}
       <Page size="A4" style={S.pageAdv}>
         <Text style={S.coverTitle}>{pkg.title}</Text>
         <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 20 }}>
-          <Text style={S.badge}>{pkg.difficulty.toUpperCase()}</Text>
+          <Text style={[S.badge, { color: template.accentColor }]}>{pkg.difficulty.toUpperCase()}</Text>
           <Text style={S.badge}>{pkg.wordCount} WORDS</Text>
           <Text style={S.badge}>{isTeacher ? "TEACHER" : "STUDENT"}</Text>
         </View>
 
-        <SectionHeader title="📖 Reading Passage" advanced />
-        <View style={S.passBg}>
+        {visible.has("passage") && <SectionHeader title="📖 Reading Passage" advanced accentColor={template.accentColor} />}
+        {visible.has("passage") && <View style={S.passBg}>
           {pkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
             <Text key={i} style={S.para}>{p.trim()}</Text>
           ))}
-        </View>
+        </View>}
       </Page>
 
       {/* Page 2: Reading + Vocabulary */}
       <Page size="A4" style={S.pageAdv}>
-        <SectionHeader title="❓ Reading Questions" advanced />
+        {visible.has("reading") && <SectionHeader title="❓ Reading Questions" advanced accentColor={template.accentColor} />}
+        {visible.has("reading") && (
         <View style={S.row2}>
           <View style={S.col}>
             {pkg.reading.questions.slice(0, Math.ceil(pkg.reading.questions.length / 2)).map((q, i) => (
@@ -195,8 +200,10 @@ function AdvancedDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolea
             ))}
           </View>
         </View>
+        )}
 
-        <SectionHeader title="📝 Vocabulary" advanced />
+        {visible.has("vocabulary") && <SectionHeader title="📝 Vocabulary" advanced accentColor={template.accentColor} />}
+        {visible.has("vocabulary") && (
         <View style={S.table}>
           <View style={S.tableHdr}>
             {["Word", "POS", "Definition", "Korean"].map((h) => (
@@ -212,26 +219,27 @@ function AdvancedDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolea
             </View>
           ))}
         </View>
+        )}
       </Page>
 
       {/* Page 3: Grammar + Writing + Assessment */}
       <Page size="A4" style={S.pageAdv}>
-        <SectionHeader title="📐 Grammar Mini-Lesson" advanced />
-        <Text style={[S.para, S.bold]}>{pkg.grammar.focusPoint}</Text>
-        <Text style={S.para}>{pkg.grammar.explanation}</Text>
-        {pkg.grammar.examples.slice(0, 3).map((ex, i) => (
+        {visible.has("grammar") && <SectionHeader title="📐 Grammar Mini-Lesson" advanced accentColor={template.accentColor} />}
+        {visible.has("grammar") && <Text style={[S.para, S.bold]}>{pkg.grammar.focusPoint}</Text>}
+        {visible.has("grammar") && <Text style={S.para}>{pkg.grammar.explanation}</Text>}
+        {visible.has("grammar") && pkg.grammar.examples.slice(0, 3).map((ex, i) => (
           <Text key={i} style={S.indent}>• {ex}</Text>
         ))}
 
-        <SectionHeader title="✍️ Writing Task" advanced />
-        <Text style={[S.para, S.bold]}>{pkg.writing.prompt}</Text>
-        {pkg.writing.scaffolding.map((s, i) => <Text key={i} style={S.indent}>• {s}</Text>)}
-        {isTeacher && pkg.writing.modelAnswer && (
+        {visible.has("writing") && <SectionHeader title="✍️ Writing Task" advanced accentColor={template.accentColor} />}
+        {visible.has("writing") && <Text style={[S.para, S.bold]}>{pkg.writing.prompt}</Text>}
+        {visible.has("writing") && pkg.writing.scaffolding.map((s, i) => <Text key={i} style={S.indent}>• {s}</Text>)}
+        {visible.has("writing") && isTeacher && pkg.writing.modelAnswer && (
           <Text style={[S.para, S.answer, { marginTop: 4 }]}>모범: {pkg.writing.modelAnswer}</Text>
         )}
 
-        <SectionHeader title={`📊 Assessment — ${pkg.assessment.totalPoints}pts`} advanced />
-        <View style={S.row2}>
+        {visible.has("assessment") && <SectionHeader title={`📊 Assessment — ${pkg.assessment.totalPoints}pts`} advanced accentColor={template.accentColor} />}
+        {visible.has("assessment") && <View style={S.row2}>
           <View style={S.col}>
             {pkg.assessment.questions.slice(0, Math.ceil(pkg.assessment.questions.length / 2)).map((q, i) => (
               <View key={i} style={{ marginBottom: 8 }}>
@@ -250,7 +258,7 @@ function AdvancedDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolea
               </View>
             ))}
           </View>
-        </View>
+        </View>}
       </Page>
     </Document>
   );
@@ -261,11 +269,11 @@ function AdvancedDoc({ pkg, isTeacher }: { pkg: LessonPackage; isTeacher: boolea
 export async function generatePdf(
   pkg: LessonPackage,
   type: ExportType,
-  layout: LayoutType
+  template: DocumentTemplate
 ): Promise<Blob> {
-  const doc = layout === "advanced"
-    ? <AdvancedDoc pkg={pkg} isTeacher={type === "teacher"} />
-    : <SimpleDoc  pkg={pkg} isTeacher={type === "teacher"} />;
+  const doc = template.layout === "advanced"
+    ? <AdvancedDoc pkg={pkg} isTeacher={type === "teacher"} template={template} />
+    : <SimpleDoc  pkg={pkg} isTeacher={type === "teacher"} template={template} />;
 
   return await pdf(doc).toBlob();
 }

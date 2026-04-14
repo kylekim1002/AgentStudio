@@ -8,6 +8,7 @@ interface Project { id: string; name: string; }
 
 interface SaveDialogProps {
   lessonPackage: LessonPackage | null;
+  selectedTemplateName?: string;
   onClose: () => void;
   onSave: (
     projectId: string | null,
@@ -18,7 +19,7 @@ interface SaveDialogProps {
   ) => void;
 }
 
-export default function SaveDialog({ lessonPackage, onClose, onSave }: SaveDialogProps) {
+export default function SaveDialog({ lessonPackage, selectedTemplateName, onClose, onSave }: SaveDialogProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [reviewers, setReviewers] = useState<LessonReviewerOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -106,6 +107,24 @@ export default function SaveDialog({ lessonPackage, onClose, onSave }: SaveDialo
               style={{ width: "100%", padding: "8px 10px", borderRadius: "7px", border: "1.5px solid var(--color-border-strong)", fontSize: "13px", color: "var(--color-text)", background: "var(--color-surface)", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
             />
           </div>
+
+          {selectedTemplateName && (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "8px",
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px" }}>
+                선택된 문서 템플릿
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>
+                {selectedTemplateName}
+              </div>
+            </div>
+          )}
 
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "500", color: "var(--color-text)", marginBottom: "5px" }}>태그 (선택)</label>
