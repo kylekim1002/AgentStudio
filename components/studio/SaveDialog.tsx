@@ -16,7 +16,7 @@ interface SaveDialogProps {
     tags: string,
     status: LessonStatus,
     reviewerId: string | null
-  ) => void;
+  ) => Promise<void>;
 }
 
 export default function SaveDialog({ lessonPackage, selectedTemplateName, onClose, onSave }: SaveDialogProps) {
@@ -27,6 +27,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
   const [lessonName, setLessonName] = useState(lessonPackage?.title ?? "");
   const [tags, setTags] = useState("");
   const [status, setStatus] = useState<LessonStatus>("draft");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const recommendedReviewer = reviewers.find((reviewer) => reviewer.isRecommended) ?? null;
   const selectedReviewer =
     selectedReviewerId ? reviewers.find((reviewer) => reviewer.id === selectedReviewerId) ?? null : null;
@@ -37,6 +39,10 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
     selectedReviewer.id !== recommendedReviewer.id &&
     ((selectedReviewer.overdueCount ?? 0) > 0 ||
       (selectedReviewer.queueCount ?? 0) > (recommendedReviewer.queueCount ?? 0));
+  const canSubmit =
+    !saving &&
+    !!lessonName.trim() &&
+    !(status === "in_review" && reviewers.length === 0);
 
   useEffect(() => {
     fetch("/api/projects")
@@ -56,14 +62,31 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
       .catch(() => {});
   }, []);
 
-  function handleSave() {
-    onSave(selectedProjectId, lessonName, tags, status, status === "in_review" ? selectedReviewerId : null);
-    onClose();
+  async function handleSave() {
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(
+        selectedProjectId,
+        lessonName,
+        tags,
+        status,
+        status === "in_review" ? selectedReviewerId : null
+      );
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "레슨 저장 중 오류가 발생했습니다.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div
-      onClick={onClose}
+      onClick={() => {
+        if (!saving) onClose();
+      }}
       style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,.35)",
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -81,7 +104,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
         {/* Header */}
         <div style={{ padding: "16px 20px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: "15px", fontWeight: "700", color: "var(--color-text)" }}>레슨 저장</span>
-          <button onClick={onClose} style={{ width: "26px", height: "26px", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "16px" }}>✕</button>
+          <button disabled={saving} onClick={onClose} style={{ width: "26px", height: "26px", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--color-text-muted)", cursor: saving ? "not-allowed" : "pointer", fontSize: "16px", opacity: saving ? 0.5 : 1 }}>✕</button>
         </div>
 
         {/* Body */}
@@ -91,6 +114,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
             <select
               value={selectedProjectId ?? ""}
               onChange={(e) => setSelectedProjectId(e.target.value || null)}
+              disabled={saving}
               style={{ width: "100%", padding: "8px 10px", borderRadius: "7px", border: "1.5px solid var(--color-border-strong)", fontSize: "13px", color: "var(--color-text)", background: "var(--color-surface)", outline: "none", fontFamily: "inherit" }}
             >
               <option value="">프로젝트 없음</option>
@@ -103,6 +127,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
             <input
               value={lessonName}
               onChange={(e) => setLessonName(e.target.value)}
+              disabled={saving}
               placeholder="레슨 이름 입력"
               style={{ width: "100%", padding: "8px 10px", borderRadius: "7px", border: "1.5px solid var(--color-border-strong)", fontSize: "13px", color: "var(--color-text)", background: "var(--color-surface)", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
             />
@@ -131,6 +156,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
             <input
               value={tags}
               onChange={(e) => setTags(e.target.value)}
+              disabled={saving}
               placeholder="환경, 초등, intermediate"
               style={{ width: "100%", padding: "8px 10px", borderRadius: "7px", border: "1.5px solid var(--color-border-strong)", fontSize: "13px", color: "var(--color-text)", background: "var(--color-surface)", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
             />
@@ -147,6 +173,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                   key={option.value}
                   type="button"
                   onClick={() => setStatus(option.value as LessonStatus)}
+                  disabled={saving}
                   style={{
                     flex: 1,
                     padding: "9px 10px",
@@ -156,7 +183,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                     color: status === option.value ? "var(--color-primary)" : "var(--color-text-muted)",
                     fontSize: "12px",
                     fontWeight: "600",
-                    cursor: "pointer",
+                    cursor: saving ? "not-allowed" : "pointer",
+                    opacity: saving ? 0.5 : 1,
                   }}
                 >
                   {option.label}
@@ -168,6 +196,22 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
           {status === "in_review" && (
             <div>
               <label style={{ display: "block", fontSize: "12px", fontWeight: "500", color: "var(--color-text)", marginBottom: "5px" }}>검토 담당자</label>
+              {reviewers.length === 0 && (
+                <div
+                  style={{
+                    marginBottom: "8px",
+                    padding: "10px 12px",
+                    borderRadius: "9px",
+                    background: "#FEF2F2",
+                    border: "1px solid #FECACA",
+                    fontSize: "11px",
+                    color: "#B91C1C",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  검토 요청을 처리할 검토자 계정이 없습니다. 관리자 또는 검토자 권한 계정을 먼저 설정해야 합니다.
+                </div>
+              )}
               {recommendedReviewer && (
                 <div
                   style={{
@@ -185,6 +229,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                     <button
                       type="button"
                       onClick={() => setSelectedReviewerId(recommendedReviewer.id)}
+                      disabled={saving}
                       style={{
                         padding: "5px 8px",
                         borderRadius: "999px",
@@ -193,7 +238,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                         color: "#1D4ED8",
                         fontSize: "11px",
                         fontWeight: "700",
-                        cursor: "pointer",
+                        cursor: saving ? "not-allowed" : "pointer",
+                        opacity: saving ? 0.5 : 1,
                       }}
                     >
                       추천으로 배정
@@ -207,6 +253,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
               <select
                 value={selectedReviewerId ?? ""}
                 onChange={(e) => setSelectedReviewerId(e.target.value || null)}
+                disabled={saving}
                 style={{ width: "100%", padding: "8px 10px", borderRadius: "7px", border: "1.5px solid var(--color-border-strong)", fontSize: "13px", color: "var(--color-text)", background: "var(--color-surface)", outline: "none", fontFamily: "inherit" }}
               >
                 <option value="">
@@ -262,6 +309,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                   <button
                     type="button"
                     onClick={() => setSelectedReviewerId(null)}
+                    disabled={saving}
                     style={{
                       marginTop: "6px",
                       padding: "5px 8px",
@@ -271,7 +319,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                       color: "var(--color-text-muted)",
                       fontSize: "11px",
                       fontWeight: "700",
-                      cursor: "pointer",
+                      cursor: saving ? "not-allowed" : "pointer",
+                      opacity: saving ? 0.5 : 1,
                     }}
                   >
                     자동 배정으로 되돌리기
@@ -297,6 +346,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                   <button
                     type="button"
                     onClick={() => setSelectedReviewerId(recommendedReviewer.id)}
+                    disabled={saving}
                     style={{
                       padding: "5px 8px",
                       borderRadius: "999px",
@@ -305,7 +355,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                       color: "#7C2D12",
                       fontSize: "11px",
                       fontWeight: "700",
-                      cursor: "pointer",
+                      cursor: saving ? "not-allowed" : "pointer",
+                      opacity: saving ? 0.5 : 1,
                     }}
                   >
                     추천 검토자로 변경
@@ -319,6 +370,7 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                       key={`reviewer-chip-${reviewer.id}`}
                       type="button"
                       onClick={() => setSelectedReviewerId(reviewer.id)}
+                      disabled={saving}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -330,7 +382,8 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
                         background: selectedReviewerId === reviewer.id ? "var(--color-primary-light)" : "var(--color-bg)",
                         color: selectedReviewerId === reviewer.id ? "var(--color-primary)" : "var(--color-text-muted)",
                         fontSize: "11px",
-                        cursor: "pointer",
+                        cursor: saving ? "not-allowed" : "pointer",
+                        opacity: saving ? 0.5 : 1,
                       }}
                     >
                       <span style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
@@ -355,23 +408,41 @@ export default function SaveDialog({ lessonPackage, selectedTemplateName, onClos
           )}
         </div>
 
+        {saveError && (
+          <div
+            style={{
+              margin: "0 20px 12px",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              color: "#B91C1C",
+              fontSize: "12px",
+              lineHeight: 1.5,
+            }}
+          >
+            {saveError}
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-          <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-muted)", fontSize: "13px", fontWeight: "500", cursor: "pointer" }}>
+          <button disabled={saving} onClick={onClose} style={{ padding: "7px 16px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-muted)", fontSize: "13px", fontWeight: "500", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.5 : 1 }}>
             취소
           </button>
           <button
             onClick={handleSave}
-            disabled={!lessonName.trim() || (status === "in_review" && reviewers.length > 0 && !selectedReviewerId)}
+            disabled={!canSubmit}
             style={{
               padding: "7px 16px", borderRadius: "6px",
-              background: lessonName.trim() && !(status === "in_review" && reviewers.length > 0 && !selectedReviewerId) ? "var(--color-primary)" : "var(--color-border-strong)",
-              color: lessonName.trim() && !(status === "in_review" && reviewers.length > 0 && !selectedReviewerId) ? "#fff" : "var(--color-text-muted)",
+              background: canSubmit ? "var(--color-primary)" : "var(--color-border-strong)",
+              color: canSubmit ? "#fff" : "var(--color-text-muted)",
               fontSize: "13px", fontWeight: "600",
-              border: "none", cursor: lessonName.trim() && !(status === "in_review" && reviewers.length > 0 && !selectedReviewerId) ? "pointer" : "not-allowed",
+              border: "none", cursor: canSubmit ? "pointer" : "not-allowed",
+              opacity: saving ? 0.7 : 1,
             }}
           >
-            저장
+            {saving ? "저장 중..." : "저장"}
           </button>
         </div>
       </div>

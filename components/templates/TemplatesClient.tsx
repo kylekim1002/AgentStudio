@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_TEMPLATE_TEXT_STYLE,
+  DEFAULT_TEMPLATE_SECTION_COUNTS,
   DEFAULT_DOCUMENT_TEMPLATES,
   DocumentSectionKey,
   DocumentTemplate,
@@ -1850,18 +1851,61 @@ export default function TemplatesClient() {
                 </div>
 
                 {selectedItem.type === "section" && (
-                  <label style={{ display: "grid", gap: "6px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>연결 섹션</span>
-                    <select
-                      value={selectedItem.sectionKey ?? "passage"}
-                      onChange={(e) => updateItem(selectedItem.id, { sectionKey: e.target.value as DocumentSectionKey })}
-                      style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
-                    >
-                      {SECTION_OPTIONS.map((section) => (
-                        <option key={section.key} value={section.key}>{section.label}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>연결 섹션</span>
+                      <select
+                        value={selectedItem.sectionKey ?? "passage"}
+                        onChange={(e) => {
+                          const nextSectionKey = e.target.value as DocumentSectionKey;
+                          updateItem(selectedItem.id, {
+                            sectionKey: nextSectionKey,
+                            sectionItemLimit:
+                              nextSectionKey === "reading"
+                                ? DEFAULT_TEMPLATE_SECTION_COUNTS.reading
+                                : nextSectionKey === "vocabulary"
+                                  ? DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary
+                                  : nextSectionKey === "grammar"
+                                    ? DEFAULT_TEMPLATE_SECTION_COUNTS.grammar
+                                    : nextSectionKey === "assessment"
+                                      ? DEFAULT_TEMPLATE_SECTION_COUNTS.assessment
+                                      : null,
+                          });
+                        }}
+                        style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
+                      >
+                        {SECTION_OPTIONS.map((section) => (
+                          <option key={section.key} value={section.key}>{section.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {(selectedItem.sectionKey === "reading" ||
+                      selectedItem.sectionKey === "vocabulary" ||
+                      selectedItem.sectionKey === "grammar" ||
+                      selectedItem.sectionKey === "assessment") && (
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>
+                          이 섹션 표시 수
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={selectedItem.sectionItemLimit ?? 1}
+                          onChange={(e) =>
+                            updateItem(selectedItem.id, {
+                              sectionItemLimit: Math.max(1, Math.min(30, Number(e.target.value) || 1)),
+                            })
+                          }
+                          style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
+                        />
+                        <span style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                          템플릿을 선택하면 이 수에 맞춰 생성 문항 수가 자동 조정되고, 미리보기와 내보내기에서도 이 개수까지만 표시됩니다.
+                        </span>
+                      </label>
+                    )}
+                  </>
                 )}
 
                 {selectedItem.type === "text" && (
@@ -1927,7 +1971,7 @@ export default function TemplatesClient() {
                           <button
                             type="button"
                             onClick={() => {
-                              updateItem(selectedItem.id, { imageBindingIndex: null });
+                              updateItem(selectedItem.id, { imageBindingIndex: null, imageBindingId: null });
                               setOpenPropertyMenu(null);
                             }}
                             style={{
@@ -1951,7 +1995,7 @@ export default function TemplatesClient() {
                                 key={index}
                                 type="button"
                                 onClick={() => {
-                                  updateItem(selectedItem.id, { imageBindingIndex: index });
+                                  updateItem(selectedItem.id, { imageBindingIndex: index, imageBindingId: null });
                                   setOpenPropertyMenu(null);
                                 }}
                                 style={{

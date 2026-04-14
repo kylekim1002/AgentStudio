@@ -95,6 +95,11 @@ function getReviewAgeHours(submittedAt?: string | null) {
   );
 }
 
+async function getApiErrorMessage(res: Response, fallback: string) {
+  const data = await res.json().catch(() => null);
+  return data?.error ?? fallback;
+}
+
 // ─── Component ───────────────────────────────────────────────
 
 export default function LibraryClient({
@@ -153,6 +158,7 @@ export default function LibraryClient({
   const [activePanel, setActivePanel] = useState<"comments" | "activities" | null>(initialPanel);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [detailActionError, setDetailActionError] = useState<string | null>(null);
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
   const [selectedImagePromptId, setSelectedImagePromptId] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.id ?? "");
   const [imagePromptText, setImagePromptText] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.prompt ?? "");
@@ -383,6 +389,7 @@ export default function LibraryClient({
     setSelectedLesson(lesson);
     setLessonDetail(null);
     setImageError(null);
+    setDetailActionError(null);
     setImageRevisionText("");
     await loadLessonDetail(lesson.id, lesson);
   }
@@ -399,6 +406,7 @@ export default function LibraryClient({
   async function saveLessonPackage(nextPackage: LessonPackage) {
     if (!selectedLesson || !lessonDetail) return;
     setIsSavingLessonPackage(true);
+    setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
         method: "PATCH",
@@ -411,6 +419,10 @@ export default function LibraryClient({
       }
       setLessonDetail((prev) => prev ? ({ ...prev, package: nextPackage }) : prev);
       dispatchInboxSync("lesson_saved");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "레슨 저장 중 오류가 발생했습니다.";
+      setDetailActionError(message);
+      throw error;
     } finally {
       setIsSavingLessonPackage(false);
     }
@@ -438,10 +450,12 @@ export default function LibraryClient({
       })),
     };
 
-    await saveLessonPackage({
-      ...lessonDetail.package,
-      documentTemplate: nextTemplate,
-    });
+    try {
+      await saveLessonPackage({
+        ...lessonDetail.package,
+        documentTemplate: nextTemplate,
+      });
+    } catch {}
   }
 
   async function handleGenerateLibraryImage(mode: "new" | "revise", imageId?: string) {
@@ -491,6 +505,7 @@ export default function LibraryClient({
     if (!lessonDetail) return;
     const key = `${type}-${format}`;
     setExporting(key);
+    setDetailActionError(null);
     try {
       const fname = safeFilename(lessonDetail.package.title);
       const label = type === "teacher" ? "교사용" : "학생용";
@@ -500,7 +515,7 @@ export default function LibraryClient({
               [lessonDetail.package.documentTemplate, ...DEFAULT_DOCUMENT_TEMPLATES],
               lessonDetail.package.documentTemplate.id
             )
-          : DEFAULT_DOCUMENT_TEMPLATES[0];
+          : resolveDocumentTemplate(DEFAULT_DOCUMENT_TEMPLATES, AUTO_DOCUMENT_TEMPLATE_ID);
       if (format === "pdf") {
         const { generatePdf } = await import("@/lib/export/generatePdf");
         const blob = await generatePdf(lessonDetail.package, type, template);
@@ -512,6 +527,7 @@ export default function LibraryClient({
       }
     } catch (e) {
       console.error("Export failed:", e);
+      setDetailActionError(e instanceof Error ? e.message : "내보내기 중 오류가 발생했습니다.");
     } finally {
       setExporting(null);
     }
@@ -519,17 +535,25 @@ export default function LibraryClient({
 
   async function addComment() {
     if (!selectedLesson || !commentDraft.trim()) return;
-    const res = await fetch(`/api/lessons/${selectedLesson.id}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: commentDraft }),
-    });
-    if (!res.ok) return;
-    const { comment } = await res.json();
-    setComments((prev) => [...prev, comment]);
-    setCommentDraft("");
-    dispatchInboxSync("lesson_commented");
-    await selectLesson(selectedLesson);
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${selectedLesson.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: commentDraft }),
+      });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "코멘트 저장 중 오류가 발생했습니다."));
+        return;
+      }
+      const { comment } = await res.json();
+      setComments((prev) => [...prev, comment]);
+      setCommentDraft("");
+      dispatchInboxSync("lesson_commented");
+      await selectLesson(selectedLesson);
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "코멘트 저장 중 오류가 발생했습니다.");
+    }
   }
 
   async function updateReview(
@@ -548,32 +572,41 @@ export default function LibraryClient({
     const reviewNotes = shouldPrompt
       ? window.prompt(options?.promptMessage ?? "검토 메모를 남겨주세요.", lessonDetail?.review_notes ?? "")
       : lessonDetail?.review_notes ?? null;
-    const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status,
-        review_notes: reviewNotes ?? lessonDetail?.review_notes ?? null,
-        review_template: options?.template
-          ? {
-              used: true,
-              kind: options.template.kind,
-              text: options.template.text,
-            }
-          : null,
-      }),
-    });
-    if (!res.ok) return;
-    const { lesson } = await res.json();
-    dispatchInboxSync("lesson_reviewed");
-    setLessons((prev) => prev.map((item) => item.id === lesson.id ? { ...item, status: lesson.status, review_notes: lesson.review_notes } : item));
-    setSelectedLesson((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
-    setLessonDetail((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
-    await selectLesson({
-      ...(selectedLesson as LessonSummary),
-      status: lesson.status,
-      review_notes: lesson.review_notes,
-    });
+    if (shouldPrompt && reviewNotes === null) return;
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          review_notes: reviewNotes ?? lessonDetail?.review_notes ?? null,
+          review_template: options?.template
+            ? {
+                used: true,
+                kind: options.template.kind,
+                text: options.template.text,
+              }
+            : null,
+        }),
+      });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "검토 상태 변경 중 오류가 발생했습니다."));
+        return;
+      }
+      const { lesson } = await res.json();
+      dispatchInboxSync("lesson_reviewed");
+      setLessons((prev) => prev.map((item) => item.id === lesson.id ? { ...item, status: lesson.status, review_notes: lesson.review_notes } : item));
+      setSelectedLesson((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
+      setLessonDetail((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
+      await selectLesson({
+        ...(selectedLesson as LessonSummary),
+        status: lesson.status,
+        review_notes: lesson.review_notes,
+      });
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "검토 상태 변경 중 오류가 발생했습니다.");
+    }
   }
 
   async function updateReviewFromCard(
@@ -586,39 +619,48 @@ export default function LibraryClient({
     }
   ) {
     const reviewNotes = window.prompt(promptMessage, lesson.review_notes ?? "");
-    const res = await fetch(`/api/lessons/${lesson.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status,
-        review_notes: reviewNotes ?? lesson.review_notes ?? null,
-        review_template: template
-          ? {
-              used: true,
-              kind: template.kind,
-              text: template.text,
-            }
-          : null,
-      }),
-    });
-    if (!res.ok) return;
-
-    const { lesson: updatedLesson } = await res.json();
-    dispatchInboxSync("lesson_reviewed");
-    setLessons((prev) =>
-      prev.map((item) =>
-        item.id === updatedLesson.id
-          ? { ...item, status: updatedLesson.status, review_notes: updatedLesson.review_notes }
-          : item
-      )
-    );
-
-    if (selectedLesson?.id === lesson.id) {
-      await selectLesson({
-        ...lesson,
-        status: updatedLesson.status,
-        review_notes: updatedLesson.review_notes,
+    if (reviewNotes === null) return;
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lesson.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          review_notes: reviewNotes ?? lesson.review_notes ?? null,
+          review_template: template
+            ? {
+                used: true,
+                kind: template.kind,
+                text: template.text,
+              }
+            : null,
+        }),
       });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "카드 검토 상태 변경 중 오류가 발생했습니다."));
+        return;
+      }
+
+      const { lesson: updatedLesson } = await res.json();
+      dispatchInboxSync("lesson_reviewed");
+      setLessons((prev) =>
+        prev.map((item) =>
+          item.id === updatedLesson.id
+            ? { ...item, status: updatedLesson.status, review_notes: updatedLesson.review_notes }
+            : item
+        )
+      );
+
+      if (selectedLesson?.id === lesson.id) {
+        await selectLesson({
+          ...lesson,
+          status: updatedLesson.status,
+          review_notes: updatedLesson.review_notes,
+        });
+      }
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "카드 검토 상태 변경 중 오류가 발생했습니다.");
     }
   }
 
@@ -632,40 +674,51 @@ export default function LibraryClient({
   ) {
     if (selectedReviewIds.length === 0) return;
     const reviewNotes = window.prompt(promptMessage, "");
+    if (reviewNotes === null) return;
+    setDetailActionError(null);
+    try {
+      const responses = await Promise.all(
+        selectedReviewIds.map((lessonId) =>
+          fetch(`/api/lessons/${lessonId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status,
+              review_notes: reviewNotes ?? null,
+              review_template: template
+                ? {
+                    used: true,
+                    kind: template.kind,
+                    text: template.text,
+                  }
+                : null,
+            }),
+          })
+        )
+      );
 
-    await Promise.all(
-      selectedReviewIds.map((lessonId) =>
-        fetch(`/api/lessons/${lessonId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status,
-            review_notes: reviewNotes ?? null,
-            review_template: template
-              ? {
-                  used: true,
-                  kind: template.kind,
-                  text: template.text,
-                }
-              : null,
-          }),
-        })
-      )
-    );
-
-    dispatchInboxSync("lesson_reviewed");
-    setSelectedReviewIds([]);
-    await loadLessons();
-
-    if (selectedLesson && selectedReviewIds.includes(selectedLesson.id)) {
-      const nextLesson = lessons.find((lesson) => lesson.id === selectedLesson.id);
-      if (nextLesson) {
-        await selectLesson({
-          ...nextLesson,
-          status,
-          review_notes: reviewNotes ?? nextLesson.review_notes ?? null,
-        });
+      const failedResponse = responses.find((res) => !res.ok);
+      if (failedResponse) {
+        setDetailActionError(await getApiErrorMessage(failedResponse, "일괄 검토 처리 중 오류가 발생했습니다."));
+        return;
       }
+
+      dispatchInboxSync("lesson_reviewed");
+      setSelectedReviewIds([]);
+      await loadLessons();
+
+      if (selectedLesson && selectedReviewIds.includes(selectedLesson.id)) {
+        const nextLesson = lessons.find((lesson) => lesson.id === selectedLesson.id);
+        if (nextLesson) {
+          await selectLesson({
+            ...nextLesson,
+            status,
+            review_notes: reviewNotes ?? nextLesson.review_notes ?? null,
+          });
+        }
+      }
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "일괄 검토 처리 중 오류가 발생했습니다.");
     }
   }
 
@@ -2022,6 +2075,11 @@ export default function LibraryClient({
                             {imageError}
                           </div>
                         )}
+                        {detailActionError && (
+                          <div style={{ fontSize: "11px", color: "#B91C1C" }}>
+                            {detailActionError}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2067,6 +2125,11 @@ export default function LibraryClient({
             {/* Export buttons */}
             <div style={{ padding: "11px 14px", borderTop: "1px solid var(--color-border)" }}>
               <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text-muted)", marginBottom: "7px" }}>내보내기</div>
+              {detailActionError && (
+                <div style={{ fontSize: "10px", color: "#B91C1C", marginBottom: "8px", lineHeight: 1.5 }}>
+                  {detailActionError}
+                </div>
+              )}
               {lessonDetail?.package.documentTemplate?.name && (
                 <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginBottom: "8px", lineHeight: 1.5 }}>
                   현재 저장된 템플릿: {lessonDetail.package.documentTemplate.name}

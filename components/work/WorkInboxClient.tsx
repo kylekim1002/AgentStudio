@@ -103,6 +103,7 @@ export default function WorkInboxClient({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
 
   async function loadSummary(options?: { silent?: boolean }) {
@@ -113,31 +114,37 @@ export default function WorkInboxClient({
       setLoading(true);
     }
 
-    const res = await fetch("/api/inbox/summary", { cache: "no-store" });
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/inbox/summary", { cache: "no-store" });
+      if (!res.ok) {
+        if (!isMountedRef.current) return;
+        if (silent) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+        return;
+      }
+
+      const data = await res.json();
+      if (!isMountedRef.current) return;
+      setSummary(data.summary ?? EMPTY_SUMMARY);
+      setReviewerBoard(Array.isArray(data.reviewerBoard) ? data.reviewerBoard : []);
+      setReviewers(Array.isArray(data.reviewers) ? data.reviewers : []);
+      setReassignmentItems({
+        toMe: Array.isArray(data.reassignmentItems?.toMe) ? data.reassignmentItems.toMe : [],
+        fromMe: Array.isArray(data.reassignmentItems?.fromMe) ? data.reassignmentItems.fromMe : [],
+      });
+      setLastUpdatedAt(new Date().toISOString());
+    } catch {
+      if (!isMountedRef.current) return;
+    } finally {
       if (!isMountedRef.current) return;
       if (silent) {
         setRefreshing(false);
       } else {
         setLoading(false);
       }
-      return;
-    }
-
-    const data = await res.json();
-    if (!isMountedRef.current) return;
-    setSummary(data.summary ?? EMPTY_SUMMARY);
-    setReviewerBoard(Array.isArray(data.reviewerBoard) ? data.reviewerBoard : []);
-    setReviewers(Array.isArray(data.reviewers) ? data.reviewers : []);
-    setReassignmentItems({
-      toMe: Array.isArray(data.reassignmentItems?.toMe) ? data.reassignmentItems.toMe : [],
-      fromMe: Array.isArray(data.reassignmentItems?.fromMe) ? data.reassignmentItems.fromMe : [],
-    });
-    setLastUpdatedAt(new Date().toISOString());
-    if (silent) {
-      setRefreshing(false);
-    } else {
-      setLoading(false);
     }
   }
 
@@ -171,14 +178,22 @@ export default function WorkInboxClient({
   }
 
   async function acknowledgeReassignmentAlerts() {
-    const res = await fetch("/api/inbox/ack", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "reassignment" }),
-    });
-    if (!res.ok) return;
-    dispatchInboxSync("lesson_reassigned");
-    await reloadSummary();
+    setActionError(null);
+    try {
+      const res = await fetch("/api/inbox/ack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "reassignment" }),
+      });
+      if (!res.ok) {
+        setActionError("재배정 알림 읽음 처리 중 오류가 발생했습니다.");
+        return;
+      }
+      dispatchInboxSync("lesson_reassigned");
+      await reloadSummary();
+    } catch {
+      setActionError("재배정 알림 읽음 처리 중 오류가 발생했습니다.");
+    }
   }
 
   async function reassignLesson(lessonId: string, nextReviewerId: string) {
@@ -186,18 +201,27 @@ export default function WorkInboxClient({
     const reason = window.prompt("재배정 사유를 남겨주세요.", "SLA 초과로 재배정");
     if (reason === null) return;
     setReassigningLessonId(lessonId);
-    const res = await fetch(`/api/lessons/${lessonId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        reviewer_id: nextReviewerId,
-        reviewer_reason: reason.trim() || "재배정 사유 미입력",
-      }),
-    });
-    setReassigningLessonId(null);
-    if (!res.ok) return;
-    dispatchInboxSync("lesson_reassigned");
-    await reloadSummary();
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewer_id: nextReviewerId,
+          reviewer_reason: reason.trim() || "재배정 사유 미입력",
+        }),
+      });
+      if (!res.ok) {
+        setActionError("검토 재배정 중 오류가 발생했습니다.");
+        return;
+      }
+      dispatchInboxSync("lesson_reassigned");
+      await reloadSummary();
+    } catch {
+      setActionError("검토 재배정 중 오류가 발생했습니다.");
+    } finally {
+      setReassigningLessonId(null);
+    }
   }
 
   const roleLabel =
@@ -505,6 +529,22 @@ export default function WorkInboxClient({
           <p style={{ marginTop: "10px", fontSize: "14px", color: "var(--color-text-muted)", lineHeight: 1.7, maxWidth: "720px" }}>
             {heroCopy.description}
           </p>
+          {actionError && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #FECACA",
+                background: "#FEF2F2",
+                color: "#B91C1C",
+                fontSize: "12px",
+                fontWeight: "600",
+              }}
+            >
+              {actionError}
+            </div>
+          )}
         </div>
 
         <section style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "14px", padding: "18px 18px 16px", marginBottom: "16px" }}>

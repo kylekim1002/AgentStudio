@@ -115,6 +115,20 @@ function reconcilePassageValidation(
   };
 }
 
+function normalizeAssessmentOutput(assessment: AssessmentOutput): AssessmentOutput {
+  const normalizedQuestions = assessment.questions.map((question) => ({
+    ...question,
+    points: Math.max(0, Math.floor(question.points || 0)),
+  }));
+  const totalPoints = normalizedQuestions.reduce((sum, question) => sum + question.points, 0);
+  return {
+    ...assessment,
+    questions: normalizedQuestions,
+    totalPoints,
+    passingScore: Math.min(totalPoints, Math.max(0, Math.floor(totalPoints * 0.7))),
+  };
+}
+
 export const lessonWorkflowDefinition: WorkflowDefinition<
   LessonRequest,
   LessonPackage | PassageReviewResult | ContentReviewResult,
@@ -206,7 +220,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.vocabulary = vocabulary;
       state.grammar = grammar;
       state.writing = writing;
-      state.assessment = assessment;
+      state.assessment = normalizeAssessmentOutput(assessment);
     };
 
     if (request.passageCheckpoint) {
@@ -303,7 +317,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.vocabulary = request.contentCheckpoint.vocabulary;
       state.grammar = request.contentCheckpoint.grammar;
       state.writing = request.contentCheckpoint.writing;
-      state.assessment = request.contentCheckpoint.assessment;
+      state.assessment = normalizeAssessmentOutput(request.contentCheckpoint.assessment);
 
       runtime.emit({ step: AgentName.INTENT_ROUTER, status: "skipped" });
       runtime.emit({ step: AgentName.TEACHING_FRAME, status: "skipped" });
@@ -423,7 +437,10 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     }
 
     if (
-      request.generationTarget === "passage_review" &&
+      (request.generationTarget === "passage_review" ||
+        (request.generationTarget === "passage_and_content_review" &&
+          !request.passageCheckpoint &&
+          !request.contentCheckpoint)) &&
       state.approvedPassageLock &&
       state.difficultyLock &&
       state.teachingFrame

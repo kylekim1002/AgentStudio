@@ -80,6 +80,13 @@ export const DEFAULT_TEMPLATE_TEXT_STYLE = {
   underline: false,
 };
 
+export const DEFAULT_TEMPLATE_SECTION_COUNTS = {
+  reading: 5,
+  vocabulary: 8,
+  grammar: 8,
+  assessment: 10,
+} as const;
+
 export interface DocumentTemplateBlock {
   id: string;
   type: TemplateBlockType;
@@ -96,6 +103,7 @@ export interface TemplateCanvasItem {
   w: number;
   h: number;
   sectionKey?: DocumentSectionKey;
+  sectionItemLimit?: number | null;
   textContent?: string;
   imagePromptPresetId?: string | null;
   imagePromptText?: string;
@@ -151,6 +159,14 @@ function createId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function getDefaultSectionItemLimit(sectionKey: DocumentSectionKey) {
+  if (sectionKey === "reading") return DEFAULT_TEMPLATE_SECTION_COUNTS.reading;
+  if (sectionKey === "vocabulary") return DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary;
+  if (sectionKey === "grammar") return DEFAULT_TEMPLATE_SECTION_COUNTS.grammar;
+  if (sectionKey === "assessment") return DEFAULT_TEMPLATE_SECTION_COUNTS.assessment;
+  return null;
+}
+
 function createSectionItem(
   sectionKey: DocumentSectionKey,
   label: string,
@@ -164,6 +180,7 @@ function createSectionItem(
     type: "section",
     label,
     sectionKey,
+    sectionItemLimit: getDefaultSectionItemLimit(sectionKey),
     x,
     y,
     w,
@@ -376,6 +393,15 @@ function normalizeCanvasItem(item: unknown, index: number): TemplateCanvasItem {
     w,
     h,
     sectionKey,
+    sectionItemLimit:
+      type === "section" && sectionKey
+        ? clampNumber(
+            source.sectionItemLimit,
+            getDefaultSectionItemLimit(sectionKey) ?? 1,
+            1,
+            30
+          )
+        : null,
     textContent: typeof source.textContent === "string" ? source.textContent : "",
     imagePromptPresetId:
       typeof source.imagePromptPresetId === "string" && source.imagePromptPresetId.trim()
@@ -549,9 +575,36 @@ export function resolveDocumentTemplate(
   if (templateId === AUTO_DOCUMENT_TEMPLATE_ID) {
     return AUTO_DOCUMENT_TEMPLATE;
   }
+  const normalizedTemplates = normalizeDocumentTemplates(templates);
   return (
-    templates.find((template) => template.id === templateId) ??
-    templates[0] ??
+    normalizedTemplates.find((template) => template.id === templateId) ??
+    normalizedTemplates[0] ??
     AUTO_DOCUMENT_TEMPLATE
   );
+}
+
+export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
+  const totals = {
+    reading: 0,
+    vocabulary: 0,
+    assessment: 0,
+    grammarExercises: 0,
+  };
+
+  for (const page of template.pages) {
+    for (const item of page.items) {
+      if (item.type !== "section" || !item.sectionKey || !item.sectionItemLimit) continue;
+      if (item.sectionKey === "reading") totals.reading += item.sectionItemLimit;
+      if (item.sectionKey === "vocabulary") totals.vocabulary += item.sectionItemLimit;
+      if (item.sectionKey === "assessment") totals.assessment += item.sectionItemLimit;
+      if (item.sectionKey === "grammar") totals.grammarExercises += item.sectionItemLimit;
+    }
+  }
+
+  return {
+    reading: totals.reading || DEFAULT_TEMPLATE_SECTION_COUNTS.reading,
+    vocabulary: totals.vocabulary || DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary,
+    assessment: totals.assessment || DEFAULT_TEMPLATE_SECTION_COUNTS.assessment,
+    grammarExercises: totals.grammarExercises || DEFAULT_TEMPLATE_SECTION_COUNTS.grammar,
+  };
 }

@@ -98,7 +98,7 @@ export function applyTemplateContentLimits(
     originalTotalPoints > 0
       ? Math.min(
           assessmentTotalPoints,
-          Math.max(0, Math.round((pkg.assessment.passingScore / originalTotalPoints) * assessmentTotalPoints))
+          Math.max(0, Math.floor((pkg.assessment.passingScore / originalTotalPoints) * assessmentTotalPoints))
         )
       : pkg.assessment.passingScore;
 

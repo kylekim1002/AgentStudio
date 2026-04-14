@@ -8,6 +8,7 @@ import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/typ
 import {
   AUTO_DOCUMENT_TEMPLATE_ID,
   DocumentTemplate,
+  getTemplateSuggestedContentCounts,
   resolveDocumentTemplate,
 } from "@/lib/documentTemplates";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
@@ -20,6 +21,7 @@ import SaveDialog from "./SaveDialog";
 import { dispatchInboxSync } from "@/lib/ui/inboxSync";
 
 type Mode = "chat" | "pipeline";
+type GenerationTarget = "full" | "passage_review" | "content_review" | "passage_and_content_review";
 interface StudioClientProps {
   canViewPipeline: boolean;
   canSelectProvider: boolean;
@@ -82,7 +84,7 @@ export default function StudioClient({
   const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
   const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
   const [selectedTemplateId, setSelectedTemplateId] = useState(AUTO_DOCUMENT_TEMPLATE_ID);
-  const [generationTarget, setGenerationTarget] = useState<"full" | "passage_review" | "content_review" | "passage_and_content_review">("full");
+  const [generationTarget, setGenerationTarget] = useState<GenerationTarget>("full");
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewPassage, setReviewPassage] = useState("");
   const [revisionPrompt, setRevisionPrompt] = useState("");
@@ -96,6 +98,10 @@ export default function StudioClient({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
+  const suggestedContentCounts = useMemo(
+    () => getTemplateSuggestedContentCounts(activeTemplate),
+    [activeTemplate]
+  );
   const templateImageItems = useMemo(() => getTemplateImageItems(activeTemplate), [activeTemplate]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
@@ -132,6 +138,16 @@ export default function StudioClient({
   useEffect(() => {
     window.localStorage.setItem(STUDIO_TARGET_STORAGE_KEY, generationTarget);
   }, [generationTarget]);
+
+  useEffect(() => {
+    setContentCounts(suggestedContentCounts);
+  }, [
+    selectedTemplateId,
+    suggestedContentCounts.reading,
+    suggestedContentCounts.vocabulary,
+    suggestedContentCounts.assessment,
+    suggestedContentCounts.grammarExercises,
+  ]);
 
   // Auto-open save dialog when a new lesson package is generated
   useEffect(() => {
@@ -196,6 +212,9 @@ export default function StudioClient({
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
 
   function handleConfirmGenerate(chatSummary: string) {
+    setGeneratedImages([]);
+    setImageRevisionText("");
+    setImageError(null);
     setLastUserInput(chatSummary || "전체 파이프라인을 실행해 주세요.");
     generate({
       userInput: chatSummary || "전체 파이프라인을 실행해 주세요.",
@@ -208,6 +227,9 @@ export default function StudioClient({
 
   function handleRunAll(userInput?: string) {
     const nextInput = userInput || "전체 파이프라인을 실행해 주세요.";
+    setGeneratedImages([]);
+    setImageRevisionText("");
+    setImageError(null);
     setLastUserInput(nextInput);
     generate({
       userInput: nextInput,
@@ -271,6 +293,11 @@ export default function StudioClient({
         : baseInput;
 
     setLastUserInput(nextInput);
+    if (fullReset) {
+      setGeneratedImages([]);
+      setImageRevisionText("");
+      setImageError(null);
+    }
     generate({
       userInput: nextInput,
       provider,
@@ -361,7 +388,7 @@ export default function StudioClient({
   ) {
     if (!lessonPackage) return;
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
-    await fetch("/api/lessons", {
+    const response = await fetch("/api/lessons", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -378,6 +405,16 @@ export default function StudioClient({
         reviewer_id: reviewerId,
       }),
     });
+    if (!response.ok) {
+      let message = "레슨 저장 중 오류가 발생했습니다.";
+      try {
+        const data = await response.json();
+        if (typeof data?.error === "string" && data.error.trim()) {
+          message = data.error;
+        }
+      } catch {}
+      throw new Error(message);
+    }
     dispatchInboxSync("lesson_saved");
   }
 
@@ -585,6 +622,9 @@ export default function StudioClient({
             </svg>
             문항수 {contentCounts.reading}·{contentCounts.vocabulary}·{contentCounts.assessment}·{contentCounts.grammarExercises}
           </button>
+          <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.4 }}>
+            {activeTemplate.name} 기준 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises}
+          </div>
 
           {showCounts && (
             <>
@@ -607,19 +647,27 @@ export default function StudioClient({
                   영역별 문항 수
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "10px", lineHeight: "1.4" }}>
-                  생성 시작 전에 각 영역의 문항 수를 지정할 수 있습니다
+                  생성 시작 전에 각 영역의 문항 수를 지정할 수 있습니다. 현재 템플릿 기준 추천값은 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises} 입니다.
                 </div>
 
                 {([
                   { key: "reading" as const,          label: "독해 문항",    hint: "ex. 5",  min: 1,  max: 30 },
                   { key: "vocabulary" as const,       label: "어휘 단어",    hint: "ex. 8",  min: 1,  max: 30 },
                   { key: "assessment" as const,       label: "평가 문항",    hint: "ex. 10", min: 1,  max: 30 },
-                  { key: "grammarExercises" as const, label: "문법 연습",    hint: "ex. 8",  min: 2,  max: 20 },
+                  { key: "grammarExercises" as const, label: "문법 연습",    hint: "ex. 8",  min: 1,  max: 20 },
                 ]).map((row) => (
                   <div key={row.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: "12px", color: "var(--color-text)", fontWeight: "500" }}>{row.label}</div>
-                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>기본 {DEFAULT_CONTENT_COUNTS[row.key]}</div>
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>
+                        기본 {DEFAULT_CONTENT_COUNTS[row.key]} · 템플릿 {row.key === "reading"
+                          ? suggestedContentCounts.reading
+                          : row.key === "vocabulary"
+                            ? suggestedContentCounts.vocabulary
+                            : row.key === "assessment"
+                              ? suggestedContentCounts.assessment
+                              : suggestedContentCounts.grammarExercises}
+                      </div>
                     </div>
                     <input
                       type="number"
@@ -706,7 +754,7 @@ export default function StudioClient({
         <div style={{ position: "relative" }}>
           <select
             value={generationTarget}
-            onChange={(e) => setGenerationTarget(e.target.value as "full" | "passage_review")}
+            onChange={(e) => setGenerationTarget(e.target.value as GenerationTarget)}
             disabled={isRunning}
             style={{
               appearance: "none",
