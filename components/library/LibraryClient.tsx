@@ -10,6 +10,7 @@ import { DEFAULT_REVIEW_NOTE_TEMPLATES, ReviewNoteTemplates } from "@/lib/review
 import { DEFAULT_REVIEW_SLA_HOURS, getReviewWarningHours } from "@/lib/reviewSettings";
 import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
 import { DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -50,6 +51,20 @@ interface LessonDetailResponse {
   reviewer_id?: string | null;
   assignment_mode?: "auto" | "manual" | null;
   assignment_note?: string | null;
+}
+
+interface ImagePromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+interface GeneratedPassageImage {
+  id: string;
+  prompt: string;
+  presetId?: string | null;
+  url: string;
+  createdAt: string;
 }
 
 // ─── Difficulty badge colours ────────────────────────────────
@@ -137,6 +152,12 @@ export default function LibraryClient({
   const [activePanel, setActivePanel] = useState<"comments" | "activities" | null>(initialPanel);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
+  const [selectedImagePromptId, setSelectedImagePromptId] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.id ?? "");
+  const [imagePromptText, setImagePromptText] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.prompt ?? "");
+  const [imageRevisionText, setImageRevisionText] = useState("");
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
 
   // Refs to break callback dependency cycles (lessons → loadLessonDetail → loadLessons → setLessons → ...)
@@ -267,6 +288,17 @@ export default function LibraryClient({
       .catch(() => {});
   }, []);
   useEffect(() => {
+    fetch("/api/system-settings/image-prompts")
+      .then((res) => res.json())
+      .then(({ prompts }) => {
+        if (!Array.isArray(prompts) || prompts.length === 0) return;
+        setImagePrompts(prompts);
+        setSelectedImagePromptId(prompts[0].id);
+        setImagePromptText(prompts[0].prompt);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
     const params = new URLSearchParams();
 
     if (canManageReview && scope !== "all") params.set("scope", scope);
@@ -324,11 +356,81 @@ export default function LibraryClient({
   async function selectLesson(lesson: LessonSummary) {
     setSelectedLesson(lesson);
     setLessonDetail(null);
+    setImageError(null);
+    setImageRevisionText("");
     await loadLessonDetail(lesson.id, lesson);
   }
 
   // ── Export lesson ──────────────────────────────────────────
   const [exporting, setExporting] = useState<string | null>(null);
+
+  function handleSelectImagePrompt(presetId: string) {
+    setSelectedImagePromptId(presetId);
+    const preset = imagePrompts.find((item) => item.id === presetId);
+    if (preset) setImagePromptText(preset.prompt);
+  }
+
+  async function saveGeneratedImages(nextImages: GeneratedPassageImage[]) {
+    if (!selectedLesson || !lessonDetail) return;
+    const nextPackage = {
+      ...lessonDetail.package,
+      generatedImages: nextImages,
+    };
+    const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ package: nextPackage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error ?? "이미지 저장 실패");
+    }
+    setLessonDetail((prev) => prev ? ({ ...prev, package: nextPackage }) : prev);
+    dispatchInboxSync("lesson_saved");
+  }
+
+  async function handleGenerateLibraryImage(mode: "new" | "revise", imageId?: string) {
+    if (!lessonDetail || !selectedLesson) return;
+    const prompt = imagePromptText.trim();
+    if (!prompt) {
+      setImageError("이미지 프롬프트를 입력해 주세요.");
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    setImageError(null);
+    try {
+      const res = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: lessonDetail.package.title,
+          passage: lessonDetail.package.passage,
+          prompt,
+          revision: mode === "revise" ? imageRevisionText : undefined,
+          presetId: selectedImagePromptId || null,
+          previousImageId: imageId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "이미지 생성 실패");
+      }
+
+      const nextImage = data.image as GeneratedPassageImage;
+      const currentImages = lessonDetail.package.generatedImages ?? [];
+      const nextImages =
+        mode === "revise" && imageId
+          ? [nextImage, ...currentImages.filter((image) => image.id !== imageId)]
+          : [nextImage, ...currentImages];
+      await saveGeneratedImages(nextImages);
+      setImageRevisionText("");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다.");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }
 
   async function handleExport(type: "student" | "teacher", format: "pdf" | "docx") {
     if (!lessonDetail) return;
@@ -1586,6 +1688,163 @@ export default function LibraryClient({
                     </div>
                   )}
                   <DetailSection title="📖 지문" content={lessonDetail.package.passage} />
+                  {lessonDetail.package.generatedImages && lessonDetail.package.generatedImages.length > 0 && (
+                    <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                      <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "8px" }}>
+                        🖼️ 생성 이미지 ({lessonDetail.package.generatedImages.length})
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {lessonDetail.package.generatedImages.map((image, index) => (
+                          <div
+                            key={image.id}
+                            style={{
+                              border: "1px solid var(--color-border)",
+                              borderRadius: "8px",
+                              background: "var(--color-bg)",
+                              overflow: "hidden",
+                            }}
+                          >
+                            <img
+                              src={image.url}
+                              alt={`생성 이미지 ${index + 1}`}
+                              style={{ width: "100%", display: "block", background: "#fff" }}
+                            />
+                            <div style={{ padding: "8px", fontSize: "10px", color: "var(--color-text-muted)", lineHeight: 1.55 }}>
+                              {image.prompt}
+                            </div>
+                            {(isOwner || canReviewCurrentLesson) && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", padding: "0 8px 8px" }}>
+                                <button
+                                  onClick={() => void handleGenerateLibraryImage("revise", image.id)}
+                                  disabled={isGeneratingImage || !imageRevisionText.trim()}
+                                  style={{
+                                    padding: "7px 8px",
+                                    borderRadius: "7px",
+                                    border: "1px solid var(--color-border)",
+                                    background: "var(--color-surface)",
+                                    color: "var(--color-text)",
+                                    fontSize: "11px",
+                                    fontWeight: "600",
+                                    cursor: isGeneratingImage || !imageRevisionText.trim() ? "not-allowed" : "pointer",
+                                    opacity: isGeneratingImage || !imageRevisionText.trim() ? 0.6 : 1,
+                                  }}
+                                >
+                                  부분 수정
+                                </button>
+                                <button
+                                  onClick={() => void handleGenerateLibraryImage("new")}
+                                  disabled={isGeneratingImage}
+                                  style={{
+                                    padding: "7px 8px",
+                                    borderRadius: "7px",
+                                    border: "1px solid #C7D2FE",
+                                    background: "#EEF2FF",
+                                    color: "#3730A3",
+                                    fontSize: "11px",
+                                    fontWeight: "700",
+                                    cursor: isGeneratingImage ? "not-allowed" : "pointer",
+                                    opacity: isGeneratingImage ? 0.6 : 1,
+                                  }}
+                                >
+                                  새로 생성
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(isOwner || canReviewCurrentLesson) && (
+                    <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                      <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
+                        이미지 재생성
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: "8px" }}>
+                        저장된 지문을 기준으로 이미지를 다시 만들 수 있습니다. 프리셋을 불러온 뒤 수정해서 새로 생성하거나, 현재 이미지에 수정 지시를 붙여 다시 만들 수 있습니다.
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        <select
+                          value={selectedImagePromptId}
+                          onChange={(e) => handleSelectImagePrompt(e.target.value)}
+                          disabled={isGeneratingImage}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "#fff",
+                            fontSize: "12px",
+                            color: "var(--color-text)",
+                          }}
+                        >
+                          {imagePrompts.map((prompt) => (
+                            <option key={prompt.id} value={prompt.id}>
+                              {prompt.name}
+                            </option>
+                          ))}
+                        </select>
+                        <textarea
+                          value={imagePromptText}
+                          onChange={(e) => setImagePromptText(e.target.value)}
+                          disabled={isGeneratingImage}
+                          rows={4}
+                          placeholder="이미지 생성 프롬프트"
+                          style={{
+                            width: "100%",
+                            padding: "9px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "#fff",
+                            fontSize: "12px",
+                            lineHeight: 1.6,
+                            color: "var(--color-text)",
+                            resize: "vertical",
+                          }}
+                        />
+                        <textarea
+                          value={imageRevisionText}
+                          onChange={(e) => setImageRevisionText(e.target.value)}
+                          disabled={isGeneratingImage}
+                          rows={3}
+                          placeholder="부분 수정 요청 예: 배경을 더 밝게, 인물을 더 크게"
+                          style={{
+                            width: "100%",
+                            padding: "9px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "#fff",
+                            fontSize: "12px",
+                            lineHeight: 1.6,
+                            color: "var(--color-text)",
+                            resize: "vertical",
+                          }}
+                        />
+                        <button
+                          onClick={() => void handleGenerateLibraryImage("new")}
+                          disabled={isGeneratingImage}
+                          style={{
+                            padding: "9px 10px",
+                            borderRadius: "8px",
+                            border: "none",
+                            background: "var(--color-primary)",
+                            color: "#fff",
+                            fontSize: "12px",
+                            fontWeight: "700",
+                            cursor: isGeneratingImage ? "not-allowed" : "pointer",
+                            opacity: isGeneratingImage ? 0.7 : 1,
+                          }}
+                        >
+                          {isGeneratingImage ? "생성 중..." : "새 이미지 생성"}
+                        </button>
+                        {imageError && (
+                          <div style={{ fontSize: "11px", color: "#B91C1C" }}>
+                            {imageError}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <DetailSection title={`❓ 독해 문제 (${lessonDetail.package.reading.questions.length}문항)`} content={lessonDetail.package.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
                   <DetailSection title={`📝 어휘 (${lessonDetail.package.vocabulary.words.length}단어)`} content={lessonDetail.package.vocabulary.words.map((w) => `• ${w.word}: ${w.definition}`).join("\n")} />
                   <DetailSection title="📐 문법 포인트" content={`${lessonDetail.package.grammar.focusPoint}\n\n${lessonDetail.package.grammar.explanation}`} />

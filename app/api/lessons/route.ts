@@ -77,6 +77,10 @@ async function resolveRecommendedReviewerId(supabase: Awaited<ReturnType<typeof 
   return sorted[0]?.id ?? null;
 }
 
+function isReviewStatus(status?: LessonStatus) {
+  return status === "in_review";
+}
+
 // GET /api/lessons — 내 레슨 목록 (project_id, search 필터 지원)
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -238,8 +242,15 @@ export async function POST(req: NextRequest) {
     resolvedReviewerId = reviewer.id;
   }
 
-  if (!resolvedReviewerId && status === "in_review") {
+  if (!resolvedReviewerId && isReviewStatus(status)) {
     resolvedReviewerId = await resolveRecommendedReviewerId(supabase);
+  }
+
+  if (isReviewStatus(status) && !resolvedReviewerId) {
+    return NextResponse.json(
+      { error: "검토 요청을 처리할 검토자가 없습니다. 검토자 계정을 먼저 설정해 주세요." },
+      { status: 400 }
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -251,8 +262,8 @@ export async function POST(req: NextRequest) {
       difficulty: lessonPackage.difficulty,
       provider,
       status: status ?? "draft",
-      reviewer_id: status === "in_review" ? resolvedReviewerId : null,
-      submitted_at: status === "in_review" ? new Date().toISOString() : null,
+      reviewer_id: isReviewStatus(status) ? resolvedReviewerId : null,
+      submitted_at: isReviewStatus(status) ? new Date().toISOString() : null,
       package: lessonPackage,
       project_id: project_id ?? null,
       tags: tags ?? [],

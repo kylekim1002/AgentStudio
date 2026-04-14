@@ -99,6 +99,7 @@ export interface PassageCheckpoint {
   approvedPassageLock: ApprovedPassageLockOutput;
   difficultyLock: DifficultyLockOutput;
   teachingFrame: TeachingFrameOutput;
+  needsRevalidation?: boolean;
 }
 
 export interface PassageReviewResult {
@@ -248,6 +249,13 @@ export interface LessonRequest {
 }
 
 export interface LessonPackage {
+  generatedImages?: Array<{
+    id: string;
+    prompt: string;
+    presetId?: string | null;
+    url: string;
+    createdAt: string;
+  }>;
   title: string;
   difficulty: DifficultyLevel;
   passage: string;

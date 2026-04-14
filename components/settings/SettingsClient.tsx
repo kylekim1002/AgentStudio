@@ -6,14 +6,16 @@ import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 import { AppRole } from "@/lib/authz/roles";
 import { DEFAULT_REVIEW_NOTE_TEMPLATES } from "@/lib/reviewTemplates";
 import { DEFAULT_REVIEW_SLA_HOURS } from "@/lib/reviewSettings";
+import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 
-type SettingsTab = "ai" | "agents" | "tokens" | "review" | "notifications" | "users" | "folders";
+type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "notifications" | "users" | "folders";
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "ai",      label: "AI 제공자",   icon: "🤖" },
   { key: "agents",  label: "에이전트 매트릭스", icon: "⚡" },
   { key: "tokens",  label: "토큰 관리",   icon: "🪙" },
   { key: "review",  label: "검토 기준",   icon: "📝" },
+  { key: "image_prompts", label: "이미지 프롬프트", icon: "🖼️" },
   { key: "notifications", label: "알림", icon: "🔔" },
   { key: "users",   label: "사용자 관리", icon: "👥" },
   { key: "folders", label: "폴더 관리",   icon: "📁" },
@@ -74,6 +76,9 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
     approved: [],
     needs_revision: [],
   });
+  const [imagePromptsText, setImagePromptsText] = useState(
+    DEFAULT_IMAGE_PROMPT_PRESETS.map((item) => `${item.name}::${item.prompt}`).join("\n\n")
+  );
 
   // API key state
   const [apiKeyStatus, setApiKeyStatus] = useState<{
@@ -152,6 +157,18 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
         });
       })
       .catch(() => {});
+
+    fetch("/api/system-settings/image-prompts")
+      .then((r) => r.json())
+      .then(({ prompts }) => {
+        if (!Array.isArray(prompts)) return;
+        setImagePromptsText(
+          prompts
+            .map((item: { name?: string; prompt?: string }) => `${item.name ?? "프롬프트"}::${item.prompt ?? ""}`)
+            .join("\n\n")
+        );
+      })
+      .catch(() => {});
   }, [canManageReviewTemplates]);
 
   useEffect(() => {
@@ -197,6 +214,19 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
           approved: approvedTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
           needs_revision: revisionTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
         };
+        const imagePrompts = imagePromptsText
+          .split("\n\n")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .map((item, index) => {
+            const [name, ...rest] = item.split("::");
+            return {
+              id: `preset-${index + 1}`,
+              name: (name || `프롬프트 ${index + 1}`).trim(),
+              prompt: rest.join("::").trim(),
+            };
+          })
+          .filter((item) => item.prompt);
 
         const sharedRes = await fetch("/api/system-settings/review-templates", {
           method: "POST",
@@ -205,6 +235,15 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
         });
         const sharedData = await sharedRes.json();
         if (!sharedRes.ok) throw new Error(sharedData.error ?? "검토 기준 저장 실패");
+
+        const imagePromptRes = await fetch("/api/system-settings/image-prompts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompts: imagePrompts }),
+        });
+        const imagePromptData = await imagePromptRes.json();
+        if (!imagePromptRes.ok) throw new Error(imagePromptData.error ?? "이미지 프롬프트 저장 실패");
+
         setReviewTemplateStats((prev) => ({
           approved: templates.approved.map((template) => ({
             template,
@@ -681,6 +720,44 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
                     )}
                   </div>
                 </div>
+              </div>
+            </Card>
+
+            <SaveFooter />
+          </div>
+        )}
+
+        {tab === "image_prompts" && canManageReviewTemplates && (
+          <div style={{ maxWidth: "720px" }}>
+            <SectionTitle>이미지 프롬프트 프리셋</SectionTitle>
+            <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px", lineHeight: 1.7 }}>
+              이미지 생성 시 기본으로 불러올 프롬프트를 팀 공용 프리셋으로 관리합니다. 각 항목은 `이름::프롬프트` 형식이고, 항목 사이는 빈 줄로 구분합니다.
+            </p>
+
+            <Card>
+              <textarea
+                value={imagePromptsText}
+                onChange={(e) => setImagePromptsText(e.target.value)}
+                rows={16}
+                style={{
+                  width: "100%",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--color-border-strong)",
+                  fontSize: "13px",
+                  lineHeight: 1.6,
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                  background: "var(--color-bg)",
+                }}
+              />
+            </Card>
+
+            <Card style={{ marginTop: "14px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>예시</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+                {`스토리북 일러스트::Create a warm educational storybook illustration for Korean English academy materials. Clean composition, soft lighting, child-safe mood, no text.\n\n리얼 클래스룸::Create a realistic classroom-style illustration for English lesson materials. Natural light, print-friendly composition, no text.`}
               </div>
             </Card>
 

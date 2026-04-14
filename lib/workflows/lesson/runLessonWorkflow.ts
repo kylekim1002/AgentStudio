@@ -129,7 +129,6 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     };
 
     if (request.passageCheckpoint) {
-      state.approvedPassageLock = request.passageCheckpoint.approvedPassageLock;
       state.difficultyLock = request.passageCheckpoint.difficultyLock;
       state.teachingFrame = request.passageCheckpoint.teachingFrame;
 
@@ -157,19 +156,59 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         step: AgentName.RESEARCH_CURATION,
         status: "skipped",
       });
-      runtime.emit({
-        step: AgentName.PASSAGE_GENERATION,
-        status: "skipped",
-      });
-      runtime.emit({
-        step: AgentName.PASSAGE_VALIDATION,
-        status: "skipped",
-      });
-      runtime.emit({
-        step: AgentName.APPROVED_PASSAGE_LOCK,
-        status: "done",
-        output: state.approvedPassageLock,
-      });
+
+      if (request.passageCheckpoint.needsRevalidation) {
+        state.passageGeneration = {
+          passage: request.passageCheckpoint.approvedPassageLock.passage,
+          title: request.passageCheckpoint.approvedPassageLock.title,
+          wordCount: request.passageCheckpoint.approvedPassageLock.wordCount,
+          difficulty: request.passageCheckpoint.difficultyLock.difficulty,
+        };
+
+        runtime.emit({
+          step: AgentName.PASSAGE_GENERATION,
+          status: "done",
+          output: state.passageGeneration,
+        });
+
+        state.passageValidation = await runtime.step<PassageValidationOutput>(
+          AgentName.PASSAGE_VALIDATION,
+          () =>
+            callAgent(AgentName.PASSAGE_VALIDATION, {
+              passage: state.passageGeneration,
+              difficultyLock: state.difficultyLock,
+            })
+        );
+
+        if (!state.passageValidation.approved) {
+          throw new Error(
+            `Passage validation failed: ${state.passageValidation.issues.join(", ")}`
+          );
+        }
+
+        state.approvedPassageLock = await runtime.step<ApprovedPassageLockOutput>(
+          AgentName.APPROVED_PASSAGE_LOCK,
+          () =>
+            callAgent(AgentName.APPROVED_PASSAGE_LOCK, {
+              passageGeneration: state.passageGeneration,
+            })
+        );
+      } else {
+        state.approvedPassageLock = request.passageCheckpoint.approvedPassageLock;
+        runtime.emit({
+          step: AgentName.PASSAGE_GENERATION,
+          status: "skipped",
+        });
+        runtime.emit({
+          step: AgentName.PASSAGE_VALIDATION,
+          status: "skipped",
+        });
+        runtime.emit({
+          step: AgentName.APPROVED_PASSAGE_LOCK,
+          status: "done",
+          output: state.approvedPassageLock,
+        });
+      }
     } else if (request.contentCheckpoint) {
       state.approvedPassageLock = request.contentCheckpoint.approvedPassageLock;
       state.difficultyLock = request.contentCheckpoint.difficultyLock;

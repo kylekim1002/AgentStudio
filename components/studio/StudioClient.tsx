@@ -6,6 +6,7 @@ import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
 import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
@@ -21,6 +22,20 @@ interface StudioClientProps {
   canExportTeacher: boolean;
   defaultProvider?: AIProvider;
   initialDocumentTemplates: DocumentTemplate[];
+}
+
+interface ImagePromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+interface GeneratedPassageImage {
+  id: string;
+  prompt: string;
+  presetId?: string | null;
+  url: string;
+  createdAt: string;
 }
 
 const PROVIDERS: { value: AIProvider; label: string; color: string; short: string }[] = [
@@ -68,6 +83,13 @@ export default function StudioClient({
   const [revisionPrompt, setRevisionPrompt] = useState("");
   const [contentRevisionNotes, setContentRevisionNotes] = useState<Partial<Record<AgentName, string>>>({});
   const [lastUserInput, setLastUserInput] = useState("");
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
+  const [selectedImagePromptId, setSelectedImagePromptId] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.id ?? "");
+  const [imagePromptText, setImagePromptText] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.prompt ?? "");
+  const [imageRevisionText, setImageRevisionText] = useState("");
+  const [generatedImages, setGeneratedImages] = useState<GeneratedPassageImage[]>([]);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
@@ -114,10 +136,25 @@ export default function StudioClient({
       setReviewTitle(passageCheckpoint.approvedPassageLock.title);
       setReviewPassage(passageCheckpoint.approvedPassageLock.passage);
       setRevisionPrompt("");
+      setGeneratedImages([]);
+      setImageRevisionText("");
+      setImageError(null);
       setShowPreview(true);
     }
     prevCheckpoint.current = passageCheckpoint;
   }, [passageCheckpoint]);
+
+  useEffect(() => {
+    fetch("/api/system-settings/image-prompts")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!Array.isArray(data.prompts) || data.prompts.length === 0) return;
+        setImagePrompts(data.prompts);
+        setSelectedImagePromptId(data.prompts[0].id);
+        setImagePromptText(data.prompts[0].prompt);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (contentCheckpoint && contentCheckpoint !== prevContentCheckpoint.current) {
@@ -156,6 +193,11 @@ export default function StudioClient({
     if (!passageCheckpoint) return null;
     const trimmedPassage = reviewPassage.trim();
     const trimmedTitle = reviewTitle.trim() || passageCheckpoint.approvedPassageLock.title;
+    const normalizedPassage = trimmedPassage || passageCheckpoint.approvedPassageLock.passage;
+    const normalizedTitle = trimmedTitle || passageCheckpoint.approvedPassageLock.title;
+    const needsRevalidation =
+      normalizedPassage !== passageCheckpoint.approvedPassageLock.passage ||
+      normalizedTitle !== passageCheckpoint.approvedPassageLock.title;
     const wordCount = trimmedPassage
       ? trimmedPassage
           .split(/\s+/)
@@ -167,10 +209,11 @@ export default function StudioClient({
       ...passageCheckpoint,
       approvedPassageLock: {
         ...passageCheckpoint.approvedPassageLock,
-        title: trimmedTitle,
-        passage: trimmedPassage || passageCheckpoint.approvedPassageLock.passage,
+        title: normalizedTitle,
+        passage: normalizedPassage,
         wordCount,
       },
+      needsRevalidation,
     };
   }
 
@@ -253,6 +296,14 @@ export default function StudioClient({
     });
   }
 
+  function handleSelectImagePrompt(presetId: string) {
+    setSelectedImagePromptId(presetId);
+    const preset = imagePrompts.find((item) => item.id === presetId);
+    if (preset) {
+      setImagePromptText(preset.prompt);
+    }
+  }
+
   function summarizeContentSection(checkpoint: ContentCheckpoint, key: keyof ContentCheckpoint) {
     if (key === "reading") {
       return checkpoint.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n");
@@ -289,6 +340,7 @@ export default function StudioClient({
           ...lessonPackage,
           title: lessonName || lessonPackage.title,
           documentTemplate: activeTemplate,
+          generatedImages,
         },
         provider,
         project_id: projectId,
@@ -298,6 +350,47 @@ export default function StudioClient({
       }),
     });
     dispatchInboxSync("lesson_saved");
+  }
+
+  async function handleGeneratePassageImage(mode: "new" | "revise", imageId?: string) {
+    const prompt = imagePromptText.trim();
+    if (!prompt) {
+      setImageError("이미지 프롬프트를 입력해 주세요.");
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    setImageError(null);
+    try {
+      const res = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: reviewTitle || passageCheckpoint?.approvedPassageLock.title,
+          passage: reviewPassage || passageCheckpoint?.approvedPassageLock.passage,
+          prompt,
+          revision: mode === "revise" ? imageRevisionText : undefined,
+          presetId: selectedImagePromptId || null,
+          previousImageId: imageId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "이미지 생성 실패");
+      }
+      const nextImage = data.image as GeneratedPassageImage;
+      setGeneratedImages((prev) => {
+        if (mode === "revise" && imageId) {
+          return [nextImage, ...prev.filter((image) => image.id !== imageId)];
+        }
+        return [nextImage, ...prev];
+      });
+      setImageRevisionText("");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다.");
+    } finally {
+      setIsGeneratingImage(false);
+    }
   }
 
   // Convert Map<AgentName, AgentProgressState> → Map<AgentName, AgentStatus>
@@ -813,6 +906,183 @@ export default function StudioClient({
             <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6, marginTop: "10px" }}>
               세부 논의가 필요하면 채팅 모드에서 <strong>@passage_generation</strong> 또는 <strong>@passage_validation</strong>를 호출해 수정 방향을 먼저 정리할 수 있습니다.
             </div>
+          </div>
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              background: "rgba(255,255,255,0.82)",
+              border: "1px solid #FDE68A",
+              borderRadius: "10px",
+              padding: "12px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: "700", color: "#92400E" }}>본문 기반 이미지 생성</div>
+                <div style={{ fontSize: "11px", color: "#A16207", lineHeight: 1.6 }}>
+                  지문이 괜찮다면 여기서 이미지도 먼저 생성해볼 수 있습니다. 프롬프트 프리셋을 불러오고, 필요하면 수정한 뒤 새로 생성하거나 현재 이미지에 수정 지시를 반영해 다시 만들 수 있습니다.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleGeneratePassageImage("new")}
+                disabled={isGeneratingImage}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#EA580C",
+                  color: "#fff",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: isGeneratingImage ? "not-allowed" : "pointer",
+                  opacity: isGeneratingImage ? 0.7 : 1,
+                  flexShrink: 0,
+                }}
+              >
+                {isGeneratingImage ? "생성 중..." : "이미지 생성"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: "10px", marginBottom: "10px" }}>
+              <select
+                value={selectedImagePromptId}
+                onChange={(e) => handleSelectImagePrompt(e.target.value)}
+                disabled={isGeneratingImage}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: "12px",
+                  color: "var(--color-text)",
+                }}
+              >
+                {imagePrompts.map((prompt) => (
+                  <option key={prompt.id} value={prompt.id}>
+                    {prompt.name}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                value={imagePromptText}
+                onChange={(e) => setImagePromptText(e.target.value)}
+                disabled={isGeneratingImage}
+                placeholder="이미지 생성 기본 프롬프트"
+                rows={4}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: "12px",
+                  lineHeight: 1.6,
+                  color: "var(--color-text)",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            <textarea
+              value={imageRevisionText}
+              onChange={(e) => setImageRevisionText(e.target.value)}
+              disabled={isGeneratingImage}
+              placeholder="부분 수정 요청 예: 배경은 더 밝게, 인물은 더 크게, 분위기는 차분하게"
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                borderRadius: "8px",
+                border: "1px solid var(--color-border)",
+                background: "#fff",
+                fontSize: "12px",
+                lineHeight: 1.6,
+                color: "var(--color-text)",
+                outline: "none",
+                boxSizing: "border-box",
+                resize: "vertical",
+              }}
+            />
+
+            {imageError && (
+              <div style={{ marginTop: "8px", fontSize: "11px", color: "#B91C1C" }}>
+                {imageError}
+              </div>
+            )}
+
+            {generatedImages.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginTop: "12px" }}>
+                {generatedImages.map((image) => (
+                  <div
+                    key={image.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: "1px solid #FDE68A",
+                      background: "#fff",
+                      padding: "10px",
+                    }}
+                  >
+                    <img
+                      src={image.url}
+                      alt="Generated passage visual"
+                      style={{
+                        width: "100%",
+                        aspectRatio: "4 / 3",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                        border: "1px solid var(--color-border)",
+                        background: "#F8FAFC",
+                      }}
+                    />
+                    <div style={{ marginTop: "8px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                      {image.prompt}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "8px" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleGeneratePassageImage("revise", image.id)}
+                        disabled={isGeneratingImage || !imageRevisionText.trim()}
+                        style={{
+                          padding: "7px 8px",
+                          borderRadius: "7px",
+                          border: "1px solid var(--color-border)",
+                          background: "var(--color-surface)",
+                          color: "var(--color-text)",
+                          fontSize: "11px",
+                          fontWeight: "600",
+                          cursor: isGeneratingImage || !imageRevisionText.trim() ? "not-allowed" : "pointer",
+                          opacity: isGeneratingImage || !imageRevisionText.trim() ? 0.6 : 1,
+                        }}
+                      >
+                        부분 수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleGeneratePassageImage("new")}
+                        disabled={isGeneratingImage}
+                        style={{
+                          padding: "7px 8px",
+                          borderRadius: "7px",
+                          border: "1px solid #FDBA74",
+                          background: "#FFF7ED",
+                          color: "#C2410C",
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          cursor: isGeneratingImage ? "not-allowed" : "pointer",
+                          opacity: isGeneratingImage ? 0.6 : 1,
+                        }}
+                      >
+                        새로 생성
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

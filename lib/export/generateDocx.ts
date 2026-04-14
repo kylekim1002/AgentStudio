@@ -1,10 +1,11 @@
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, BorderStyle,
-  AlignmentType, convertInchesToTwip,
+  AlignmentType, convertInchesToTwip, ImageRun,
 } from "docx";
 import { LessonPackage } from "@/lib/agents/types";
 import { DocumentTemplate } from "@/lib/documentTemplates";
+import { getTemplateImageItems, resolveTemplateImage } from "@/lib/documentTemplateRender";
 
 type ExportType = "student" | "teacher";
 
@@ -24,6 +25,16 @@ function rule() {
   });
 }
 
+function dataUrlToUint8Array(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
 export async function generateDocx(
   pkg: LessonPackage,
   type: ExportType,
@@ -38,6 +49,37 @@ export async function generateDocx(
     new Paragraph({ children: [new TextRun({ text: pkg.title, bold: true, size: 40 })], spacing: { after: 160 }, alignment: AlignmentType.CENTER }),
     new Paragraph({ children: [new TextRun({ text: `난이도: ${pkg.difficulty}  |  단어 수: ${pkg.wordCount}`, size: 20, color: "666666" })], alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
   );
+
+  const imageItems = getTemplateImageItems(template);
+  if (imageItems.length > 0 && (pkg.generatedImages?.length ?? 0) > 0) {
+    children.push(heading("🖼️ 학습 이미지", HeadingLevel.HEADING_1));
+    imageItems.forEach(({ item }, index) => {
+      const image = resolveTemplateImage(template, pkg, item.id);
+      if (!image) return;
+      children.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: dataUrlToUint8Array(image.url),
+              type: "png",
+              transformation: {
+                width: 480,
+                height: 320,
+              },
+            }),
+          ],
+          spacing: { after: 100 },
+          alignment: AlignmentType.CENTER,
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: `${index + 1}. ${image.prompt}`, size: 18, color: "666666" })],
+          spacing: { after: 220 },
+          alignment: AlignmentType.CENTER,
+        })
+      );
+    });
+    children.push(rule());
+  }
 
   // ── Passage ────────────────────────────────────────────────
   if (visible.has("passage")) {

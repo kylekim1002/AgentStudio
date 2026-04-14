@@ -5,6 +5,61 @@ import { getViewerAccess } from "@/lib/authz/server";
 import { canDeleteLesson, canReviewLesson, canViewLesson } from "@/lib/collab/access";
 import { logLessonActivity } from "@/lib/collab/activity";
 
+const REVIEWER_ROLES = ["admin", "lead_teacher", "reviewer"];
+
+async function resolveRecommendedReviewerId(
+  supabase: Awaited<ReturnType<typeof createClient>>
+) {
+  const { data: reviewerProfiles } = await supabase
+    .from("profiles")
+    .select("id, name, role")
+    .in("role", REVIEWER_ROLES)
+    .order("name", { ascending: true });
+
+  const reviewerIds = (reviewerProfiles ?? []).map((profile) => profile.id);
+  if (reviewerIds.length === 0) return null;
+
+  const { data: queueRows } = await supabase
+    .from("lessons")
+    .select("reviewer_id, submitted_at")
+    .in("reviewer_id", reviewerIds)
+    .eq("status", "in_review");
+
+  const now = Date.now();
+  const queueMap = new Map<string, number[]>();
+  for (const row of queueRows ?? []) {
+    if (!row.reviewer_id || !row.submitted_at) continue;
+    const hours =
+      Math.max(0, Math.round((((now - new Date(row.submitted_at).getTime()) / (1000 * 60 * 60)) * 10))) /
+      10;
+    queueMap.set(row.reviewer_id, [...(queueMap.get(row.reviewer_id) ?? []), hours]);
+  }
+
+  const sorted = (reviewerProfiles ?? [])
+    .map((profile) => {
+      const rows = queueMap.get(profile.id) ?? [];
+      const queueCount = rows.length;
+      const averageWaitHours =
+        queueCount > 0
+          ? Math.round((rows.reduce((sum, hour) => sum + hour, 0) / queueCount) * 10) / 10
+          : 0;
+
+      return {
+        id: profile.id,
+        queueCount,
+        averageWaitHours,
+        name: profile.name ?? "이름 미지정",
+      };
+    })
+    .sort((a, b) => {
+      if (a.queueCount !== b.queueCount) return a.queueCount - b.queueCount;
+      if (a.averageWaitHours !== b.averageWaitHours) return a.averageWaitHours - b.averageWaitHours;
+      return a.name.localeCompare(b.name, "ko");
+    });
+
+  return sorted[0]?.id ?? null;
+}
+
 // GET /api/lessons/[id] — 레슨 상세 (package 포함)
 export async function GET(
   _req: NextRequest,
@@ -153,6 +208,7 @@ export async function PATCH(
     review_notes?: string | null;
     reviewer_id?: string | null;
     reviewer_reason?: string | null;
+    package?: Record<string, unknown>;
     review_template?: {
       used?: boolean;
       kind?: "approved" | "needs_revision" | null;
@@ -198,6 +254,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Only owner can assign reviewer" }, { status: 403 });
   }
 
+  if (body.package && !isOwner && !access.features.includes("approval.manage")) {
+    return NextResponse.json({ error: "Only owner can update lesson package" }, { status: 403 });
+  }
+
   if (body.reviewer_id) {
     const { data: reviewer } = await supabase
       .from("profiles")
@@ -210,12 +270,27 @@ export async function PATCH(
     }
   }
 
+  if (body.status === "in_review" && !body.reviewer_id && !lesson.reviewer_id) {
+    const recommendedReviewerId = await resolveRecommendedReviewerId(supabase);
+    if (!recommendedReviewerId) {
+      return NextResponse.json(
+        { error: "검토 요청을 처리할 검토자가 없습니다. 검토자 계정을 먼저 설정해 주세요." },
+        { status: 400 }
+      );
+    }
+    patch.reviewer_id = recommendedReviewerId;
+  }
+
   if (body.status === "approved") {
     patch.reviewed_at = new Date().toISOString();
   }
 
   if (body.status === "needs_revision") {
     patch.reviewed_at = new Date().toISOString();
+  }
+
+  if (body.package) {
+    patch.package = body.package;
   }
 
   const { data, error } = await (supabase as any)
@@ -229,15 +304,24 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (body.reviewer_id && body.reviewer_id !== lesson.reviewer_id) {
+  const nextReviewerId =
+    typeof patch.reviewer_id === "string"
+      ? patch.reviewer_id
+      : body.reviewer_id ?? lesson.reviewer_id ?? null;
+
+  if (nextReviewerId && nextReviewerId !== lesson.reviewer_id) {
     await logLessonActivity(supabase, {
       lessonId: id,
       actorId: user.id,
       action: "reviewer_assigned",
       metadata: {
-        reviewer_id: body.reviewer_id,
+        reviewer_id: nextReviewerId,
         previous_reviewer_id: lesson.reviewer_id ?? null,
-        note: body.reviewer_reason ?? null,
+        note:
+          body.reviewer_reason ??
+          (body.status === "in_review" && !body.reviewer_id
+            ? "검토 요청 시 추천 검토자로 자동 배정"
+            : null),
       },
     });
   }
@@ -264,6 +348,17 @@ export async function PATCH(
         template_used: body.review_template?.used ?? false,
         template_kind: body.review_template?.kind ?? null,
         template_text: body.review_template?.text ?? null,
+      },
+    });
+  }
+
+  if (body.package) {
+    await logLessonActivity(supabase, {
+      lessonId: id,
+      actorId: user.id,
+      action: "package_updated",
+      metadata: {
+        note: "레슨 패키지 내용이 업데이트되었습니다.",
       },
     });
   }

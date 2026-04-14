@@ -4,6 +4,10 @@ import { useState } from "react";
 import { LessonPackage } from "@/lib/agents/types";
 import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
 import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import {
+  canvasLayoutLabel,
+  renderCanvasTemplatePages,
+} from "@/lib/documentTemplateRender";
 
 interface PreviewPanelProps {
   lessonPackage: LessonPackage | null;
@@ -65,6 +69,11 @@ export default function PreviewPanel({
     { key: "writing",    icon: "✍️", title: "쓰기 과제", badge: null, content: lessonPackage.writing.prompt },
     { key: "assessment", icon: "📊", title: "평가지", badge: `${lessonPackage.assessment.questions.length}문항 / ${lessonPackage.assessment.totalPoints}점`, content: lessonPackage.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
   ].filter((section) => activeTemplate.visibleSections.includes(section.key as typeof activeTemplate.visibleSections[number])) : [];
+
+  const canvasPages =
+    lessonPackage && activeTemplate.layout === "canvas"
+      ? renderCanvasTemplatePages(activeTemplate, lessonPackage, false)
+      : [];
 
   return (
     <aside style={{
@@ -134,6 +143,110 @@ export default function PreviewPanel({
             </div>
           </div>
 
+          {canvasPages.length > 0 && (
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
+                A4 템플릿 미리보기
+              </div>
+              <div style={{ display: "grid", gap: "10px" }}>
+                {canvasPages.map((page, pageIndex) => (
+                  <div key={page.id}>
+                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginBottom: "4px" }}>
+                      {pageIndex + 1}페이지
+                    </div>
+                    <div
+                      style={{
+                        position: "relative",
+                        width: "100%",
+                        aspectRatio: "210 / 297",
+                        background: "#fff",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "10px",
+                        overflow: "hidden",
+                        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.06)",
+                      }}
+                    >
+                      {page.items.map((item) => {
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              position: "absolute",
+                              left: `${item.x}%`,
+                              top: `${item.y}%`,
+                              width: `${item.w}%`,
+                              height: `${item.h}%`,
+                              borderRadius: "8px",
+                              border: `1px solid ${item.type === "image" ? "#BFDBFE" : "var(--color-border)"}`,
+                              background: item.type === "image" ? "#EFF6FF" : "#F8FAFC",
+                              padding: "6px",
+                              overflow: "hidden",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "4px",
+                            }}
+                          >
+                            <div style={{ fontSize: "9px", fontWeight: "700", color: "var(--color-text)" }}>
+                              {item.label}
+                            </div>
+                            {item.type === "image" ? (
+                              item.resolvedImage ? (
+                                <img
+                                  src={item.resolvedImage.url}
+                                  alt={item.label}
+                                  style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "6px" }}
+                                />
+                              ) : (
+                                <div style={{ fontSize: "9px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                                  연결된 생성 이미지가 없습니다.
+                                </div>
+                              )
+                            ) : (
+                              <div style={{ fontSize: "9px", color: "var(--color-text-muted)", lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                                {item.renderedText || "내용 없음"}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {page.isOverflow && (
+                      <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)" }}>
+                        자동 overflow 페이지
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {lessonPackage.generatedImages && lessonPackage.generatedImages.length > 0 && (
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
+                생성된 이미지
+              </div>
+              <div style={{ display: "grid", gap: "8px" }}>
+                {lessonPackage.generatedImages.map((image) => (
+                  <div
+                    key={image.id}
+                    style={{
+                      border: "1px solid var(--color-border)",
+                      borderRadius: "8px",
+                      background: "var(--color-surface)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <img src={image.url} alt="생성 이미지" style={{ width: "100%", display: "block", background: "#F8FAFC" }} />
+                    <div style={{ padding: "8px", fontSize: "10px", color: "var(--color-text-muted)", lineHeight: 1.5 }}>
+                      {image.prompt}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Sections */}
           {sections.map(({ key, icon, title, badge, content }) => (
             <div key={key} style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", borderRadius: "7px", overflow: "hidden", marginBottom: "8px" }}>
@@ -192,7 +305,7 @@ export default function PreviewPanel({
             ))}
           </select>
           <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
-            {activeTemplate.pageSize} · {activeTemplate.layout === "advanced" ? "고급" : "심플"} · {activeTemplate.previewLabel}
+            {activeTemplate.pageSize} · {canvasLayoutLabel(activeTemplate)} · {activeTemplate.previewLabel}
           </div>
         </div>
 

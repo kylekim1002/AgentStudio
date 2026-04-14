@@ -1,9 +1,12 @@
 import React from "react";
 import {
-  Document, Page, Text, View, StyleSheet, pdf, Font,
+  Document, Page, Text, View, StyleSheet, pdf, Font, Image,
 } from "@react-pdf/renderer";
 import { LessonPackage } from "@/lib/agents/types";
 import { DocumentTemplate } from "@/lib/documentTemplates";
+import {
+  renderCanvasTemplatePages,
+} from "@/lib/documentTemplateRender";
 
 type ExportType  = "student" | "teacher";
 
@@ -45,6 +48,12 @@ const S = StyleSheet.create({
   col:        { flex: 1 },
   badge:      { backgroundColor: "#EEF2FF", color: "#4F46E5", fontSize: 8, padding: "2 6", borderRadius: 3, alignSelf: "flex-start", marginBottom: 4, fontFamily: "Helvetica-Bold" },
   passBg:     { backgroundColor: "#F8FAFC", padding: "10 12", borderRadius: 6, borderWidth: 0.5, borderColor: "#E2E8F0", marginBottom: 10 },
+  canvasPage: { fontFamily: "Helvetica", fontSize: 10, color: "#0F172A", padding: "20 20 20 20", backgroundColor: "#FFFFFF" },
+  canvasBox: { position: "absolute", borderWidth: 1, borderColor: "#CBD5E1", borderRadius: 6, padding: 6, overflow: "hidden" },
+  canvasItemLabel: { fontSize: 8, fontFamily: "Helvetica-Bold", marginBottom: 4, color: "#0F172A" },
+  canvasItemText: { fontSize: 8, lineHeight: 1.35, color: "#334155" },
+  canvasImage: { width: "100%", height: "100%", objectFit: "cover" },
+  canvasPlaceholder: { fontSize: 8, color: "#64748B", lineHeight: 1.4 },
 });
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -58,6 +67,56 @@ function SectionHeader({ title, advanced, accentColor }: { title: string; advanc
 }
 
 function Rule() { return <View style={S.rule} />; }
+
+function mmToPoints(mm: number) {
+  return (mm * 72) / 25.4;
+}
+
+function CanvasDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
+  const pageWidth = mmToPoints(210);
+  const pageHeight = mmToPoints(297);
+  const innerWidth = pageWidth - 40;
+  const innerHeight = pageHeight - 40;
+  const renderedPages = renderCanvasTemplatePages(template, pkg, isTeacher);
+
+  return (
+    <Document>
+      {renderedPages.map((page) => (
+        <Page key={page.id} size="A4" style={S.canvasPage}>
+          {page.items.map((item) => {
+            return (
+              <View
+                key={item.id}
+                style={[
+                  S.canvasBox,
+                  {
+                    left: (item.x / 100) * innerWidth,
+                    top: (item.y / 100) * innerHeight,
+                    width: (item.w / 100) * innerWidth,
+                    height: (item.h / 100) * innerHeight,
+                    borderColor: item.type === "image" ? "#93C5FD" : "#CBD5E1",
+                    backgroundColor: item.type === "image" ? "#EFF6FF" : "#F8FAFC",
+                  },
+                ]}
+              >
+                <Text style={S.canvasItemLabel}>{item.label}</Text>
+                {item.type === "image" ? (
+                  item.resolvedImage ? (
+                    <Image src={item.resolvedImage.url} style={S.canvasImage} />
+                  ) : (
+                    <Text style={S.canvasPlaceholder}>연결된 이미지가 없습니다.</Text>
+                  )
+                ) : (
+                  <Text style={S.canvasItemText}>{item.renderedText || "내용 없음"}</Text>
+                )}
+              </View>
+            );
+          })}
+        </Page>
+      ))}
+    </Document>
+  );
+}
 
 // ─── Simple Layout ─────────────────────────────────────────────
 
@@ -271,9 +330,11 @@ export async function generatePdf(
   type: ExportType,
   template: DocumentTemplate
 ): Promise<Blob> {
-  const doc = template.layout === "advanced"
-    ? <AdvancedDoc pkg={pkg} isTeacher={type === "teacher"} template={template} />
-    : <SimpleDoc  pkg={pkg} isTeacher={type === "teacher"} template={template} />;
+  const doc = template.layout === "canvas"
+    ? <CanvasDoc pkg={pkg} isTeacher={type === "teacher"} template={template} />
+    : template.layout === "advanced"
+      ? <AdvancedDoc pkg={pkg} isTeacher={type === "teacher"} template={template} />
+      : <SimpleDoc pkg={pkg} isTeacher={type === "teacher"} template={template} />;
 
   return await pdf(doc).toBlob();
 }
