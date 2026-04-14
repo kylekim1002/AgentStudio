@@ -222,6 +222,7 @@ export default function TemplatesClient() {
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [viewportWidth, setViewportWidth] = useState(1600);
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>([]);
+  const [openPropertyMenu, setOpenPropertyMenu] = useState<null | "image-slot" | "image-preset">(null);
   const [pastSnapshots, setPastSnapshots] = useState<EditorSnapshot[]>([]);
   const [futureSnapshots, setFutureSnapshots] = useState<EditorSnapshot[]>([]);
   const dragState = useRef<{
@@ -356,6 +357,17 @@ export default function TemplatesClient() {
       activeElement.blur();
     }
   }, [saving]);
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-property-menu-root='true']")) return;
+      setOpenPropertyMenu(null);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1036,6 +1048,13 @@ export default function TemplatesClient() {
   const promptNameMap = useMemo(
     () => new Map(imagePrompts.map((prompt) => [prompt.id, prompt.name])),
     [imagePrompts]
+  );
+  const selectedImagePromptPreset = useMemo(
+    () =>
+      selectedItem?.type === "image"
+        ? imagePrompts.find((prompt) => prompt.id === selectedItem.imagePromptPresetId) ?? null
+        : null,
+    [imagePrompts, selectedItem]
   );
 
   return (
@@ -1753,44 +1772,202 @@ export default function TemplatesClient() {
 
                 {selectedItem.type === "image" && (
                   <>
-                    <label style={{ display: "grid", gap: "6px" }}>
+                    <label style={{ display: "grid", gap: "6px", position: "relative" }} data-property-menu-root="true">
                       <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>연결 이미지 슬롯</span>
-                      <select
-                        value={selectedItem.imageBindingIndex ?? ""}
-                        onChange={(e) =>
-                          updateItem(selectedItem.id, {
-                            imageBindingIndex: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
-                          })
-                        }
-                        style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
-                      >
-                        <option value="">자동 연결</option>
-                        {Array.from({ length: 8 }).map((_, index) => (
-                          <option key={index} value={index}>
-                            생성 이미지 {index + 1}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>기본 프롬프트 프리셋</span>
-                      <select
-                        value={selectedItem.imagePromptPresetId ?? ""}
-                        onChange={(e) => {
-                          const presetId = e.target.value || null;
-                          const preset = imagePrompts.find((prompt) => prompt.id === presetId);
-                          updateItem(selectedItem.id, {
-                            imagePromptPresetId: presetId,
-                            imagePromptText: preset?.prompt ?? selectedItem.imagePromptText ?? "",
-                          });
+                      <button
+                        type="button"
+                        onClick={() => setOpenPropertyMenu((prev) => (prev === "image-slot" ? null : "image-slot"))}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          fontSize: "12px",
+                          background: "var(--color-surface)",
+                          color: "var(--color-text)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          cursor: "pointer",
                         }}
-                        style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
                       >
-                        <option value="">프리셋 없음</option>
-                        {imagePrompts.map((prompt) => (
-                          <option key={prompt.id} value={prompt.id}>{prompt.name}</option>
-                        ))}
-                      </select>
+                        <span>
+                          {selectedItem.imageBindingIndex == null
+                            ? "자동 연결"
+                            : `생성 이미지 ${selectedItem.imageBindingIndex + 1}`}
+                        </span>
+                        <span style={{ color: "var(--color-text-subtle)" }}>▾</span>
+                      </button>
+                      {openPropertyMenu === "image-slot" && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            marginTop: "4px",
+                            padding: "6px",
+                            borderRadius: "10px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            boxShadow: "0 16px 32px rgba(15,23,42,0.14)",
+                            zIndex: 20,
+                            display: "grid",
+                            gap: "4px",
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateItem(selectedItem.id, { imageBindingIndex: null });
+                              setOpenPropertyMenu(null);
+                            }}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "none",
+                              textAlign: "left",
+                              background: selectedItem.imageBindingIndex == null ? "var(--color-primary-light)" : "transparent",
+                              color: selectedItem.imageBindingIndex == null ? "var(--color-primary)" : "var(--color-text)",
+                              fontSize: "12px",
+                              fontWeight: selectedItem.imageBindingIndex == null ? "700" : "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            자동 연결
+                          </button>
+                          {Array.from({ length: 8 }).map((_, index) => {
+                            const active = selectedItem.imageBindingIndex === index;
+                            return (
+                              <button
+                                key={index}
+                                type="button"
+                                onClick={() => {
+                                  updateItem(selectedItem.id, { imageBindingIndex: index });
+                                  setOpenPropertyMenu(null);
+                                }}
+                                style={{
+                                  padding: "9px 10px",
+                                  borderRadius: "8px",
+                                  border: "none",
+                                  textAlign: "left",
+                                  background: active ? "var(--color-primary-light)" : "transparent",
+                                  color: active ? "var(--color-primary)" : "var(--color-text)",
+                                  fontSize: "12px",
+                                  fontWeight: active ? "700" : "600",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                생성 이미지 {index + 1}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                        가져오는 위치: 지문 생성 뒤 또는 자료실에서 만든 이미지 목록입니다.
+                        `생성 이미지 1`은 첫 번째 생성 결과, `자동 연결`은 템플릿 순서대로 자동 매핑합니다.
+                      </div>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px", position: "relative" }} data-property-menu-root="true">
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>기본 프롬프트 프리셋</span>
+                      <button
+                        type="button"
+                        onClick={() => setOpenPropertyMenu((prev) => (prev === "image-preset" ? null : "image-preset"))}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          fontSize: "12px",
+                          background: "var(--color-surface)",
+                          color: "var(--color-text)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span>{selectedImagePromptPreset?.name ?? "프리셋 없음"}</span>
+                        <span style={{ color: "var(--color-text-subtle)" }}>▾</span>
+                      </button>
+                      {openPropertyMenu === "image-preset" && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            marginTop: "4px",
+                            padding: "6px",
+                            borderRadius: "10px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            boxShadow: "0 16px 32px rgba(15,23,42,0.14)",
+                            zIndex: 20,
+                            display: "grid",
+                            gap: "4px",
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateItem(selectedItem.id, { imagePromptPresetId: null });
+                              setOpenPropertyMenu(null);
+                            }}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "none",
+                              textAlign: "left",
+                              background: selectedItem.imagePromptPresetId === null ? "var(--color-primary-light)" : "transparent",
+                              color: selectedItem.imagePromptPresetId === null ? "var(--color-primary)" : "var(--color-text)",
+                              fontSize: "12px",
+                              fontWeight: selectedItem.imagePromptPresetId === null ? "700" : "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            프리셋 없음
+                          </button>
+                          {imagePrompts.map((prompt) => {
+                            const active = selectedItem.imagePromptPresetId === prompt.id;
+                            return (
+                              <button
+                                key={prompt.id}
+                                type="button"
+                                onClick={() => {
+                                  updateItem(selectedItem.id, {
+                                    imagePromptPresetId: prompt.id,
+                                    imagePromptText: prompt.prompt,
+                                  });
+                                  setOpenPropertyMenu(null);
+                                }}
+                                style={{
+                                  padding: "9px 10px",
+                                  borderRadius: "8px",
+                                  border: "none",
+                                  textAlign: "left",
+                                  background: active ? "var(--color-primary-light)" : "transparent",
+                                  color: active ? "var(--color-primary)" : "var(--color-text)",
+                                  fontSize: "12px",
+                                  fontWeight: active ? "700" : "600",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {prompt.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                        가져오는 위치: <a href="/settings?tab=image_prompts" style={{ color: "var(--color-primary)", textDecoration: "none", fontWeight: "700" }}>설정 &gt; 이미지 프롬프트</a>
+                        에서 팀 공용 프리셋을 관리합니다. 현재 등록된 프리셋 {imagePrompts.length}개 중 하나를 이 블록의 기본값으로 연결합니다.
+                      </div>
                     </label>
                     <label style={{ display: "grid", gap: "6px" }}>
                       <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>기본 이미지 프롬프트</span>
@@ -1802,7 +1979,7 @@ export default function TemplatesClient() {
                       />
                     </label>
                     <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
-                      템플릿에 저장된 프롬프트는 기본값으로 자동 불러오고, 실제 이미지 생성 시 드롭다운에서 다른 프리셋으로 바꾸거나 텍스트를 직접 수정하는 흐름을 전제로 합니다. 연결 이미지 슬롯은 지문 단계나 자료실에서 생성한 이미지 결과 순서를 의미합니다. 예를 들어 `생성 이미지 2`를 고르면 두 번째로 생성된 이미지를 이 블록이 우선 사용합니다.
+                      흐름: 1) 설정에서 프리셋을 만든다 → 2) 템플릿 이미지 블록에 기본 프리셋을 연결한다 → 3) 실제 이미지 생성 화면에서는 이 값을 자동 불러오고, 필요하면 다른 프리셋으로 바꾸거나 텍스트를 직접 수정한다.
                     </div>
                   </>
                 )}
