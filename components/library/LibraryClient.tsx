@@ -9,8 +9,8 @@ import { AppRole } from "@/lib/authz/roles";
 import { DEFAULT_REVIEW_NOTE_TEMPLATES, ReviewNoteTemplates } from "@/lib/reviewTemplates";
 import { DEFAULT_REVIEW_SLA_HOURS, getReviewWarningHours } from "@/lib/reviewSettings";
 import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
-import { DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
-import { getTemplateImageItems } from "@/lib/documentTemplateRender";
+import { AUTO_DOCUMENT_TEMPLATE_ID, DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { applyTemplateContentLimits, getTemplateImageItems } from "@/lib/documentTemplateRender";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -162,12 +162,25 @@ export default function LibraryClient({
   const [imageError, setImageError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const detailTemplate = useMemo(() => {
-    if (!lessonDetail?.package.documentTemplate) return null;
+    if (!lessonDetail) return null;
+    if (!lessonDetail.package.documentTemplate) {
+      return resolveDocumentTemplate(DEFAULT_DOCUMENT_TEMPLATES, AUTO_DOCUMENT_TEMPLATE_ID);
+    }
     return resolveDocumentTemplate(
       [lessonDetail.package.documentTemplate, ...DEFAULT_DOCUMENT_TEMPLATES],
       lessonDetail.package.documentTemplate.id
     );
   }, [lessonDetail?.package.documentTemplate]);
+  const effectiveDetailPackage = useMemo(() => {
+    if (!lessonDetail) return null;
+    const template = lessonDetail.package.documentTemplate
+      ? resolveDocumentTemplate(
+          [lessonDetail.package.documentTemplate, ...DEFAULT_DOCUMENT_TEMPLATES],
+          lessonDetail.package.documentTemplate.id
+        )
+      : resolveDocumentTemplate(DEFAULT_DOCUMENT_TEMPLATES, AUTO_DOCUMENT_TEMPLATE_ID);
+    return applyTemplateContentLimits(lessonDetail.package, template);
+  }, [lessonDetail]);
   const detailTemplateImageItems = useMemo(
     () => (detailTemplate ? getTemplateImageItems(detailTemplate) : []),
     [detailTemplate]
@@ -2012,11 +2025,11 @@ export default function LibraryClient({
                       </div>
                     </div>
                   )}
-                  <DetailSection title={`❓ 독해 문제 (${lessonDetail.package.reading.questions.length}문항)`} content={lessonDetail.package.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
-                  <DetailSection title={`📝 어휘 (${lessonDetail.package.vocabulary.words.length}단어)`} content={lessonDetail.package.vocabulary.words.map((w) => `• ${w.word}: ${w.definition}`).join("\n")} />
-                  <DetailSection title="📐 문법 포인트" content={`${lessonDetail.package.grammar.focusPoint}\n\n${lessonDetail.package.grammar.explanation}`} />
+                  <DetailSection title={`❓ 독해 문제 (${effectiveDetailPackage?.reading.questions.length ?? 0}문항)`} content={(effectiveDetailPackage?.reading.questions ?? []).map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
+                  <DetailSection title={`📝 어휘 (${effectiveDetailPackage?.vocabulary.words.length ?? 0}단어)`} content={(effectiveDetailPackage?.vocabulary.words ?? []).map((w) => `• ${w.word}: ${w.definition}`).join("\n")} />
+                  <DetailSection title="📐 문법 포인트" content={effectiveDetailPackage ? `${effectiveDetailPackage.grammar.focusPoint}\n\n${effectiveDetailPackage.grammar.explanation}` : ""} />
                   <DetailSection title="✍️ 쓰기 과제" content={lessonDetail.package.writing.prompt} />
-                  <DetailSection title={`📊 평가지 (${lessonDetail.package.assessment.totalPoints}점)`} content={lessonDetail.package.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
+                  <DetailSection title={`📊 평가지 (${effectiveDetailPackage?.assessment.totalPoints ?? 0}점)`} content={(effectiveDetailPackage?.assessment.questions ?? []).map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
 
                   <DetailSection
                     title={`💬 코멘트 (${comments.length})`}

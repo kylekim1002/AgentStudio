@@ -1,5 +1,6 @@
 import { LessonPackage } from "@/lib/agents/types";
 import {
+  getTemplateSuggestedContentCounts,
   DocumentSectionKey,
   DocumentTemplate,
   TemplateCanvasItem,
@@ -43,14 +44,82 @@ export function resolveTemplateImage(
   const matchedItem = imageItems.find(({ item }) => item.id === itemId)?.item;
   if (matchedItem?.imageBindingId) {
     const boundImage = images.find((image) => image.id === matchedItem.imageBindingId);
-    if (boundImage) return boundImage;
+    return boundImage ?? null;
   }
-  if (matchedItem && typeof matchedItem.imageBindingIndex === "number" && images[matchedItem.imageBindingIndex]) {
-    return images[matchedItem.imageBindingIndex];
+  if (matchedItem && typeof matchedItem.imageBindingIndex === "number") {
+    return images[matchedItem.imageBindingIndex] ?? null;
   }
   const imageIndex = imageItems.findIndex(({ item }) => item.id === itemId);
   if (imageIndex >= 0 && images[imageIndex]) return images[imageIndex];
   return images[0] ?? null;
+}
+
+function trimGrammarExercises(
+  grammar: LessonPackage["grammar"],
+  targetCount: number
+) {
+  if (targetCount <= 0) {
+    return {
+      ...grammar,
+      practiceExercises: [],
+    };
+  }
+
+  let remaining = targetCount;
+  const practiceExercises = grammar.practiceExercises
+    .map((exercise) => {
+      if (remaining <= 0) return null;
+      const keepCount = Math.min(exercise.items.length, remaining);
+      remaining -= keepCount;
+      return {
+        ...exercise,
+        items: exercise.items.slice(0, keepCount),
+        answers: exercise.answers.slice(0, keepCount),
+      };
+    })
+    .filter((exercise): exercise is LessonPackage["grammar"]["practiceExercises"][number] => Boolean(exercise))
+    .filter((exercise) => exercise.items.length > 0);
+
+  return {
+    ...grammar,
+    practiceExercises,
+  };
+}
+
+export function applyTemplateContentLimits(
+  pkg: LessonPackage,
+  template: DocumentTemplate
+): LessonPackage {
+  const counts = getTemplateSuggestedContentCounts(template);
+  const assessmentQuestions = pkg.assessment.questions.slice(0, counts.assessment);
+  const assessmentTotalPoints = assessmentQuestions.reduce((sum, question) => sum + question.points, 0);
+  const originalTotalPoints = pkg.assessment.totalPoints || 0;
+  const nextPassingScore =
+    originalTotalPoints > 0
+      ? Math.min(
+          assessmentTotalPoints,
+          Math.max(0, Math.round((pkg.assessment.passingScore / originalTotalPoints) * assessmentTotalPoints))
+        )
+      : pkg.assessment.passingScore;
+
+  return {
+    ...pkg,
+    reading: {
+      ...pkg.reading,
+      questions: pkg.reading.questions.slice(0, counts.reading),
+    },
+    vocabulary: {
+      ...pkg.vocabulary,
+      words: pkg.vocabulary.words.slice(0, counts.vocabulary),
+    },
+    grammar: trimGrammarExercises(pkg.grammar, counts.grammarExercises),
+    assessment: {
+      ...pkg.assessment,
+      questions: assessmentQuestions,
+      totalPoints: assessmentTotalPoints,
+      passingScore: nextPassingScore,
+    },
+  };
 }
 
 export function getSectionContent(
@@ -99,6 +168,88 @@ export function getSectionContent(
     default:
       return "";
   }
+}
+
+function isStructuredSection(
+  key: DocumentSectionKey | undefined
+): key is "reading" | "vocabulary" | "grammar" | "assessment" {
+  return key === "reading" || key === "vocabulary" || key === "grammar" || key === "assessment";
+}
+
+function getStructuredSectionEntries(
+  pkg: LessonPackage,
+  key: "reading" | "vocabulary" | "grammar" | "assessment",
+  isTeacher: boolean
+) {
+  switch (key) {
+    case "reading":
+      return pkg.reading.questions.map((q, index) => {
+        const options = q.options.map((option, optionIndex) => `${String.fromCharCode(65 + optionIndex)}. ${option}`).join("\n");
+        const teacherMeta = isTeacher ? `\n정답: ${q.answer}\n해설: ${q.explanation}` : "";
+        return `Q${index + 1}. ${q.question}\n${options}${teacherMeta}`;
+      });
+    case "vocabulary":
+      return pkg.vocabulary.words.map((word) => {
+        const teacherMeta = isTeacher ? `\n예문: ${word.exampleSentence}` : "";
+        return `${word.word} (${word.partOfSpeech})\n${word.definition}\n${word.koreanTranslation}${teacherMeta}`;
+      });
+    case "grammar": {
+      const intro = [
+        pkg.grammar.focusPoint,
+        pkg.grammar.explanation,
+        ...pkg.grammar.examples.map((example) => `• ${example}`),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const practiceEntries = pkg.grammar.practiceExercises.flatMap((exercise, exerciseIndex) =>
+        exercise.items.map((item, itemIndex) => {
+          const answer = isTeacher ? `\n정답: ${exercise.answers[itemIndex] ?? ""}` : "";
+          return `${exerciseIndex + 1}-${itemIndex + 1}. ${exercise.instruction}\n${item}${answer}`;
+        })
+      );
+
+      if (practiceEntries.length === 0) {
+        return intro ? [intro] : [];
+      }
+
+      if (intro) {
+        return [ `${intro}\n\n${practiceEntries[0]}`, ...practiceEntries.slice(1) ];
+      }
+
+      return practiceEntries;
+    }
+    case "assessment":
+      return pkg.assessment.questions.map((q, index) => {
+        const options = q.options?.map((option, optionIndex) => `${String.fromCharCode(65 + optionIndex)}. ${option}`).join("\n") ?? "";
+        const teacherMeta = isTeacher ? `\n정답: ${q.answer}` : "";
+        return `Q${index + 1}. [${q.points}점] ${q.question}${options ? `\n${options}` : ""}${teacherMeta}`;
+      });
+  }
+}
+
+function buildStructuredSectionAssignments(
+  template: DocumentTemplate,
+  pkg: LessonPackage,
+  isTeacher: boolean
+) {
+  const assignments = new Map<string, string>();
+  const pools = new Map<string, string[]>();
+
+  for (const page of template.pages) {
+    for (const item of page.items) {
+      if (item.type !== "section" || !isStructuredSection(item.sectionKey)) continue;
+      if (!pools.has(item.sectionKey)) {
+        pools.set(item.sectionKey, [...getStructuredSectionEntries(pkg, item.sectionKey, isTeacher)]);
+      }
+      const pool = pools.get(item.sectionKey) ?? [];
+      const limit = Math.max(0, item.sectionItemLimit ?? 0);
+      const chunk = limit > 0 ? pool.splice(0, limit) : [];
+      assignments.set(item.id, chunk.join("\n\n").trim());
+    }
+  }
+
+  return assignments;
 }
 
 export function getCanvasItemText(
@@ -168,7 +319,10 @@ export function truncateCanvasText(text: string, item: TemplateCanvasItem) {
   return `${chunk.trimEnd()}…`;
 }
 
-function getItemSourceKey(item: TemplateCanvasItem) {
+function getItemSourceKey(item: TemplateCanvasItem, structuredAssignments: Map<string, string>) {
+  if (item.type === "section" && structuredAssignments.has(item.id)) {
+    return `item:${item.id}`;
+  }
   if (item.type === "section" && item.sectionKey) {
     return `section:${item.sectionKey}`;
   }
@@ -183,6 +337,8 @@ export function renderCanvasTemplatePages(
   pkg: LessonPackage,
   isTeacher: boolean
 ): RenderedCanvasPage[] {
+  const limitedPkg = applyTemplateContentLimits(pkg, template);
+  const structuredAssignments = buildStructuredSectionAssignments(template, limitedPkg, isTeacher);
   const PAGE_WIDTH_MM = 210;
   const PAGE_HEIGHT_MM = 297;
   const OVERFLOW_MARGIN_X = 8;
@@ -194,10 +350,13 @@ export function renderCanvasTemplatePages(
 
   for (const page of template.pages) {
     for (const item of page.items) {
-      const sourceKey = getItemSourceKey(item);
+      const sourceKey = getItemSourceKey(item, structuredAssignments);
       if (!sourceKey) continue;
       if (!remainingText.has(sourceKey)) {
-        remainingText.set(sourceKey, getCanvasItemText(item, pkg, isTeacher));
+        remainingText.set(
+          sourceKey,
+          structuredAssignments.get(item.id) ?? getCanvasItemText(item, limitedPkg, isTeacher)
+        );
         sourceOrder.push(sourceKey);
         sourcePrototype.set(sourceKey, item);
       }
@@ -206,24 +365,29 @@ export function renderCanvasTemplatePages(
 
   const renderedPages: RenderedCanvasPage[] = template.pages.map((page) => ({
     ...page,
-    items: page.items.map((item) => {
+    items: page.items.reduce<RenderedCanvasItem[]>((acc, item) => {
       if (item.type === "image") {
-        return {
+        acc.push({
           ...item,
-          resolvedImage: resolveTemplateImage(template, pkg, item.id),
-        };
+          resolvedImage: resolveTemplateImage(template, limitedPkg, item.id),
+        });
+        return acc;
       }
 
-      const sourceKey = getItemSourceKey(item);
+      const sourceKey = getItemSourceKey(item, structuredAssignments);
       const currentText = sourceKey ? remainingText.get(sourceKey) ?? "" : "";
+      if (!currentText.trim()) {
+        return acc;
+      }
       const { chunk, rest } = splitTextIntoChunk(currentText, getCanvasItemCharacterLimit(item));
       if (sourceKey) remainingText.set(sourceKey, rest);
 
-      return {
+      acc.push({
         ...item,
         renderedText: chunk,
-      };
-    }),
+      });
+      return acc;
+    }, []),
   }));
 
   let overflowPageIndex = 1;

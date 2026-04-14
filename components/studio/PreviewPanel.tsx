@@ -5,9 +5,13 @@ import { LessonPackage } from "@/lib/agents/types";
 import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
 import { DEFAULT_TEMPLATE_TEXT_STYLE, DocumentTemplate, getTemplateFontOption, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import {
+  applyTemplateContentLimits,
   canvasLayoutLabel,
   renderCanvasTemplatePages,
 } from "@/lib/documentTemplateRender";
+
+const PAGE_WIDTH_MM = 210;
+const PAGE_HEIGHT_MM = 297;
 
 interface PreviewPanelProps {
   lessonPackage: LessonPackage | null;
@@ -31,6 +35,15 @@ export default function PreviewPanel({
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["passage"]));
   const [exporting, setExporting] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(templates, selectedTemplateId);
+  const previewPackage = lessonPackage ? applyTemplateContentLimits(lessonPackage, activeTemplate) : null;
+
+  function mmToPercentX(mm: number) {
+    return (mm / PAGE_WIDTH_MM) * 100;
+  }
+
+  function mmToPercentY(mm: number) {
+    return (mm / PAGE_HEIGHT_MM) * 100;
+  }
 
   function getPreviewTextStyle(item: { fontFamily?: string; fontSize?: number; fontColor?: string; highlightColor?: string | null; bold?: boolean; italic?: boolean; underline?: boolean }, fallbackColor: string) {
     const font = getTemplateFontOption(item.fontFamily);
@@ -74,18 +87,18 @@ export default function PreviewPanel({
     });
   }
 
-  const sections = lessonPackage ? [
-    { key: "passage",    icon: "📖", title: "지문", badge: `${lessonPackage.wordCount} words`, content: lessonPackage.passage },
-    { key: "reading",    icon: "❓", title: "독해 문제", badge: `${lessonPackage.reading.questions.length}문항`, content: lessonPackage.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
-    { key: "vocabulary", icon: "📝", title: "어휘 학습", badge: `${lessonPackage.vocabulary.words.length}단어`, content: lessonPackage.vocabulary.words.map((w) => `• ${w.word} — ${w.definition}`).join("\n") },
-    { key: "grammar",    icon: "📐", title: "문법 미니레슨", badge: null, content: `${lessonPackage.grammar.focusPoint}\n\n${lessonPackage.grammar.explanation}` },
-    { key: "writing",    icon: "✍️", title: "쓰기 과제", badge: null, content: lessonPackage.writing.prompt },
-    { key: "assessment", icon: "📊", title: "평가지", badge: `${lessonPackage.assessment.questions.length}문항 / ${lessonPackage.assessment.totalPoints}점`, content: lessonPackage.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
+  const sections = previewPackage ? [
+    { key: "passage",    icon: "📖", title: "지문", badge: `${previewPackage.wordCount} words`, content: previewPackage.passage },
+    { key: "reading",    icon: "❓", title: "독해 문제", badge: `${previewPackage.reading.questions.length}문항`, content: previewPackage.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
+    { key: "vocabulary", icon: "📝", title: "어휘 학습", badge: `${previewPackage.vocabulary.words.length}단어`, content: previewPackage.vocabulary.words.map((w) => `• ${w.word} — ${w.definition}`).join("\n") },
+    { key: "grammar",    icon: "📐", title: "문법 미니레슨", badge: null, content: `${previewPackage.grammar.focusPoint}\n\n${previewPackage.grammar.explanation}` },
+    { key: "writing",    icon: "✍️", title: "쓰기 과제", badge: null, content: previewPackage.writing.prompt },
+    { key: "assessment", icon: "📊", title: "평가지", badge: `${previewPackage.assessment.questions.length}문항 / ${previewPackage.assessment.totalPoints}점`, content: previewPackage.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
   ].filter((section) => activeTemplate.visibleSections.includes(section.key as typeof activeTemplate.visibleSections[number])) : [];
 
   const canvasPages =
-    lessonPackage && activeTemplate.layout === "canvas"
-      ? renderCanvasTemplatePages(activeTemplate, lessonPackage, false)
+    previewPackage && activeTemplate.layout === "canvas"
+      ? renderCanvasTemplatePages(activeTemplate, previewPackage, false)
       : [];
 
   return (
@@ -138,7 +151,7 @@ export default function PreviewPanel({
       )}
 
       {/* Content */}
-      {!lessonPackage ? (
+      {!previewPackage ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px", padding: "24px" }}>
           <div style={{ fontSize: "28px", opacity: .35 }}>📋</div>
           <div style={{ fontSize: "12px", color: "var(--color-text-muted)", textAlign: "center", lineHeight: "1.7" }}>
@@ -149,10 +162,10 @@ export default function PreviewPanel({
         <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
           {/* Lesson title */}
           <div style={{ marginBottom: "12px" }}>
-            <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--color-text)" }}>{lessonPackage.title}</div>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--color-text)" }}>{previewPackage.title}</div>
             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "4px" }}>
-              <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "600" }}>{lessonPackage.difficulty}</span>
-              <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "var(--color-bg)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>{lessonPackage.wordCount} words</span>
+              <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "600" }}>{previewPackage.difficulty}</span>
+              <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "var(--color-bg)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>{previewPackage.wordCount} words</span>
             </div>
           </div>
 
@@ -185,10 +198,10 @@ export default function PreviewPanel({
                             key={item.id}
                             style={{
                               position: "absolute",
-                              left: `${item.x}%`,
-                              top: `${item.y}%`,
-                              width: `${item.w}%`,
-                              height: `${item.h}%`,
+                              left: `${mmToPercentX(item.x)}%`,
+                              top: `${mmToPercentY(item.y)}%`,
+                              width: `${mmToPercentX(item.w)}%`,
+                              height: `${mmToPercentY(item.h)}%`,
                               borderRadius: "8px",
                               border: `1px solid ${item.type === "image" ? "#BFDBFE" : "var(--color-border)"}`,
                               background: item.type === "image" ? "#EFF6FF" : "#F8FAFC",
@@ -234,13 +247,13 @@ export default function PreviewPanel({
             </div>
           )}
 
-          {lessonPackage.generatedImages && lessonPackage.generatedImages.length > 0 && (
+          {previewPackage.generatedImages && previewPackage.generatedImages.length > 0 && (
             <div style={{ marginBottom: "12px" }}>
               <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
                 생성된 이미지
               </div>
               <div style={{ display: "grid", gap: "8px" }}>
-                {lessonPackage.generatedImages.map((image) => (
+                {previewPackage.generatedImages.map((image) => (
                   <div
                     key={image.id}
                     style={{
