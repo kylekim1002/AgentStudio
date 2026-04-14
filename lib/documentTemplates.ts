@@ -584,27 +584,39 @@ export function resolveDocumentTemplate(
 }
 
 export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
-  const totals = {
-    reading: 0,
-    vocabulary: 0,
-    assessment: 0,
-    grammarExercises: 0,
+  const sectionLimits = {
+    reading: [] as number[],
+    vocabulary: [] as number[],
+    assessment: [] as number[],
+    grammarExercises: [] as number[],
   };
 
   for (const page of template.pages) {
     for (const item of page.items) {
       if (item.type !== "section" || !item.sectionKey || !item.sectionItemLimit) continue;
-      if (item.sectionKey === "reading") totals.reading += item.sectionItemLimit;
-      if (item.sectionKey === "vocabulary") totals.vocabulary += item.sectionItemLimit;
-      if (item.sectionKey === "assessment") totals.assessment += item.sectionItemLimit;
-      if (item.sectionKey === "grammar") totals.grammarExercises += item.sectionItemLimit;
+      if (item.sectionKey === "reading") sectionLimits.reading.push(item.sectionItemLimit);
+      if (item.sectionKey === "vocabulary") sectionLimits.vocabulary.push(item.sectionItemLimit);
+      if (item.sectionKey === "assessment") sectionLimits.assessment.push(item.sectionItemLimit);
+      if (item.sectionKey === "grammar") sectionLimits.grammarExercises.push(item.sectionItemLimit);
     }
   }
 
+  function resolveSuggestedCount(limits: number[], defaultCount: number) {
+    if (limits.length === 0) return defaultCount;
+    if (limits.length === 1) return limits[0];
+
+    // If the same default-sized section block was duplicated for layout purposes,
+    // keep the recommended generation count at the default instead of multiplying it.
+    const allDefaultSized = limits.every((limit) => limit === defaultCount);
+    if (allDefaultSized) return defaultCount;
+
+    return limits.reduce((sum, limit) => sum + limit, 0);
+  }
+
   return {
-    reading: totals.reading || DEFAULT_TEMPLATE_SECTION_COUNTS.reading,
-    vocabulary: totals.vocabulary || DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary,
-    assessment: totals.assessment || DEFAULT_TEMPLATE_SECTION_COUNTS.assessment,
-    grammarExercises: totals.grammarExercises || DEFAULT_TEMPLATE_SECTION_COUNTS.grammar,
+    reading: resolveSuggestedCount(sectionLimits.reading, DEFAULT_TEMPLATE_SECTION_COUNTS.reading),
+    vocabulary: resolveSuggestedCount(sectionLimits.vocabulary, DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary),
+    assessment: resolveSuggestedCount(sectionLimits.assessment, DEFAULT_TEMPLATE_SECTION_COUNTS.assessment),
+    grammarExercises: resolveSuggestedCount(sectionLimits.grammarExercises, DEFAULT_TEMPLATE_SECTION_COUNTS.grammar),
   };
 }
