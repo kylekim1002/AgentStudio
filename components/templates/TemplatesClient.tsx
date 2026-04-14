@@ -36,6 +36,13 @@ interface ImagePromptPreset {
 }
 
 type DragMode = "move" | "resize-se" | "resize-e" | "resize-s";
+type EditorSnapshot = {
+  templates: DocumentTemplate[];
+  selectedTemplateId: string;
+  selectedPageId: string | null;
+  selectedItemId: string | null;
+  selectedItemIds: string[];
+};
 
 function createId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -190,6 +197,20 @@ function itemsOverlap(a: TemplateCanvasItem, b: TemplateCanvasItem) {
   );
 }
 
+function boundGroupDelta(items: TemplateCanvasItem[], dx: number, dy: number) {
+  if (items.length <= 1) {
+    return { dx, dy };
+  }
+  const minX = Math.min(...items.map((item) => item.x));
+  const minY = Math.min(...items.map((item) => item.y));
+  const maxRight = Math.max(...items.map((item) => item.x + item.w));
+  const maxBottom = Math.max(...items.map((item) => item.y + item.h));
+  return {
+    dx: clamp(dx, -minX, PAGE_WIDTH_MM - maxRight),
+    dy: clamp(dy, -minY, PAGE_HEIGHT_MM - maxBottom),
+  };
+}
+
 export default function TemplatesClient() {
   const [templates, setTemplates] = useState<DocumentTemplate[]>(DEFAULT_DOCUMENT_TEMPLATES);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(DEFAULT_DOCUMENT_TEMPLATES[0].id);
@@ -199,9 +220,10 @@ export default function TemplatesClient() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [snapToGrid, setSnapToGrid] = useState(true);
+  const [viewportWidth, setViewportWidth] = useState(1600);
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>([]);
-  const [pastSnapshots, setPastSnapshots] = useState<DocumentTemplate[][]>([]);
-  const [futureSnapshots, setFutureSnapshots] = useState<DocumentTemplate[][]>([]);
+  const [pastSnapshots, setPastSnapshots] = useState<EditorSnapshot[]>([]);
+  const [futureSnapshots, setFutureSnapshots] = useState<EditorSnapshot[]>([]);
   const dragState = useRef<{
     templateId: string;
     pageId: string;
@@ -210,8 +232,17 @@ export default function TemplatesClient() {
     startX: number;
     startY: number;
     origin: { x: number; y: number; w: number; h: number };
+    selectedIds: string[];
+    originById: Record<string, { x: number; y: number; w: number; h: number }>;
+    historySnapshot: EditorSnapshot;
   } | null>(null);
   const dragHistoryCapturedRef = useRef(false);
+  const dragClickSuppressedRef = useRef(false);
+  const dragClickResetTimerRef = useRef<number | null>(null);
+  const templateMetaEditRef = useRef<{ fieldKey: string | null; hasRecorded: boolean }>({
+    fieldKey: null,
+    hasRecorded: false,
+  });
 
   useEffect(() => {
     fetch("/api/system-settings/document-templates")
@@ -234,42 +265,71 @@ export default function TemplatesClient() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    function handleResize() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   function cloneTemplates(source: DocumentTemplate[]) {
     return JSON.parse(JSON.stringify(source)) as DocumentTemplate[];
   }
 
-  function recordHistorySnapshot() {
-    setPastSnapshots((prev) => [...prev.slice(-39), cloneTemplates(templates)]);
+  function createSnapshot(sourceTemplates = templates): EditorSnapshot {
+    return {
+      templates: cloneTemplates(sourceTemplates),
+      selectedTemplateId,
+      selectedPageId,
+      selectedItemId,
+      selectedItemIds: [...selectedItemIds],
+    };
+  }
+
+  function pushHistorySnapshot(snapshot: EditorSnapshot) {
+    setPastSnapshots((prev) => [...prev.slice(-39), snapshot]);
     setFutureSnapshots([]);
   }
 
-  function restoreTemplates(nextTemplates: DocumentTemplate[]) {
+  function recordHistorySnapshot() {
+    pushHistorySnapshot(createSnapshot());
+  }
+
+  function restoreSnapshot(snapshot: EditorSnapshot) {
+    const nextTemplates = cloneTemplates(snapshot.templates);
     setTemplates(nextTemplates);
     const nextTemplate =
-      nextTemplates.find((template) => template.id === selectedTemplateId) ?? nextTemplates[0] ?? null;
+      nextTemplates.find((template) => template.id === snapshot.selectedTemplateId) ?? nextTemplates[0] ?? null;
     const nextPage =
-      nextTemplate?.pages.find((page) => page.id === selectedPageId) ?? nextTemplate?.pages[0] ?? null;
+      nextTemplate?.pages.find((page) => page.id === snapshot.selectedPageId) ?? nextTemplate?.pages[0] ?? null;
     const nextItem =
-      nextPage?.items.find((item) => item.id === selectedItemId) ?? nextPage?.items[0] ?? null;
+      nextPage?.items.find((item) => item.id === snapshot.selectedItemId) ?? nextPage?.items[0] ?? null;
+    const nextSelectedItemIds = snapshot.selectedItemIds.filter((id) =>
+      nextPage?.items.some((item) => item.id === id)
+    );
     setSelectedTemplateId(nextTemplate?.id ?? "");
     setSelectedPageId(nextPage?.id ?? null);
     setSelectedItemId(nextItem?.id ?? null);
+    setSelectedItemIds(nextSelectedItemIds.length > 0 ? nextSelectedItemIds : nextItem?.id ? [nextItem.id] : []);
   }
 
   function undo() {
     if (pastSnapshots.length === 0) return;
     const previous = pastSnapshots[pastSnapshots.length - 1];
     setPastSnapshots((prev) => prev.slice(0, -1));
-    setFutureSnapshots((prev) => [cloneTemplates(templates), ...prev].slice(0, 40));
-    restoreTemplates(cloneTemplates(previous));
+    setFutureSnapshots((prev) => [createSnapshot(), ...prev].slice(0, 40));
+    restoreSnapshot(previous);
   }
 
   function redo() {
     if (futureSnapshots.length === 0) return;
     const [next, ...rest] = futureSnapshots;
     setFutureSnapshots(rest);
-    setPastSnapshots((prev) => [...prev.slice(-39), cloneTemplates(templates)]);
-    restoreTemplates(cloneTemplates(next));
+    setPastSnapshots((prev) => [...prev.slice(-39), createSnapshot()]);
+    restoreSnapshot(next);
   }
 
   const selectedTemplate = useMemo(
@@ -290,7 +350,16 @@ export default function TemplatesClient() {
     return selectedPage.items.filter((item) => selectedItemIds.includes(item.id));
   }, [selectedItem, selectedItemIds, selectedPage]);
   useEffect(() => {
+    if (!saving) return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
+  }, [saving]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (saving) return;
       const target = event.target as HTMLElement | null;
       const isTypingTarget =
         target instanceof HTMLInputElement ||
@@ -342,17 +411,26 @@ export default function TemplatesClient() {
       if (!movement || selectedItems.some((item) => item.locked)) return;
 
       event.preventDefault();
+      const boundedMovement =
+        targetIds.length > 1
+          ? boundGroupDelta(
+              selectedItems.filter((item) => targetIds.includes(item.id)),
+              movement.x ?? 0,
+              movement.y ?? 0
+            )
+          : { dx: movement.x ?? 0, dy: movement.y ?? 0 };
+      if (boundedMovement.dx === 0 && boundedMovement.dy === 0) return;
       recordHistorySnapshot();
       batchUpdateItems(
         targetIds,
         (item) => ({
           x:
             movement.x !== undefined
-              ? clamp(item.x + movement.x, 0, PAGE_WIDTH_MM - item.w)
+              ? clamp(item.x + boundedMovement.dx, 0, PAGE_WIDTH_MM - item.w)
               : item.x,
           y:
             movement.y !== undefined
-              ? clamp(item.y + movement.y, 0, PAGE_HEIGHT_MM - item.h)
+              ? clamp(item.y + boundedMovement.dy, 0, PAGE_HEIGHT_MM - item.h)
               : item.y,
         }),
         { recordHistory: false }
@@ -365,6 +443,7 @@ export default function TemplatesClient() {
     futureSnapshots.length,
     pastSnapshots.length,
     redo,
+    saving,
     selectedItemIds,
     selectedItems,
     selectedItem,
@@ -407,6 +486,11 @@ export default function TemplatesClient() {
     () => new Set(pageWarnings.flatMap((warning) => warning.itemIds)),
     [pageWarnings]
   );
+  const layoutColumns = useMemo(() => {
+    if (viewportWidth < 1180) return "1fr";
+    if (viewportWidth < 1540) return "280px minmax(0, 1fr)";
+    return "280px minmax(0, 1fr) 320px";
+  }, [viewportWidth]);
 
   useEffect(() => {
     if (!selectedTemplate) return;
@@ -431,31 +515,79 @@ export default function TemplatesClient() {
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
       if (!dragState.current) return;
-      const { templateId, pageId, itemId, mode, startX, startY, origin } = dragState.current;
+      const { templateId, pageId, itemId, mode, startX, startY, origin, selectedIds, originById, historySnapshot } = dragState.current;
       const dxPx = event.clientX - startX;
       const dyPx = event.clientY - startY;
       const dxMm = (dxPx / 640) * PAGE_WIDTH_MM;
       const dyMm = (dyPx / 900) * PAGE_HEIGHT_MM;
+      const hasMeaningfulDrag = Math.abs(dxPx) > 3 || Math.abs(dyPx) > 3;
+      if (hasMeaningfulDrag) {
+        dragClickSuppressedRef.current = true;
+        if (!dragHistoryCapturedRef.current) {
+          pushHistorySnapshot(historySnapshot);
+          dragHistoryCapturedRef.current = true;
+        }
+      }
+      if (!hasMeaningfulDrag) return;
 
       setTemplates((prev) =>
         prev.map((template) => {
           if (template.id !== templateId) return template;
           const pages = template.pages.map((page) => {
             if (page.id !== pageId) return page;
+            let boundedDxMm = dxMm;
+            let boundedDyMm = dyMm;
+            let groupMinX = 0;
+            let groupMinY = 0;
+            let groupMaxRight = PAGE_WIDTH_MM;
+            let groupMaxBottom = PAGE_HEIGHT_MM;
+            if (mode === "move" && selectedIds.length > 1) {
+              const selectedItemsOnPage = page.items.filter((item) => selectedIds.includes(item.id) && !item.locked);
+              if (selectedItemsOnPage.length > 0) {
+                groupMinX = Math.min(...selectedItemsOnPage.map((item) => originById[item.id]?.x ?? item.x));
+                groupMinY = Math.min(...selectedItemsOnPage.map((item) => originById[item.id]?.y ?? item.y));
+                groupMaxRight = Math.max(
+                  ...selectedItemsOnPage.map((item) => {
+                    const base = originById[item.id];
+                    return (base?.x ?? item.x) + (base?.w ?? item.w);
+                  })
+                );
+                groupMaxBottom = Math.max(
+                  ...selectedItemsOnPage.map((item) => {
+                    const base = originById[item.id];
+                    return (base?.y ?? item.y) + (base?.h ?? item.h);
+                  })
+                );
+                boundedDxMm = clamp(dxMm, -groupMinX, PAGE_WIDTH_MM - groupMaxRight);
+                boundedDyMm = clamp(dyMm, -groupMinY, PAGE_HEIGHT_MM - groupMaxBottom);
+                if (snapToGrid) {
+                  boundedDxMm = clamp(snapValue(boundedDxMm, true), -groupMinX, PAGE_WIDTH_MM - groupMaxRight);
+                  boundedDyMm = clamp(snapValue(boundedDyMm, true), -groupMinY, PAGE_HEIGHT_MM - groupMaxBottom);
+                }
+              }
+            }
             return {
               ...page,
               items: page.items.map((item) => {
-                if (item.id !== itemId) return item;
-                if (item.locked) return item;
+                if (!selectedIds.includes(item.id) || item.locked) return item;
+                const base = originById[item.id];
+                if (!base) return item;
                 if (mode === "move") {
-                  const nextX = snapValue(origin.x + dxMm, snapToGrid);
-                  const nextY = snapValue(origin.y + dyMm, snapToGrid);
+                  const nextX =
+                    selectedIds.length > 1
+                      ? base.x + boundedDxMm
+                      : snapValue(base.x + boundedDxMm, snapToGrid);
+                  const nextY =
+                    selectedIds.length > 1
+                      ? base.y + boundedDyMm
+                      : snapValue(base.y + boundedDyMm, snapToGrid);
                   return {
                     ...item,
                     x: clamp(nextX, 0, PAGE_WIDTH_MM - item.w),
                     y: clamp(nextY, 0, PAGE_HEIGHT_MM - item.h),
                   };
                 }
+                if (item.id !== itemId) return item;
                 if (mode === "resize-e") {
                   const nextW = snapValue(origin.w + dxMm, snapToGrid);
                   return {
@@ -493,19 +625,31 @@ export default function TemplatesClient() {
     function handlePointerUp() {
       dragState.current = null;
       dragHistoryCapturedRef.current = false;
+      if (dragClickResetTimerRef.current) {
+        window.clearTimeout(dragClickResetTimerRef.current);
+      }
+      dragClickResetTimerRef.current = window.setTimeout(() => {
+        dragClickSuppressedRef.current = false;
+        dragClickResetTimerRef.current = null;
+      }, 0);
     }
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     return () => {
+      if (dragClickResetTimerRef.current) {
+        window.clearTimeout(dragClickResetTimerRef.current);
+      }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [snapToGrid]);
 
-  function updateTemplate(patch: Partial<DocumentTemplate>) {
+  function updateTemplate(patch: Partial<DocumentTemplate>, options?: { recordHistory?: boolean }) {
     if (!selectedTemplate) return;
-    recordHistorySnapshot();
+    if (options?.recordHistory !== false) {
+      recordHistorySnapshot();
+    }
     setTemplates((prev) =>
       prev.map((template) =>
         template.id === selectedTemplate.id
@@ -519,11 +663,39 @@ export default function TemplatesClient() {
     );
   }
 
-  function updatePages(nextPages: TemplateCanvasPage[]) {
+  function beginTemplateMetaEdit(fieldKey: string) {
+    if (templateMetaEditRef.current.fieldKey === fieldKey) return;
+    templateMetaEditRef.current = { fieldKey, hasRecorded: false };
+  }
+
+  function finishTemplateMetaEdit(fieldKey: string) {
+    if (templateMetaEditRef.current.fieldKey === fieldKey) {
+      templateMetaEditRef.current = { fieldKey: null, hasRecorded: false };
+    }
+  }
+
+  function updateTemplateMeta(
+    fieldKey: "name" | "previewLabel" | "accentColor" | "description",
+    value: string
+  ) {
+    if (!selectedTemplate) return;
+    const currentValue = String(selectedTemplate[fieldKey] ?? "");
+    if (currentValue === value) return;
+    if (
+      templateMetaEditRef.current.fieldKey === fieldKey &&
+      !templateMetaEditRef.current.hasRecorded
+    ) {
+      recordHistorySnapshot();
+      templateMetaEditRef.current = { fieldKey, hasRecorded: true };
+    }
+    updateTemplate({ [fieldKey]: value }, { recordHistory: false });
+  }
+
+  function updatePages(nextPages: TemplateCanvasPage[], options?: { recordHistory?: boolean }) {
     updateTemplate({
       pages: nextPages,
       visibleSections: pageSectionList(nextPages),
-    });
+    }, options);
   }
 
   function updatePage(pageId: string, patch: Partial<TemplateCanvasPage>) {
@@ -532,7 +704,7 @@ export default function TemplatesClient() {
     const nextPages = selectedTemplate.pages.map((page) =>
       page.id === pageId ? { ...page, ...patch } : page
     );
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
   }
 
   function updateItem(itemId: string, patch: Partial<TemplateCanvasItem>, options?: { recordHistory?: boolean }) {
@@ -547,7 +719,7 @@ export default function TemplatesClient() {
         items: page.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
       };
     });
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
   }
 
   function batchUpdateItems(
@@ -567,7 +739,7 @@ export default function TemplatesClient() {
         items: page.items.map((item) => (idSet.has(item.id) ? { ...item, ...updater(item) } : item)),
       };
     });
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
   }
 
   function addTemplate() {
@@ -604,7 +776,7 @@ export default function TemplatesClient() {
       name: `${selectedTemplate.pages.length + 1}페이지`,
       items: [],
     };
-    updatePages([...selectedTemplate.pages, nextPage]);
+    updatePages([...selectedTemplate.pages, nextPage], { recordHistory: false });
     setSelectedPageId(nextPage.id);
     setSelectedItemId(null);
   }
@@ -623,7 +795,7 @@ export default function TemplatesClient() {
         id: createId("item"),
       })),
     };
-    updatePages([...selectedTemplate.pages, duplicatedPage]);
+    updatePages([...selectedTemplate.pages, duplicatedPage], { recordHistory: false });
     setSelectedPageId(duplicatedPage.id);
     setSelectedItemId(null);
   }
@@ -632,7 +804,7 @@ export default function TemplatesClient() {
     if (!selectedTemplate || selectedTemplate.pages.length <= 1) return;
     recordHistorySnapshot();
     const nextPages = selectedTemplate.pages.filter((page) => page.id !== pageId);
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedPageId(nextPages[0]?.id ?? null);
     setSelectedItemId(null);
   }
@@ -681,7 +853,7 @@ export default function TemplatesClient() {
         ? { ...page, items: [...page.items, nextItem] }
         : page
     );
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(nextItem.id);
   }
 
@@ -693,7 +865,7 @@ export default function TemplatesClient() {
         ? { ...page, items: page.items.filter((item) => item.id !== itemId) }
         : page
     );
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(null);
     setSelectedItemIds([]);
   }
@@ -707,7 +879,7 @@ export default function TemplatesClient() {
         ? { ...page, items: page.items.filter((item) => !idSet.has(item.id)) }
         : page
     );
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(null);
     setSelectedItemIds([]);
   }
@@ -730,7 +902,7 @@ export default function TemplatesClient() {
         ? { ...page, items: [...page.items, duplicated] }
         : page
     );
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(duplicated.id);
     setSelectedItemIds([duplicated.id]);
   }
@@ -761,7 +933,7 @@ export default function TemplatesClient() {
         items: [...page.items, ...duplicates],
       };
     });
-    updatePages(nextPages);
+    updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(createdIds[0] ?? null);
     setSelectedItemIds(createdIds);
   }
@@ -769,33 +941,52 @@ export default function TemplatesClient() {
   async function saveTemplates() {
     setSaving(true);
     setMessage(null);
-    const res = await fetch("/api/system-settings/document-templates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ templates }),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      setMessage(data.error ?? "저장 실패");
-      return;
+    try {
+      const res = await fetch("/api/system-settings/document-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templates }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error ?? "저장 실패");
+        return;
+      }
+      const nextTemplates = normalizeDocumentTemplates(data.templates);
+      restoreSnapshot({
+        templates: nextTemplates,
+        selectedTemplateId,
+        selectedPageId,
+        selectedItemId,
+        selectedItemIds,
+      });
+      setMessage("템플릿이 저장되었습니다.");
+      window.setTimeout(() => setMessage(null), 2500);
+    } catch {
+      setMessage("네트워크 오류로 저장하지 못했습니다.");
+    } finally {
+      setSaving(false);
     }
-    const nextTemplates = normalizeDocumentTemplates(data.templates);
-    setTemplates(nextTemplates);
-    setSelectedTemplateId((current) => nextTemplates.find((item) => item.id === current)?.id ?? nextTemplates[0]?.id ?? "");
-    setMessage("템플릿이 저장되었습니다.");
-    window.setTimeout(() => setMessage(null), 2500);
   }
 
   function beginDrag(event: React.PointerEvent<HTMLDivElement>, item: TemplateCanvasItem, mode: DragMode) {
     if (!selectedTemplate || !selectedPage) return;
     if (item.locked) return;
-    if (!dragHistoryCapturedRef.current) {
-      recordHistorySnapshot();
-      dragHistoryCapturedRef.current = true;
-    }
     event.preventDefault();
     event.stopPropagation();
+    const groupedSelectionIds =
+      mode === "move" && selectedItemIds.includes(item.id) && selectedItemIds.length > 1
+        ? selectedPage.items.filter((candidate) => selectedItemIds.includes(candidate.id) && !candidate.locked).map((candidate) => candidate.id)
+        : [item.id];
+    const originById = Object.fromEntries(
+      selectedPage.items
+        .filter((candidate) => groupedSelectionIds.includes(candidate.id))
+        .map((candidate) => [
+          candidate.id,
+          { x: candidate.x, y: candidate.y, w: candidate.w, h: candidate.h },
+        ])
+    );
+    dragClickSuppressedRef.current = false;
     dragState.current = {
       templateId: selectedTemplate.id,
       pageId: selectedPage.id,
@@ -804,12 +995,19 @@ export default function TemplatesClient() {
       startX: event.clientX,
       startY: event.clientY,
       origin: { x: item.x, y: item.y, w: item.w, h: item.h },
+      selectedIds: groupedSelectionIds,
+      originById,
+      historySnapshot: createSnapshot(),
     };
     setSelectedItemId(item.id);
-    setSelectedItemIds([item.id]);
+    setSelectedItemIds(groupedSelectionIds);
   }
 
   function handleSelectItem(itemId: string, additive: boolean) {
+    if (dragClickSuppressedRef.current) {
+      dragClickSuppressedRef.current = false;
+      return;
+    }
     if (additive) {
       setSelectedItemIds((prev) => {
         const exists = prev.includes(itemId);
@@ -852,6 +1050,29 @@ export default function TemplatesClient() {
             <p style={{ marginTop: "10px", fontSize: "14px", color: "var(--color-text-muted)", lineHeight: 1.7, maxWidth: "880px" }}>
               페이지를 추가하고, A4 캔버스 위에 블록을 자유롭게 배치할 수 있습니다. 이미지 블록은 기본 프롬프트 프리셋과 연결할 수 있고, 실제 생성 시 프리셋을 불러와 수정하는 구조를 전제로 합니다.
             </p>
+            <div style={{ marginTop: "10px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <a
+                href="/settings?tab=image_prompts"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  textDecoration: "none",
+                }}
+              >
+                프롬프트 설정 열기
+              </a>
+              <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                이미지 프롬프트 프리셋은 설정 &gt; 이미지 프롬프트에서 관리합니다.
+              </div>
+            </div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             {message && <div style={{ fontSize: "12px", color: "var(--color-primary)" }}>{message}</div>}
@@ -962,7 +1183,17 @@ export default function TemplatesClient() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0, 1fr) 320px", gap: "16px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: layoutColumns,
+            gap: "16px",
+            pointerEvents: saving ? "none" : "auto",
+            opacity: saving ? 0.72 : 1,
+            transition: "opacity 120ms ease",
+          }}
+          aria-busy={saving}
+        >
           <section style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "14px", overflow: "hidden" }}>
             <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--color-border)", fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
               템플릿 목록
@@ -1039,27 +1270,35 @@ export default function TemplatesClient() {
                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 180px", gap: "10px" }}>
                   <input
                     value={selectedTemplate.name}
-                    onChange={(e) => updateTemplate({ name: e.target.value })}
+                    onFocus={() => beginTemplateMetaEdit("name")}
+                    onBlur={() => finishTemplateMetaEdit("name")}
+                    onChange={(e) => updateTemplateMeta("name", e.target.value)}
                     placeholder="템플릿명"
                     style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "13px" }}
                   />
                   <input
                     value={selectedTemplate.previewLabel}
-                    onChange={(e) => updateTemplate({ previewLabel: e.target.value })}
+                    onFocus={() => beginTemplateMetaEdit("previewLabel")}
+                    onBlur={() => finishTemplateMetaEdit("previewLabel")}
+                    onChange={(e) => updateTemplateMeta("previewLabel", e.target.value)}
                     placeholder="미리보기 라벨"
                     style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "13px" }}
                   />
                   <input
                     type="color"
                     value={selectedTemplate.accentColor}
-                    onChange={(e) => updateTemplate({ accentColor: e.target.value })}
+                    onFocus={() => beginTemplateMetaEdit("accentColor")}
+                    onBlur={() => finishTemplateMetaEdit("accentColor")}
+                    onChange={(e) => updateTemplateMeta("accentColor", e.target.value)}
                     style={{ width: "100%", height: "42px", padding: "4px", borderRadius: "8px", border: "1px solid var(--color-border)", background: "#fff" }}
                   />
                 </div>
 
                 <textarea
                   value={selectedTemplate.description}
-                  onChange={(e) => updateTemplate({ description: e.target.value })}
+                  onFocus={() => beginTemplateMetaEdit("description")}
+                  onBlur={() => finishTemplateMetaEdit("description")}
+                  onChange={(e) => updateTemplateMeta("description", e.target.value)}
                   rows={2}
                   placeholder="템플릿 설명"
                   style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "13px", resize: "vertical" }}
@@ -1563,7 +1802,7 @@ export default function TemplatesClient() {
                       />
                     </label>
                     <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
-                      템플릿에 저장된 프롬프트는 기본값으로 자동 불러오고, 실제 이미지 생성 시 드롭다운에서 다른 프리셋으로 바꾸거나 텍스트를 직접 수정하는 흐름을 전제로 합니다. 연결 이미지 슬롯을 지정하면 생성된 이미지 중 몇 번째 결과를 이 블록이 우선 사용해야 하는지도 고정할 수 있습니다.
+                      템플릿에 저장된 프롬프트는 기본값으로 자동 불러오고, 실제 이미지 생성 시 드롭다운에서 다른 프리셋으로 바꾸거나 텍스트를 직접 수정하는 흐름을 전제로 합니다. 연결 이미지 슬롯은 지문 단계나 자료실에서 생성한 이미지 결과 순서를 의미합니다. 예를 들어 `생성 이미지 2`를 고르면 두 번째로 생성된 이미지를 이 블록이 우선 사용합니다.
                     </div>
                   </>
                 )}

@@ -37,7 +37,13 @@ function initAgentProviders(): AgentProviderMap {
   return m;
 }
 
-export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) {
+export default function SettingsClient({
+  viewerRole,
+  initialTab,
+}: {
+  viewerRole: AppRole;
+  initialTab?: SettingsTab;
+}) {
   const canManageReviewTemplates = viewerRole === "admin" || viewerRole === "lead_teacher";
   const visibleTabs = useMemo(() => {
     if (viewerRole === "admin") return TABS;
@@ -47,7 +53,7 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
     return TABS.filter((tab) => tab.key === "notifications");
   }, [viewerRole]);
 
-  const [tab, setTab] = useState<SettingsTab>(visibleTabs[0]?.key ?? "notifications");
+  const [tab, setTab] = useState<SettingsTab>(initialTab ?? visibleTabs[0]?.key ?? "notifications");
 
   // AI provider settings
   const [defaultProvider, setDefaultProvider] = useState<AIProvider>(AIProvider.CLAUDE);
@@ -176,6 +182,13 @@ export default function SettingsClient({ viewerRole }: { viewerRole: AppRole }) 
       setTab(visibleTabs[0]?.key ?? "notifications");
     }
   }, [tab, visibleTabs]);
+
+  useEffect(() => {
+    if (!initialTab) return;
+    if (visibleTabs.some((item) => item.key === initialTab)) {
+      setTab(initialTab);
+    }
+  }, [initialTab, visibleTabs]);
 
   async function handleSave() {
     setSaving(true);
