@@ -34,6 +34,87 @@ import {
 
 export const LESSON_WORKFLOW_NAME = "lesson_generation";
 
+function countPassageWords(text: string) {
+  return text
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean).length;
+}
+
+function countPassageParagraphs(text: string) {
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean).length;
+}
+
+function normalizePassageGenerationOutput(
+  passage: PassageGenerationOutput,
+  difficulty: DifficultyLockOutput["difficulty"]
+): PassageGenerationOutput {
+  return {
+    ...passage,
+    difficulty,
+    wordCount: countPassageWords(passage.passage),
+  };
+}
+
+function reconcilePassageValidation(
+  validation: PassageValidationOutput,
+  passage: PassageGenerationOutput,
+  difficultyLock: DifficultyLockOutput
+): PassageValidationOutput {
+  const issues: string[] = [];
+  const suggestions = [...validation.suggestions];
+  const lowerBound = Math.round(difficultyLock.wordCountTarget * 0.9);
+  const upperBound = Math.round(difficultyLock.wordCountTarget * 1.1);
+  const paragraphCount = countPassageParagraphs(passage.passage);
+
+  if (passage.wordCount < lowerBound || passage.wordCount > upperBound) {
+    issues.push(
+      `Word count is outside the target range: target is ${difficultyLock.wordCountTarget}, acceptable range is ${lowerBound} to ${upperBound}, but passage has ${passage.wordCount} words.`
+    );
+    suggestions.push(
+      `Adjust the passage length to stay within ${lowerBound}-${upperBound} words.`
+    );
+  }
+
+  if (paragraphCount < 2) {
+    issues.push("Passage structure needs to be clearly divided into at least 2 paragraphs.");
+    suggestions.push("Break the passage into at least two natural paragraphs with a blank line between them.");
+  }
+
+  const filteredModelIssues = validation.issues.filter((issue) => {
+    const normalized = issue.toLowerCase();
+    const isWordCountIssue =
+      normalized.includes("word count") ||
+      normalized.includes("target range") ||
+      normalized.includes("acceptable range");
+    const isParagraphIssue =
+      normalized.includes("paragraph") ||
+      normalized.includes("single block");
+
+    if (isWordCountIssue) {
+      return passage.wordCount < lowerBound || passage.wordCount > upperBound;
+    }
+
+    if (isParagraphIssue) {
+      return paragraphCount < 2;
+    }
+
+    return true;
+  });
+
+  const dedupedIssues = Array.from(new Set([...issues, ...filteredModelIssues]));
+  const dedupedSuggestions = Array.from(new Set(suggestions));
+
+  return {
+    approved: dedupedIssues.length === 0,
+    issues: dedupedIssues,
+    suggestions: dedupedSuggestions,
+  };
+}
+
 export const lessonWorkflowDefinition: WorkflowDefinition<
   LessonRequest,
   LessonPackage | PassageReviewResult | ContentReviewResult,
@@ -158,12 +239,12 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       });
 
       if (request.passageCheckpoint.needsRevalidation) {
-        state.passageGeneration = {
+        state.passageGeneration = normalizePassageGenerationOutput({
           passage: request.passageCheckpoint.approvedPassageLock.passage,
           title: request.passageCheckpoint.approvedPassageLock.title,
           wordCount: request.passageCheckpoint.approvedPassageLock.wordCount,
           difficulty: request.passageCheckpoint.difficultyLock.difficulty,
-        };
+        }, request.passageCheckpoint.difficultyLock.difficulty);
 
         runtime.emit({
           step: AgentName.PASSAGE_GENERATION,
@@ -171,13 +252,18 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
           output: state.passageGeneration,
         });
 
-        state.passageValidation = await runtime.step<PassageValidationOutput>(
+        const rawValidation = await runtime.step<PassageValidationOutput>(
           AgentName.PASSAGE_VALIDATION,
           () =>
             callAgent(AgentName.PASSAGE_VALIDATION, {
               passage: state.passageGeneration,
               difficultyLock: state.difficultyLock,
             })
+        );
+        state.passageValidation = reconcilePassageValidation(
+          rawValidation,
+          state.passageGeneration,
+          state.difficultyLock
         );
 
         if (!state.passageValidation.approved) {
@@ -291,7 +377,8 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         runtime.emit({ step: AgentName.RESEARCH_CURATION, status: "skipped" });
       }
 
-      state.passageGeneration = await runtime.step<PassageGenerationOutput>(
+      state.passageGeneration = normalizePassageGenerationOutput(
+        await runtime.step<PassageGenerationOutput>(
         AgentName.PASSAGE_GENERATION,
         () =>
           callAgent(AgentName.PASSAGE_GENERATION, {
@@ -302,15 +389,22 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
             difficultyLock: state.difficultyLock,
             teachingFrame: state.teachingFrame,
           })
+      ),
+        state.difficultyLock.difficulty
       );
 
-      state.passageValidation = await runtime.step<PassageValidationOutput>(
+      const rawValidation = await runtime.step<PassageValidationOutput>(
         AgentName.PASSAGE_VALIDATION,
         () =>
           callAgent(AgentName.PASSAGE_VALIDATION, {
             passage: state.passageGeneration,
             difficultyLock: state.difficultyLock,
           })
+      );
+      state.passageValidation = reconcilePassageValidation(
+        rawValidation,
+        state.passageGeneration,
+        state.difficultyLock
       );
 
       if (!state.passageValidation.approved) {
