@@ -10,6 +10,7 @@ import { DEFAULT_REVIEW_NOTE_TEMPLATES, ReviewNoteTemplates } from "@/lib/review
 import { DEFAULT_REVIEW_SLA_HOURS, getReviewWarningHours } from "@/lib/reviewSettings";
 import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
 import { DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { getTemplateImageItems } from "@/lib/documentTemplateRender";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -157,8 +158,20 @@ export default function LibraryClient({
   const [imagePromptText, setImagePromptText] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.prompt ?? "");
   const [imageRevisionText, setImageRevisionText] = useState("");
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isSavingLessonPackage, setIsSavingLessonPackage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const detailTemplate = useMemo(() => {
+    if (!lessonDetail?.package.documentTemplate) return null;
+    return resolveDocumentTemplate(
+      [lessonDetail.package.documentTemplate, ...DEFAULT_DOCUMENT_TEMPLATES],
+      lessonDetail.package.documentTemplate.id
+    );
+  }, [lessonDetail?.package.documentTemplate]);
+  const detailTemplateImageItems = useMemo(
+    () => (detailTemplate ? getTemplateImageItems(detailTemplate) : []),
+    [detailTemplate]
+  );
 
   // Refs to break callback dependency cycles (lessons → loadLessonDetail → loadLessons → setLessons → ...)
   const lessonsRef = useRef<LessonSummary[]>([]);
@@ -370,23 +383,52 @@ export default function LibraryClient({
     if (preset) setImagePromptText(preset.prompt);
   }
 
-  async function saveGeneratedImages(nextImages: GeneratedPassageImage[]) {
+  async function saveLessonPackage(nextPackage: LessonPackage) {
     if (!selectedLesson || !lessonDetail) return;
-    const nextPackage = {
+    setIsSavingLessonPackage(true);
+    try {
+      const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ package: nextPackage }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "이미지 저장 실패");
+      }
+      setLessonDetail((prev) => prev ? ({ ...prev, package: nextPackage }) : prev);
+      dispatchInboxSync("lesson_saved");
+    } finally {
+      setIsSavingLessonPackage(false);
+    }
+  }
+
+  async function saveGeneratedImages(nextImages: GeneratedPassageImage[]) {
+    if (!lessonDetail) return;
+    await saveLessonPackage({
       ...lessonDetail.package,
       generatedImages: nextImages,
-    };
-    const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ package: nextPackage }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.error ?? "이미지 저장 실패");
-    }
-    setLessonDetail((prev) => prev ? ({ ...prev, package: nextPackage }) : prev);
-    dispatchInboxSync("lesson_saved");
+  }
+
+  async function updateSavedTemplateImageBinding(itemId: string, imageIndex: number | null, imageId?: string | null) {
+    if (!lessonDetail || !detailTemplate || isSavingLessonPackage) return;
+    const nextTemplate = {
+      ...detailTemplate,
+      pages: detailTemplate.pages.map((page) => ({
+        ...page,
+        items: page.items.map((item) =>
+          item.id === itemId
+            ? { ...item, imageBindingIndex: imageIndex, imageBindingId: imageId ?? null }
+            : item
+        ),
+      })),
+    };
+
+    await saveLessonPackage({
+      ...lessonDetail.package,
+      documentTemplate: nextTemplate,
+    });
   }
 
   async function handleGenerateLibraryImage(mode: "new" | "revise", imageId?: string) {
@@ -727,6 +769,7 @@ export default function LibraryClient({
   const filteredLessons = lessons; // server-side filtering already applied
   const canShowReviewActions = canManageReview && (viewerRole === "admin" || viewerRole === "lead_teacher" || viewerRole === "reviewer");
   const isOwner = selectedLesson?.user_id === viewerId;
+  const canEditLessonPackage = Boolean(isOwner || canManageReview);
   const canReviewCurrentLesson =
     canShowReviewActions &&
     !!selectedLesson &&
@@ -1712,7 +1755,7 @@ export default function LibraryClient({
                             <div style={{ padding: "8px", fontSize: "10px", color: "var(--color-text-muted)", lineHeight: 1.55 }}>
                               {image.prompt}
                             </div>
-                            {(isOwner || canReviewCurrentLesson) && (
+                            {canEditLessonPackage && (
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", padding: "0 8px 8px" }}>
                                 <button
                                   onClick={() => void handleGenerateLibraryImage("revise", image.id)}
@@ -1755,7 +1798,131 @@ export default function LibraryClient({
                       </div>
                     </div>
                   )}
-                  {(isOwner || canReviewCurrentLesson) && (
+                  {canEditLessonPackage && detailTemplateImageItems.length > 0 && lessonDetail.package.generatedImages && lessonDetail.package.generatedImages.length > 0 && (
+                    <div
+                      style={{
+                        marginBottom: "10px",
+                        padding: "10px 11px",
+                        borderRadius: "8px",
+                        background: "#F8FBFF",
+                        border: "1px solid #DBEAFE",
+                        display: "grid",
+                        gap: "10px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "11px", fontWeight: "700", color: "#1D4ED8", marginBottom: "6px" }}>
+                          템플릿 이미지 연결
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                          이 연결은 공용 템플릿을 바꾸는 것이 아니라, 현재 저장된 레슨의 템플릿 스냅샷에만 적용됩니다. 나중에 다시 열어도 같은 연결 상태로 이어집니다.
+                        </div>
+                      </div>
+                      {detailTemplateImageItems.map(({ pageId, item }, blockIndex) => {
+                        const boundIndex = item.imageBindingIndex ?? null;
+                        const boundImage =
+                          item.imageBindingId
+                            ? lessonDetail.package.generatedImages?.find((image) => image.id === item.imageBindingId) ?? null
+                            : boundIndex !== null && lessonDetail.package.generatedImages?.[boundIndex]
+                              ? lessonDetail.package.generatedImages[boundIndex]
+                              : null;
+                        return (
+                          <div
+                            key={`library-image-binding-${item.id}`}
+                            style={{
+                              border: "1px solid var(--color-border)",
+                              borderRadius: "8px",
+                              background: "#fff",
+                              padding: "10px",
+                              display: "grid",
+                              gap: "10px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>
+                                  {item.label}
+                                </div>
+                                <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginTop: "2px" }}>
+                                  {pageId} · 이미지 블록 {blockIndex + 1}
+                                </div>
+                              </div>
+                              <div style={{ fontSize: "10px", fontWeight: "700", color: boundImage ? "#1D4ED8" : "var(--color-text-muted)" }}>
+                                {boundImage
+                                  ? `현재 연결: 생성 이미지 ${((lessonDetail.package.generatedImages ?? []).findIndex((image) => image.id === boundImage.id)) + 1}`
+                                  : "현재 연결: 자동"}
+                              </div>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                              <button
+                                type="button"
+                                onClick={() => void updateSavedTemplateImageBinding(item.id, null, null)}
+                                style={{
+                                  padding: "10px",
+                                  borderRadius: "10px",
+                                border: `1px solid ${!boundImage ? "#93C5FD" : "var(--color-border)"}`,
+                                background: !boundImage ? "#EFF6FF" : "var(--color-surface)",
+                                color: !boundImage ? "#1D4ED8" : "var(--color-text)",
+                                fontSize: "11px",
+                                fontWeight: "700",
+                                textAlign: "left",
+                                cursor: isSavingLessonPackage ? "not-allowed" : "pointer",
+                                opacity: isSavingLessonPackage ? 0.6 : 1,
+                              }}
+                              disabled={isSavingLessonPackage}
+                            >
+                                자동 연결
+                                <div style={{ marginTop: "4px", fontSize: "10px", fontWeight: "500", color: "var(--color-text-muted)", lineHeight: 1.5 }}>
+                                  이미지 블록 순서 기준으로 자동 연결합니다.
+                                </div>
+                              </button>
+                              {lessonDetail.package.generatedImages?.map((image, imageIndex) => {
+                                const active = boundImage?.id === image.id;
+                                return (
+                                  <button
+                                    key={`${item.id}-${image.id}-library`}
+                                    type="button"
+                                    onClick={() => void updateSavedTemplateImageBinding(item.id, imageIndex, image.id)}
+                                    style={{
+                                      padding: "8px",
+                                      borderRadius: "10px",
+                                      border: `1px solid ${active ? "#93C5FD" : "var(--color-border)"}`,
+                                      background: active ? "#EFF6FF" : "#fff",
+                                      textAlign: "left",
+                                      cursor: isSavingLessonPackage ? "not-allowed" : "pointer",
+                                      opacity: isSavingLessonPackage ? 0.6 : 1,
+                                    }}
+                                    disabled={isSavingLessonPackage}
+                                  >
+                                    <img
+                                      src={image.url}
+                                      alt={`생성 이미지 ${imageIndex + 1}`}
+                                      style={{
+                                        width: "100%",
+                                        aspectRatio: "4 / 3",
+                                        objectFit: "cover",
+                                        borderRadius: "8px",
+                                        border: "1px solid var(--color-border)",
+                                        background: "#F8FAFC",
+                                      }}
+                                    />
+                                    <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "700", color: active ? "#1D4ED8" : "var(--color-text)" }}>
+                                      생성 이미지 {imageIndex + 1}
+                                    </div>
+                                    <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-muted)", lineHeight: 1.5 }}>
+                                      {image.prompt}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {canEditLessonPackage && (
                     <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                       <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
                         이미지 재생성

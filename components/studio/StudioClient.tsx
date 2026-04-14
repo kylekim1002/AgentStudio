@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { AgentName, AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
 import { DocumentTemplate, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
+import { getTemplateImageItems } from "@/lib/documentTemplateRender";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
@@ -75,7 +76,7 @@ export default function StudioClient({
   const [showPreview, setShowPreview] = useState(true);
   const [showCounts, setShowCounts] = useState(false);
   const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
-  const [documentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
+  const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialDocumentTemplates[0]?.id ?? "");
   const [generationTarget, setGenerationTarget] = useState<"full" | "passage_review" | "content_review" | "passage_and_content_review">("full");
   const [reviewTitle, setReviewTitle] = useState("");
@@ -91,6 +92,7 @@ export default function StudioClient({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
+  const templateImageItems = useMemo(() => getTemplateImageItems(activeTemplate), [activeTemplate]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
   const prevPackage = useRef<typeof lessonPackage>(null);
@@ -143,6 +145,25 @@ export default function StudioClient({
     }
     prevCheckpoint.current = passageCheckpoint;
   }, [passageCheckpoint]);
+
+  function updateActiveTemplateImageBinding(itemId: string, imageIndex: number | null, imageId?: string | null) {
+    setDocumentTemplates((prev) =>
+      prev.map((template) => {
+        if (template.id !== activeTemplate.id) return template;
+        return {
+          ...template,
+          pages: template.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) =>
+              item.id === itemId
+                ? { ...item, imageBindingIndex: imageIndex, imageBindingId: imageId ?? null }
+                : item
+            ),
+          })),
+        };
+      })
+    );
+  }
 
   useEffect(() => {
     fetch("/api/system-settings/image-prompts")
@@ -1015,73 +1036,203 @@ export default function StudioClient({
             )}
 
             {generatedImages.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginTop: "12px" }}>
-                {generatedImages.map((image) => (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginTop: "12px" }}>
+                  {generatedImages.map((image, index) => (
+                    <div
+                      key={image.id}
+                      style={{
+                        borderRadius: "10px",
+                        border: "1px solid #FDE68A",
+                        background: "#fff",
+                        padding: "10px",
+                      }}
+                    >
+                      <div style={{ fontSize: "11px", fontWeight: "700", color: "#92400E", marginBottom: "8px" }}>
+                        생성 이미지 {index + 1}
+                      </div>
+                      <img
+                        src={image.url}
+                        alt="Generated passage visual"
+                        style={{
+                          width: "100%",
+                          aspectRatio: "4 / 3",
+                          objectFit: "cover",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          background: "#F8FAFC",
+                        }}
+                      />
+                      <div style={{ marginTop: "8px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                        {image.prompt}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "8px" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleGeneratePassageImage("revise", image.id)}
+                          disabled={isGeneratingImage || !imageRevisionText.trim()}
+                          style={{
+                            padding: "7px 8px",
+                            borderRadius: "7px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text)",
+                            fontSize: "11px",
+                            fontWeight: "600",
+                            cursor: isGeneratingImage || !imageRevisionText.trim() ? "not-allowed" : "pointer",
+                            opacity: isGeneratingImage || !imageRevisionText.trim() ? 0.6 : 1,
+                          }}
+                        >
+                          부분 수정
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleGeneratePassageImage("new")}
+                          disabled={isGeneratingImage}
+                          style={{
+                            padding: "7px 8px",
+                            borderRadius: "7px",
+                            border: "1px solid #FDBA74",
+                            background: "#FFF7ED",
+                            color: "#C2410C",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: isGeneratingImage ? "not-allowed" : "pointer",
+                            opacity: isGeneratingImage ? 0.6 : 1,
+                          }}
+                        >
+                          새로 생성
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {templateImageItems.length > 0 && (
                   <div
-                    key={image.id}
                     style={{
-                      borderRadius: "10px",
-                      border: "1px solid #FDE68A",
-                      background: "#fff",
-                      padding: "10px",
+                      marginTop: "14px",
+                      padding: "12px",
+                      borderRadius: "12px",
+                      border: "1px solid #DBEAFE",
+                      background: "#F8FBFF",
+                      display: "grid",
+                      gap: "12px",
                     }}
                   >
-                    <img
-                      src={image.url}
-                      alt="Generated passage visual"
-                      style={{
-                        width: "100%",
-                        aspectRatio: "4 / 3",
-                        objectFit: "cover",
-                        borderRadius: "8px",
-                        border: "1px solid var(--color-border)",
-                        background: "#F8FAFC",
-                      }}
-                    />
-                    <div style={{ marginTop: "8px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
-                      {image.prompt}
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "#1D4ED8", marginBottom: "4px" }}>
+                        연결할 생성 이미지
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                        여기서는 번호만 고르는 게 아니라, 실제로 생성된 이미지 썸네일과 프롬프트를 보고 템플릿의 각 이미지 블록에 연결할 수 있습니다.
+                      </div>
+                      <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                        이 연결은 현재 생성 중인 레슨의 템플릿 스냅샷에만 적용됩니다. 저장하면 함께 보존되지만, 공용 템플릿 원본 자체가 바뀌는 것은 아닙니다.
+                      </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "8px" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleGeneratePassageImage("revise", image.id)}
-                        disabled={isGeneratingImage || !imageRevisionText.trim()}
-                        style={{
-                          padding: "7px 8px",
-                          borderRadius: "7px",
-                          border: "1px solid var(--color-border)",
-                          background: "var(--color-surface)",
-                          color: "var(--color-text)",
-                          fontSize: "11px",
-                          fontWeight: "600",
-                          cursor: isGeneratingImage || !imageRevisionText.trim() ? "not-allowed" : "pointer",
-                          opacity: isGeneratingImage || !imageRevisionText.trim() ? 0.6 : 1,
-                        }}
-                      >
-                        부분 수정
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleGeneratePassageImage("new")}
-                        disabled={isGeneratingImage}
-                        style={{
-                          padding: "7px 8px",
-                          borderRadius: "7px",
-                          border: "1px solid #FDBA74",
-                          background: "#FFF7ED",
-                          color: "#C2410C",
-                          fontSize: "11px",
-                          fontWeight: "700",
-                          cursor: isGeneratingImage ? "not-allowed" : "pointer",
-                          opacity: isGeneratingImage ? 0.6 : 1,
-                        }}
-                      >
-                        새로 생성
-                      </button>
-                    </div>
+
+                    {templateImageItems.map(({ pageId, item }, blockIndex) => {
+                      const boundIndex = item.imageBindingIndex ?? null;
+                      const boundImage =
+                        item.imageBindingId
+                          ? generatedImages.find((image) => image.id === item.imageBindingId) ?? null
+                          : boundIndex !== null && generatedImages[boundIndex]
+                            ? generatedImages[boundIndex]
+                            : null;
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            border: "1px solid var(--color-border)",
+                            borderRadius: "10px",
+                            background: "#fff",
+                            padding: "10px",
+                            display: "grid",
+                            gap: "10px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>
+                                {item.label}
+                              </div>
+                              <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginTop: "2px" }}>
+                                {pageId} · 이미지 블록 {blockIndex + 1}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: "10px", color: boundImage ? "#1D4ED8" : "var(--color-text-subtle)", fontWeight: "700" }}>
+                              {boundImage
+                                ? `현재 연결: 생성 이미지 ${generatedImages.findIndex((image) => image.id === boundImage.id) + 1}`
+                                : "현재 연결: 자동"}
+                            </div>
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                            <button
+                              type="button"
+                              onClick={() => updateActiveTemplateImageBinding(item.id, null, null)}
+                              style={{
+                                padding: "10px",
+                                borderRadius: "10px",
+                                border: `1px solid ${!boundImage ? "#93C5FD" : "var(--color-border)"}`,
+                                background: !boundImage ? "#EFF6FF" : "var(--color-surface)",
+                                color: !boundImage ? "#1D4ED8" : "var(--color-text)",
+                                fontSize: "11px",
+                                fontWeight: "700",
+                                textAlign: "left",
+                                cursor: "pointer",
+                              }}
+                            >
+                              자동 연결
+                              <div style={{ marginTop: "4px", fontSize: "10px", fontWeight: "500", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                                템플릿 안의 이미지 블록 순서대로 자동 연결합니다.
+                              </div>
+                            </button>
+                            {generatedImages.map((image, imageIndex) => {
+                              const active = boundImage?.id === image.id;
+                              return (
+                                <button
+                                  key={`${item.id}-${image.id}`}
+                                  type="button"
+                                  onClick={() => updateActiveTemplateImageBinding(item.id, imageIndex, image.id)}
+                                  style={{
+                                    padding: "8px",
+                                    borderRadius: "10px",
+                                    border: `1px solid ${active ? "#93C5FD" : "var(--color-border)"}`,
+                                    background: active ? "#EFF6FF" : "#fff",
+                                    textAlign: "left",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <img
+                                    src={image.url}
+                                    alt={`생성 이미지 ${imageIndex + 1}`}
+                                    style={{
+                                      width: "100%",
+                                      aspectRatio: "4 / 3",
+                                      objectFit: "cover",
+                                      borderRadius: "8px",
+                                      border: "1px solid var(--color-border)",
+                                      background: "#F8FAFC",
+                                    }}
+                                  />
+                                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "700", color: active ? "#1D4ED8" : "var(--color-text)" }}>
+                                    생성 이미지 {imageIndex + 1}
+                                  </div>
+                                  <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                                    {image.prompt}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -37,6 +37,7 @@ export interface TemplateCanvasItem {
   imagePromptPresetId?: string | null;
   imagePromptText?: string;
   imageBindingIndex?: number | null;
+  imageBindingId?: string | null;
   locked?: boolean;
 }
 
@@ -119,6 +120,7 @@ function createImageItem(label: string, x: number, y: number, w: number, h: numb
     imagePromptPresetId: imagePromptPresetId ?? null,
     imagePromptText: "",
     imageBindingIndex: null,
+    imageBindingId: null,
   };
 }
 
@@ -269,6 +271,10 @@ function normalizeCanvasItem(item: unknown, index: number): TemplateCanvasItem {
     imageBindingIndex:
       typeof source.imageBindingIndex === "number" && Number.isFinite(source.imageBindingIndex)
         ? Math.max(0, Math.floor(source.imageBindingIndex))
+        : null,
+    imageBindingId:
+      typeof source.imageBindingId === "string" && source.imageBindingId.trim()
+        ? source.imageBindingId.trim()
         : null,
     locked: source.locked === true,
   };

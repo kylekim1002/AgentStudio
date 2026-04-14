@@ -1773,7 +1773,7 @@ export default function TemplatesClient() {
                 {selectedItem.type === "image" && (
                   <>
                     <label style={{ display: "grid", gap: "6px", position: "relative" }} data-property-menu-root="true">
-                      <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>연결 이미지 슬롯</span>
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>연결할 생성 이미지</span>
                       <button
                         type="button"
                         onClick={() => setOpenPropertyMenu((prev) => (prev === "image-slot" ? null : "image-slot"))}
@@ -1794,7 +1794,7 @@ export default function TemplatesClient() {
                         <span>
                           {selectedItem.imageBindingIndex == null
                             ? "자동 연결"
-                            : `생성 이미지 ${selectedItem.imageBindingIndex + 1}`}
+                            : `${selectedItem.imageBindingIndex + 1}번째 생성 이미지`}
                         </span>
                         <span style={{ color: "var(--color-text-subtle)" }}>▾</span>
                       </button>
@@ -1860,15 +1860,15 @@ export default function TemplatesClient() {
                                   cursor: "pointer",
                                 }}
                               >
-                                생성 이미지 {index + 1}
+                                {index + 1}번째 생성 이미지
                               </button>
                             );
                           })}
                         </div>
                       )}
                       <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
-                        가져오는 위치: 지문 생성 뒤 또는 자료실에서 만든 이미지 목록입니다.
-                        `생성 이미지 1`은 첫 번째 생성 결과, `자동 연결`은 템플릿 순서대로 자동 매핑합니다.
+                        템플릿 관리 단계에서는 아직 실제 생성 이미지가 없어서, 여기서는 `몇 번째로 생성된 이미지를 우선 연결할지`만 정합니다.
+                        실제 이미지가 생성된 뒤에는 스튜디오에서 썸네일 목록을 보고 다시 연결할 수 있습니다.
                       </div>
                     </label>
                     <label style={{ display: "grid", gap: "6px", position: "relative" }} data-property-menu-root="true">

@@ -41,6 +41,10 @@ export function resolveTemplateImage(
   if (images.length === 0) return null;
   const imageItems = getTemplateImageItems(template);
   const matchedItem = imageItems.find(({ item }) => item.id === itemId)?.item;
+  if (matchedItem?.imageBindingId) {
+    const boundImage = images.find((image) => image.id === matchedItem.imageBindingId);
+    if (boundImage) return boundImage;
+  }
   if (matchedItem && typeof matchedItem.imageBindingIndex === "number" && images[matchedItem.imageBindingIndex]) {
     return images[matchedItem.imageBindingIndex];
   }

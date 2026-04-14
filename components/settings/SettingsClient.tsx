@@ -6,7 +6,7 @@ import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 import { AppRole } from "@/lib/authz/roles";
 import { DEFAULT_REVIEW_NOTE_TEMPLATES } from "@/lib/reviewTemplates";
 import { DEFAULT_REVIEW_SLA_HOURS } from "@/lib/reviewSettings";
-import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
+import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
 
 type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "notifications" | "users" | "folders";
 
@@ -35,6 +35,10 @@ function initAgentProviders(): AgentProviderMap {
   const m = {} as AgentProviderMap;
   for (const a of PIPELINE_ORDER) m[a] = "default";
   return m;
+}
+
+function createPromptId() {
+  return `prompt-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default function SettingsClient({
@@ -82,9 +86,7 @@ export default function SettingsClient({
     approved: [],
     needs_revision: [],
   });
-  const [imagePromptsText, setImagePromptsText] = useState(
-    DEFAULT_IMAGE_PROMPT_PRESETS.map((item) => `${item.name}::${item.prompt}`).join("\n\n")
-  );
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
 
   // API key state
   const [apiKeyStatus, setApiKeyStatus] = useState<{
@@ -168,10 +170,12 @@ export default function SettingsClient({
       .then((r) => r.json())
       .then(({ prompts }) => {
         if (!Array.isArray(prompts)) return;
-        setImagePromptsText(
-          prompts
-            .map((item: { name?: string; prompt?: string }) => `${item.name ?? "프롬프트"}::${item.prompt ?? ""}`)
-            .join("\n\n")
+        setImagePrompts(
+          prompts.map((item: { id?: string; name?: string; prompt?: string }, index: number) => ({
+            id: item.id ?? createPromptId(),
+            name: item.name ?? `프롬프트 ${index + 1}`,
+            prompt: item.prompt ?? "",
+          }))
         );
       })
       .catch(() => {});
@@ -227,18 +231,12 @@ export default function SettingsClient({
           approved: approvedTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
           needs_revision: revisionTemplatesText.split("\n").map((item) => item.trim()).filter(Boolean),
         };
-        const imagePrompts = imagePromptsText
-          .split("\n\n")
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .map((item, index) => {
-            const [name, ...rest] = item.split("::");
-            return {
-              id: `preset-${index + 1}`,
-              name: (name || `프롬프트 ${index + 1}`).trim(),
-              prompt: rest.join("::").trim(),
-            };
-          })
+        const normalizedImagePrompts = imagePrompts
+          .map((item, index) => ({
+            id: item.id || createPromptId(),
+            name: item.name.trim() || `프롬프트 ${index + 1}`,
+            prompt: item.prompt.trim(),
+          }))
           .filter((item) => item.prompt);
 
         const sharedRes = await fetch("/api/system-settings/review-templates", {
@@ -252,10 +250,12 @@ export default function SettingsClient({
         const imagePromptRes = await fetch("/api/system-settings/image-prompts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompts: imagePrompts }),
+          body: JSON.stringify({ prompts: normalizedImagePrompts }),
         });
         const imagePromptData = await imagePromptRes.json();
         if (!imagePromptRes.ok) throw new Error(imagePromptData.error ?? "이미지 프롬프트 저장 실패");
+
+        setImagePrompts(normalizedImagePrompts);
 
         setReviewTemplateStats((prev) => ({
           approved: templates.approved.map((template) => ({
@@ -355,6 +355,40 @@ export default function SettingsClient({
         </button>
       </div>
     );
+  }
+
+  function addImagePromptPreset() {
+    setImagePrompts((prev) => [
+      ...prev,
+      {
+        id: createPromptId(),
+        name: `프리셋 ${prev.length + 1}`,
+        prompt: "",
+      },
+    ]);
+  }
+
+  function updateImagePromptPreset(id: string, patch: Partial<ImagePromptPreset>) {
+    setImagePrompts((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+    );
+  }
+
+  function removeImagePromptPreset(id: string) {
+    setImagePrompts((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function moveImagePromptPreset(id: string, direction: "up" | "down") {
+    setImagePrompts((prev) => {
+      const index = prev.findIndex((item) => item.id === id);
+      if (index === -1) return prev;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
   }
 
   return (
@@ -744,33 +778,147 @@ export default function SettingsClient({
           <div style={{ maxWidth: "720px" }}>
             <SectionTitle>이미지 프롬프트 프리셋</SectionTitle>
             <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px", lineHeight: 1.7 }}>
-              이미지 생성 시 기본으로 불러올 프롬프트를 팀 공용 프리셋으로 관리합니다. 각 항목은 `이름::프롬프트` 형식이고, 항목 사이는 빈 줄로 구분합니다.
+              이미지 생성 시 기본으로 불러올 프롬프트를 팀 공용 프리셋으로 관리합니다. 템플릿 이미지 블록과 생성 화면 드롭다운은 여기서 저장한 순서대로 불러옵니다.
             </p>
 
-            <Card>
-              <textarea
-                value={imagePromptsText}
-                onChange={(e) => setImagePromptsText(e.target.value)}
-                rows={16}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", gap: "12px", flexWrap: "wrap" }}>
+              <div style={{ fontSize: "12px", color: "var(--color-text-subtle)" }}>
+                현재 {imagePrompts.length}개의 프리셋이 있습니다. 위에서 아래 순서대로 드롭다운에 표시됩니다.
+              </div>
+              <button
+                type="button"
+                onClick={addImagePromptPreset}
                 style={{
-                  width: "100%",
-                  padding: "12px 14px",
-                  borderRadius: "10px",
-                  border: "1px solid var(--color-border-strong)",
-                  fontSize: "13px",
-                  lineHeight: 1.6,
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                  fontFamily: "inherit",
-                  background: "var(--color-bg)",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: "pointer",
                 }}
-              />
-            </Card>
+              >
+                + 프리셋 추가
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: "12px" }}>
+              {imagePrompts.map((preset, index) => (
+                <Card key={preset.id}>
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>
+                        프리셋 {index + 1}
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => moveImagePromptPreset(preset.id, "up")}
+                          disabled={index === 0}
+                          style={{
+                            padding: "7px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text)",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: index === 0 ? "not-allowed" : "pointer",
+                            opacity: index === 0 ? 0.5 : 1,
+                          }}
+                        >
+                          위로
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveImagePromptPreset(preset.id, "down")}
+                          disabled={index === imagePrompts.length - 1}
+                          style={{
+                            padding: "7px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text)",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: index === imagePrompts.length - 1 ? "not-allowed" : "pointer",
+                            opacity: index === imagePrompts.length - 1 ? 0.5 : 1,
+                          }}
+                        >
+                          아래로
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeImagePromptPreset(preset.id)}
+                          style={{
+                            padding: "7px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid #FECACA",
+                            background: "#FEF2F2",
+                            color: "#B91C1C",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)" }}>프리셋명</label>
+                      <input
+                        value={preset.name}
+                        onChange={(e) => updateImagePromptPreset(preset.id, { name: e.target.value })}
+                        placeholder="예: 스토리북 일러스트"
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: "10px",
+                          border: "1px solid var(--color-border-strong)",
+                          fontSize: "13px",
+                          boxSizing: "border-box",
+                          background: "var(--color-bg)",
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)" }}>프롬프트</label>
+                      <textarea
+                        value={preset.prompt}
+                        onChange={(e) => updateImagePromptPreset(preset.id, { prompt: e.target.value })}
+                        rows={5}
+                        placeholder="이미지 생성 시 기본으로 사용할 프롬프트를 입력하세요."
+                        style={{
+                          width: "100%",
+                          padding: "12px 14px",
+                          borderRadius: "10px",
+                          border: "1px solid var(--color-border-strong)",
+                          fontSize: "13px",
+                          lineHeight: 1.6,
+                          resize: "vertical",
+                          boxSizing: "border-box",
+                          fontFamily: "inherit",
+                          background: "var(--color-bg)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
 
             <Card style={{ marginTop: "14px" }}>
-              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>예시</div>
-              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
-                {`스토리북 일러스트::Create a warm educational storybook illustration for Korean English academy materials. Clean composition, soft lighting, child-safe mood, no text.\n\n리얼 클래스룸::Create a realistic classroom-style illustration for English lesson materials. Natural light, print-friendly composition, no text.`}
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>사용 흐름</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.8 }}>
+                1. 여기서 프리셋을 추가하고 순서를 정합니다.
+                <br />
+                2. 템플릿 관리의 이미지 블록에서 기본 프리셋을 선택합니다.
+                <br />
+                3. 실제 이미지 생성 시 이 프리셋이 자동으로 불러와지고, 필요하면 생성 직전에 바꿀 수 있습니다.
               </div>
             </Card>
 
