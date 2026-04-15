@@ -16,5 +16,9 @@ export default async function UsagePage() {
     redirect("/studio");
   }
 
-  return <UsageClient />;
+  return (
+    <div className="flex-1 min-h-0 overflow-hidden">
+      <UsageClient />
+    </div>
+  );
 }

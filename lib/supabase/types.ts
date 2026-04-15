@@ -283,6 +283,53 @@ export interface Database {
           metadata?: Json | null;
         };
       };
+      studio_chat_threads: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          provider: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title?: string;
+          provider?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string;
+          provider?: string | null;
+          updated_at?: string;
+        };
+      };
+      studio_chat_messages: {
+        Row: {
+          id: string;
+          thread_id: string;
+          user_id: string;
+          role: string;
+          text: string;
+          agent_name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          thread_id: string;
+          user_id: string;
+          role: string;
+          text: string;
+          agent_name?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          text?: string;
+          agent_name?: string | null;
+        };
+      };
     };
   };
 }
