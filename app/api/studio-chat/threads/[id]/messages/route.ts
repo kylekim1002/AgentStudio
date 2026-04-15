@@ -45,11 +45,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       thread_id: params.id,
       user_id: user.id,
       role: body.role,
-      text: body.text.trim(),
+      content: body.text.trim(),
       agent_name: typeof body.agentName === "string" ? body.agentName : null,
       created_at: now,
     })
-    .select("id, role, text, agent_name, created_at")
+    .select("id, role, content, agent_name, created_at")
     .single();
 
   if (error) {
@@ -72,5 +72,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     .eq("id", params.id)
     .eq("user_id", user.id);
 
-  return NextResponse.json({ message: data });
+  return NextResponse.json({
+    message: {
+      id: data.id,
+      role: data.role,
+      text: data.content,
+      agent_name: data.agent_name,
+      created_at: data.created_at,
+    },
+  });
 }

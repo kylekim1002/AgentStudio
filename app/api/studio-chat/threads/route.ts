@@ -26,7 +26,7 @@ export async function GET() {
   const { data: messages } = threadIds.length
     ? await supabase
         .from("studio_chat_messages")
-        .select("thread_id, text, created_at")
+        .select("thread_id, content, created_at")
         .in("thread_id", threadIds)
         .order("created_at", { ascending: false })
     : { data: [] };
@@ -48,7 +48,7 @@ export async function GET() {
     };
     messageMap.set(message.thread_id, {
       count: current.count + 1,
-      lastMessagePreview: current.lastMessagePreview ?? message.text,
+      lastMessagePreview: current.lastMessagePreview ?? message.content,
       lastMessageAt: current.lastMessageAt ?? message.created_at,
     });
   }

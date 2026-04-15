@@ -12,7 +12,7 @@ create table if not exists public.studio_chat_messages (
   thread_id uuid references public.studio_chat_threads(id) on delete cascade not null,
   user_id uuid references auth.users(id) on delete cascade not null,
   role text not null check (role in ('user', 'assistant')),
-  text text not null,
+  content text not null,
   agent_name text,
   created_at timestamptz default now() not null
 );

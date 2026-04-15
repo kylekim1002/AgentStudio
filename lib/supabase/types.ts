@@ -312,7 +312,7 @@ export interface Database {
           thread_id: string;
           user_id: string;
           role: string;
-          text: string;
+          content: string;
           agent_name: string | null;
           created_at: string;
         };
@@ -321,12 +321,12 @@ export interface Database {
           thread_id: string;
           user_id: string;
           role: string;
-          text: string;
+          content: string;
           agent_name?: string | null;
           created_at?: string;
         };
         Update: {
-          text?: string;
+          content?: string;
           agent_name?: string | null;
         };
       };

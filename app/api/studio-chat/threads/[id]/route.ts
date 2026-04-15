@@ -35,7 +35,7 @@ export async function GET(_: NextRequest, { params }: Params) {
   const { supabase, thread } = result;
   const { data: messages, error } = await supabase
     .from("studio_chat_messages")
-    .select("id, role, text, agent_name, created_at")
+    .select("id, role, content, agent_name, created_at")
     .eq("thread_id", params.id)
     .order("created_at", { ascending: true });
 
@@ -43,7 +43,16 @@ export async function GET(_: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ thread, messages: messages ?? [] });
+  return NextResponse.json({
+    thread,
+    messages: (messages ?? []).map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.content,
+      agent_name: message.agent_name,
+      created_at: message.created_at,
+    })),
+  });
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
