@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@/lib/supabase/server";
+import { logAIUsage } from "@/lib/usage/aiUsage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +27,10 @@ Rules:
 - When ready, end your message with a line like: "준비됐으면 아래 버튼을 눌러 레슨 생성을 시작하세요! 🚀"`;
 
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { messages, provider } = await req.json() as {
     messages: { role: "user" | "assistant"; content: string }[];
     provider?: string;
@@ -56,6 +62,16 @@ export async function POST(req: NextRequest) {
             );
           }
         }
+        void logAIUsage({
+          userId: user?.id,
+          provider: "claude",
+          model: "claude-opus-4-6",
+          workflow: "studio_chat",
+          endpoint: "chat.messages",
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+        });
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Chat failed";

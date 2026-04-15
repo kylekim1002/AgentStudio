@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { AGENT_META } from "@/lib/agentMeta";
 import { AgentName } from "@/lib/agents/types";
+import { createClient } from "@/lib/supabase/server";
+import { logAIUsage } from "@/lib/usage/aiUsage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,6 +30,10 @@ function buildSystemPrompt(agentName: AgentName): string {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { agentName, messages } = await req.json() as {
     agentName: AgentName;
     messages: { role: "user" | "assistant"; content: string }[];
@@ -58,6 +64,17 @@ export async function POST(req: NextRequest) {
             );
           }
         }
+        void logAIUsage({
+          userId: user?.id,
+          provider: "claude",
+          model: "claude-opus-4-6",
+          workflow: "agent_chat",
+          agent: agentName,
+          endpoint: "agent.messages",
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+        });
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Agent chat failed";

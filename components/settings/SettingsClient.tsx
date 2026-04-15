@@ -102,11 +102,38 @@ export default function SettingsClient({
   // Save state
   const [saving, setSaving]   = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [usageSummary, setUsageSummary] = useState<{
+    totalTokens: number;
+    totalRequests: number;
+    byProvider: { claude: number; gpt: number; gemini: number };
+  }>({
+    totalTokens: 0,
+    totalRequests: 0,
+    byProvider: { claude: 0, gpt: 0, gemini: 0 },
+  });
 
   // Load settings on mount
   useEffect(() => {
     refreshSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/usage/summary", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data?.summary) return;
+        setUsageSummary({
+          totalTokens: Number(data.summary.totalTokens ?? 0),
+          totalRequests: Number(data.summary.totalRequests ?? 0),
+          byProvider: {
+            claude: Number(data.summary.byProvider?.claude ?? 0),
+            gpt: Number(data.summary.byProvider?.gpt ?? 0),
+            gemini: Number(data.summary.byProvider?.gemini ?? 0),
+          },
+        });
+      })
+      .catch(() => {});
   }, []);
 
   function applyLoadedSettings(data: { settings?: Record<string, unknown> | null; apiKeyStatus?: typeof apiKeyStatus }) {
@@ -630,10 +657,15 @@ export default function SettingsClient({
 
             {/* Usage summary placeholder */}
             <Card style={{ marginTop: "14px" }}>
-              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "12px" }}>이번 달 사용량</div>
-              <UsageBar label="Claude" used={42800} total={tokenLimit} color="#D97706" />
-              <UsageBar label="GPT-4o" used={12400} total={tokenLimit} color="#10A37F" style={{ marginTop: "8px" }} />
-              <UsageBar label="Gemini" used={5200}  total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
+                <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)" }}>이번 달 사용량</div>
+                <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                  요청 {usageSummary.totalRequests}회 · 총 {usageSummary.totalTokens.toLocaleString("ko-KR")} 토큰
+                </div>
+              </div>
+              <UsageBar label="Claude" used={usageSummary.byProvider.claude} total={tokenLimit} color="#D97706" />
+              <UsageBar label="GPT-4o" used={usageSummary.byProvider.gpt} total={tokenLimit} color="#10A37F" style={{ marginTop: "8px" }} />
+              <UsageBar label="Gemini" used={usageSummary.byProvider.gemini} total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
             </Card>
 
             <SaveFooter />
