@@ -85,6 +85,14 @@ function duplicatePages(pages: TemplateCanvasPage[]) {
   }));
 }
 
+function cloneTemplate(template: DocumentTemplate): DocumentTemplate {
+  return JSON.parse(JSON.stringify(template)) as DocumentTemplate;
+}
+
+function getBuiltInTemplate(templateId: string) {
+  return DEFAULT_DOCUMENT_TEMPLATES.find((template) => template.id === templateId) ?? null;
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -797,6 +805,25 @@ export default function TemplatesClient() {
     setSelectedItemId(null);
   }
 
+  function resetSelectedTemplateToDefault() {
+    if (!selectedTemplate) return;
+    const builtInTemplate = getBuiltInTemplate(selectedTemplate.id);
+    if (!builtInTemplate) return;
+    if (!window.confirm(`'${selectedTemplate.name}' 템플릿을 기본값으로 초기화할까요? 현재 레이아웃과 문항 수 설정이 기본 상태로 되돌아갑니다.`)) {
+      return;
+    }
+    recordHistorySnapshot();
+    const nextTemplate = cloneTemplate(builtInTemplate);
+    setTemplates((prev) =>
+      prev.map((template) => (template.id === selectedTemplate.id ? nextTemplate : template))
+    );
+    setSelectedTemplateId(nextTemplate.id);
+    setSelectedPageId(nextTemplate.pages[0]?.id ?? null);
+    setSelectedItemId(null);
+    setSelectedItemIds([]);
+    setMessage("기본 템플릿으로 초기화했습니다. 저장하면 반영됩니다.");
+  }
+
   function addPage() {
     if (!selectedTemplate) return;
     recordHistorySnapshot();
@@ -1324,6 +1351,24 @@ export default function TemplatesClient() {
                   <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
                     단축키: ⌘/Ctrl+Z, ⇧+⌘/Ctrl+Z
                   </div>
+                  {getBuiltInTemplate(selectedTemplate.id) && (
+                    <button
+                      type="button"
+                      onClick={resetSelectedTemplateToDefault}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: "999px",
+                        border: "1px solid var(--color-border)",
+                        background: "var(--color-surface)",
+                        color: "var(--color-text-muted)",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                      }}
+                    >
+                      기본 템플릿으로 초기화
+                    </button>
+                  )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 180px", gap: "10px" }}>
                   <input

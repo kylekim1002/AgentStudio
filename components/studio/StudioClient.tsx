@@ -64,7 +64,6 @@ const CONTENT_REVIEW_AGENTS: Array<{
   { key: "assessment", agent: AgentName.ASSESSMENT, title: "평가지", mention: "@assessment" },
 ];
 
-const STUDIO_TEMPLATE_STORAGE_KEY = "cyj-studio:selected-template";
 const STUDIO_TARGET_STORAGE_KEY = "cyj-studio:generation-target";
 
 export default function StudioClient({
@@ -110,15 +109,6 @@ export default function StudioClient({
   const prevContentCheckpoint = useRef<ContentCheckpoint | null>(null);
 
   useEffect(() => {
-    const savedTemplateId = window.localStorage.getItem(STUDIO_TEMPLATE_STORAGE_KEY);
-    if (
-      savedTemplateId &&
-      (savedTemplateId === AUTO_DOCUMENT_TEMPLATE_ID ||
-        initialDocumentTemplates.some((template) => template.id === savedTemplateId))
-    ) {
-      setSelectedTemplateId(savedTemplateId);
-    }
-
     const savedGenerationTarget = window.localStorage.getItem(STUDIO_TARGET_STORAGE_KEY);
     if (
       savedGenerationTarget === "full" ||
@@ -128,12 +118,7 @@ export default function StudioClient({
     ) {
       setGenerationTarget(savedGenerationTarget);
     }
-  }, [initialDocumentTemplates]);
-
-  useEffect(() => {
-    if (!selectedTemplateId) return;
-    window.localStorage.setItem(STUDIO_TEMPLATE_STORAGE_KEY, selectedTemplateId);
-  }, [selectedTemplateId]);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(STUDIO_TARGET_STORAGE_KEY, generationTarget);
