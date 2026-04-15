@@ -133,6 +133,7 @@ export default function ChatPanel({
   const prevStates = useRef<Map<AgentName, AgentStatus>>(new Map());
   const prevRunning = useRef(false);
   const sendLockRef = useRef(false);
+  const isComposingRef = useRef(false);
 
   const displayMessages = useMemo(
     () => [...toDisplayMessages(storedMessages), ...ephemeralMessages],
@@ -438,7 +439,7 @@ export default function ChatPanel({
 
   async function send() {
     const text = input.trim();
-    if (!text || isAiThinking || isRunning || sendLockRef.current) return;
+    if (!text || isAiThinking || isRunning || sendLockRef.current || isComposingRef.current) return;
     sendLockRef.current = true;
 
     let threadId = selectedThreadId;
@@ -603,6 +604,10 @@ export default function ChatPanel({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    const nativeEvent = e.nativeEvent as unknown as { isComposing?: boolean };
+    if (isComposingRef.current || nativeEvent.isComposing) {
+      return;
+    }
     if (mentionQuery !== null && filteredMentions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1247,6 +1252,15 @@ export default function ChatPanel({
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={(e) => {
+                  isComposingRef.current = false;
+                  setInput(e.currentTarget.value);
+                  adjustHeight();
+                  detectMention(e.currentTarget.value);
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder={isBusy ? "잠시 기다려 주세요..." : "메시지 입력 — @ 로 특정 에이전트 호출"}
                 rows={1}
