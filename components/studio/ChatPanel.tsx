@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { AgentName, AgentStatus, LessonPackage } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
+import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
 
 type UserMsg = { type: "user"; text: string; ts: Date };
 type AIMsg = { type: "ai"; text: string; ts: Date; agentName?: AgentName };
@@ -39,6 +40,7 @@ interface ChatPanelProps {
   onConfirmGenerate: (chatSummary: string) => void;
   onReset: () => void;
   approvalMode: "auto" | "require_review";
+  selectedLevel: LevelSetting | null;
 }
 
 const EVT_COLOR: Record<string, { bg: string; text: string; border: string }> = {
@@ -108,6 +110,7 @@ export default function ChatPanel({
   onConfirmGenerate,
   onReset,
   approvalMode,
+  selectedLevel,
 }: ChatPanelProps) {
   const [threads, setThreads] = useState<StoredThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -129,6 +132,7 @@ export default function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevStates = useRef<Map<AgentName, AgentStatus>>(new Map());
   const prevRunning = useRef(false);
+  const sendLockRef = useRef(false);
 
   const displayMessages = useMemo(
     () => [...toDisplayMessages(storedMessages), ...ephemeralMessages],
@@ -139,6 +143,13 @@ export default function ChatPanel({
     () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
     [threads, selectedThreadId]
   );
+  const levelContextText = useMemo(() => buildLevelContextText(selectedLevel), [selectedLevel]);
+
+  function updateThreadMetaLocally(threadId: string, patch: Partial<StoredThread>) {
+    setThreads((prev) =>
+      prev.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread))
+    );
+  }
 
   function isStudioChatStorageMissing(message?: string | null) {
     if (!message) return false;
@@ -146,6 +157,8 @@ export default function ChatPanel({
     return (
       normalized.includes("studio_chat_threads") ||
       normalized.includes("studio_chat_messages") ||
+      normalized.includes("studio_chat_messages.text") ||
+      (normalized.includes("column") && normalized.includes("text does not exist")) ||
       normalized.includes("schema cache") ||
       normalized.includes("could not find the table")
     );
@@ -425,12 +438,16 @@ export default function ChatPanel({
 
   async function send() {
     const text = input.trim();
-    if (!text || isAiThinking || isRunning) return;
+    if (!text || isAiThinking || isRunning || sendLockRef.current) return;
+    sendLockRef.current = true;
 
     let threadId = selectedThreadId;
     if (!threadId) {
       threadId = await createThread();
-      if (!threadId) return;
+      if (!threadId) {
+        sendLockRef.current = false;
+        return;
+      }
     }
 
     setInput("");
@@ -451,25 +468,38 @@ export default function ChatPanel({
     const nextTitle = titleSource.slice(0, 80);
 
     try {
+      const optimisticUserMessage = {
+        id: `local-user-${Date.now()}`,
+        role: "user" as const,
+        text,
+        agent_name: null,
+        created_at: new Date().toISOString(),
+      };
+      setStoredMessages((prev) => [...prev, optimisticUserMessage]);
+      if (!storageUnavailable) {
+        updateThreadMetaLocally(threadId, {
+          title: selectedThread?.messageCount ? selectedThread?.title ?? "새 프로젝트" : nextTitle,
+          updated_at: optimisticUserMessage.created_at,
+          messageCount: (selectedThread?.messageCount ?? 0) + 1,
+          lastMessagePreview: text,
+          lastMessageAt: optimisticUserMessage.created_at,
+        });
+      }
+
       const userMessage = storageUnavailable
-        ? {
-            id: `local-user-${Date.now()}`,
-            role: "user" as const,
-            text,
-            agent_name: null,
-            created_at: new Date().toISOString(),
-          }
+        ? optimisticUserMessage
         : await saveMessage({
             threadId,
             role: "user",
             text,
             title: selectedThread?.messageCount ? null : nextTitle,
           });
-      const nextStoredMessages = [...storedMessages, userMessage];
-      setStoredMessages(nextStoredMessages);
       if (!storageUnavailable) {
-        await loadThreads(threadId);
+        setStoredMessages((prev) =>
+          prev.map((message) => (message.id === optimisticUserMessage.id ? userMessage : message))
+        );
       }
+      const nextStoredMessages = [...storedMessages, userMessage];
 
       setIsAiThinking(true);
       setStreamingText("");
@@ -481,11 +511,13 @@ export default function ChatPanel({
             messages: toChatHistory(nextStoredMessages),
             sessionId: storageUnavailable ? null : threadId,
             sessionTitle: nextTitle,
+            levelProfile: selectedLevel,
           }
         : {
             messages: toChatHistory(nextStoredMessages),
             sessionId: storageUnavailable ? null : threadId,
             sessionTitle: nextTitle,
+            levelProfile: selectedLevel,
           };
 
       const res = await fetch(endpoint, {
@@ -523,25 +555,38 @@ export default function ChatPanel({
         }
       }
 
+      const optimisticAssistantMessage = {
+        id: `local-assistant-${Date.now()}`,
+        role: "assistant" as const,
+        text: fullText,
+        agent_name: targetAgent ?? null,
+        created_at: new Date().toISOString(),
+      };
+      setStoredMessages((prev) => [...prev, optimisticAssistantMessage]);
+      if (!storageUnavailable) {
+        updateThreadMetaLocally(threadId, {
+          updated_at: optimisticAssistantMessage.created_at,
+          messageCount: (selectedThread?.messageCount ?? 0) + 2,
+          lastMessagePreview: fullText,
+          lastMessageAt: optimisticAssistantMessage.created_at,
+        });
+      }
       const assistantMessage = storageUnavailable
-        ? {
-            id: `local-assistant-${Date.now()}`,
-            role: "assistant" as const,
-            text: fullText,
-            agent_name: targetAgent ?? null,
-            created_at: new Date().toISOString(),
-          }
+        ? optimisticAssistantMessage
         : await saveMessage({
             threadId,
             role: "assistant",
             text: fullText,
             agentName: targetAgent ?? null,
           });
-      setStoredMessages((prev) => [...prev, assistantMessage]);
-      setStreamingText("");
       if (!storageUnavailable) {
-        await loadThreads(threadId);
+        setStoredMessages((prev) =>
+          prev.map((message) =>
+            message.id === optimisticAssistantMessage.id ? assistantMessage : message
+          )
+        );
       }
+      setStreamingText("");
 
       if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
         setShowConfirmButton(true);
@@ -553,6 +598,7 @@ export default function ChatPanel({
       setStreamingText("");
     } finally {
       setIsAiThinking(false);
+      sendLockRef.current = false;
     }
   }
 
@@ -817,6 +863,11 @@ export default function ChatPanel({
                   <br />
                   준비가 되면 대화를 이어가고, 필요 없어진 대화는 왼쪽 목록에서 삭제할 수 있습니다.
                 </div>
+                {levelContextText && (
+                  <div style={{ marginTop: "10px", fontSize: "11px", color: "var(--color-primary)", textAlign: "center", fontWeight: "600" }}>
+                    기본 레벨 적용: {levelContextText}
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", maxWidth: "420px" }}>
                 {QUICK.map((quick) => (

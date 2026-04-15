@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { createClient } from "@/lib/supabase/server";
 import { logAIUsage } from "@/lib/usage/aiUsage";
 import { AIProvider } from "@/lib/agents/types";
+import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -55,24 +56,24 @@ async function loadChatProviderSettings(userId: string) {
   return { provider, apiKeys };
 }
 
-async function runClaudeChat(messages: ChatMessage[], apiKey?: string) {
+async function runClaudeChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new Anthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
     model: "claude-opus-4-6",
     max_tokens: 512,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages,
     stream: true,
   });
   return response;
 }
 
-async function runGptChat(messages: ChatMessage[], apiKey?: string) {
+async function runGptChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new OpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY });
   const response = await client.chat.completions.create({
     model: "gpt-4o",
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...messages,
     ],
   });
@@ -88,11 +89,11 @@ async function runGptChat(messages: ChatMessage[], apiKey?: string) {
   };
 }
 
-async function runGeminiChat(messages: ChatMessage[], apiKey?: string) {
+async function runGeminiChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new GoogleGenerativeAI(apiKey || process.env.GOOGLE_API_KEY || "");
   const model = client.getGenerativeModel({
     model: "gemini-1.5-pro",
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: systemPrompt,
   });
 
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
@@ -125,10 +126,11 @@ export async function POST(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { messages, sessionId, sessionTitle } = (await req.json()) as {
+  const { messages, sessionId, sessionTitle, levelProfile } = (await req.json()) as {
     messages: ChatMessage[];
     sessionId?: string;
     sessionTitle?: string;
+    levelProfile?: LevelSetting | null;
   };
 
   if (!messages?.length) {
@@ -136,6 +138,10 @@ export async function POST(req: NextRequest) {
   }
 
   const encoder = new TextEncoder();
+  const levelContext = buildLevelContextText(levelProfile);
+  const chatSystemPrompt = levelContext
+    ? `${SYSTEM_PROMPT}\n\n현재 기본 레벨 설정:\n${levelContext}\n이 값은 대화 시작 시의 기본 기준이며, 교사와 대화하면서 더 세밀하게 조정할 수 있습니다.`
+    : SYSTEM_PROMPT;
   const stream = new ReadableStream({
     async start(controller) {
       try {
@@ -144,7 +150,7 @@ export async function POST(req: NextRequest) {
           : { provider: AIProvider.CLAUDE, apiKeys: {} };
 
         if (provider === AIProvider.CLAUDE) {
-          const response = await runClaudeChat(messages, apiKeys.anthropic);
+          const response = await runClaudeChat(chatSystemPrompt, messages, apiKeys.anthropic);
           let inputTokens: number | null = null;
           let outputTokens: number | null = null;
 
@@ -195,8 +201,8 @@ export async function POST(req: NextRequest) {
         } else {
           const response =
             provider === AIProvider.GPT
-              ? await runGptChat(messages, apiKeys.openai)
-              : await runGeminiChat(messages, apiKeys.google);
+              ? await runGptChat(chatSystemPrompt, messages, apiKeys.openai)
+              : await runGeminiChat(chatSystemPrompt, messages, apiKeys.google);
 
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ text: response.text })}\n\n`)

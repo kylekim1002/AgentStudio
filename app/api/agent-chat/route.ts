@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import { AGENT_META } from "@/lib/agentMeta";
 import { AgentName, AIProvider } from "@/lib/agents/types";
+import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
 import { createClient } from "@/lib/supabase/server";
 import { logAIUsage } from "@/lib/usage/aiUsage";
 
@@ -126,18 +127,23 @@ export async function POST(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { agentName, messages, sessionId, sessionTitle } = (await req.json()) as {
+  const { agentName, messages, sessionId, sessionTitle, levelProfile } = (await req.json()) as {
     agentName: AgentName;
     messages: ChatMessage[];
     sessionId?: string;
     sessionTitle?: string;
+    levelProfile?: LevelSetting | null;
   };
 
   if (!agentName || !messages?.length) {
     return new Response(JSON.stringify({ error: "agentName and messages required" }), { status: 400 });
   }
 
-  const systemPrompt = buildSystemPrompt(agentName);
+  const baseSystemPrompt = buildSystemPrompt(agentName);
+  const levelContext = buildLevelContextText(levelProfile);
+  const systemPrompt = levelContext
+    ? `${baseSystemPrompt}\n\n현재 기본 레벨 설정:\n${levelContext}\n이 값은 대화 시작 시의 기본 기준이며, 교사와 대화하면서 더 세밀하게 조정할 수 있습니다.`
+    : baseSystemPrompt;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

@@ -11,8 +11,15 @@ import {
   ImagePromptPreset,
   ImagePromptReference,
 } from "@/lib/imagePrompts";
+import {
+  createEmptyLevelSetting,
+  DEFAULT_LEVEL_SETTINGS,
+  getOfficialDifficultyBand,
+  LevelSetting,
+  OFFICIAL_DIFFICULTY_BANDS,
+} from "@/lib/levelSettings";
 
-type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "notifications" | "users" | "folders";
+type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "levels" | "notifications" | "users" | "folders";
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "ai",      label: "AI 제공자",   icon: "🤖" },
@@ -20,6 +27,7 @@ const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "tokens",  label: "토큰 관리",   icon: "🪙" },
   { key: "review",  label: "검토 기준",   icon: "📝" },
   { key: "image_prompts", label: "이미지 프롬프트", icon: "🖼️" },
+  { key: "levels", label: "레벨 설정", icon: "🎯" },
   { key: "notifications", label: "알림", icon: "🔔" },
   { key: "users",   label: "사용자 관리", icon: "👥" },
   { key: "folders", label: "폴더 관리",   icon: "📁" },
@@ -96,6 +104,7 @@ export default function SettingsClient({
     needs_revision: [],
   });
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
+  const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(DEFAULT_LEVEL_SETTINGS);
   const [imagePromptUploadError, setImagePromptUploadError] = useState<string | null>(null);
   const [uploadingReferenceId, setUploadingReferenceId] = useState<string | null>(null);
 
@@ -227,12 +236,21 @@ export default function SettingsClient({
       .then(({ prompts }) => {
         if (!Array.isArray(prompts)) return;
         setImagePrompts(
-          prompts.map((item: { id?: string; name?: string; prompt?: string }, index: number) => ({
+          prompts.map((item: { id?: string; name?: string; prompt?: string; references?: ImagePromptReference[] }, index: number) => ({
             id: item.id ?? createPromptId(),
             name: item.name ?? `프롬프트 ${index + 1}`,
             prompt: item.prompt ?? "",
+            references: item.references ?? [],
           }))
         );
+      })
+      .catch(() => {});
+
+    fetch("/api/system-settings/level-settings")
+      .then((r) => r.json())
+      .then(({ levels }) => {
+        if (!Array.isArray(levels)) return;
+        setLevelSettings(levels);
       })
       .catch(() => {});
   }, [canManageReviewTemplates]);
@@ -321,7 +339,16 @@ export default function SettingsClient({
         const imagePromptData = await imagePromptRes.json();
         if (!imagePromptRes.ok) throw new Error(imagePromptData.error ?? "이미지 프롬프트 저장 실패");
 
+        const levelRes = await fetch("/api/system-settings/level-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ levels: levelSettings }),
+        });
+        const levelData = await levelRes.json();
+        if (!levelRes.ok) throw new Error(levelData.error ?? "레벨 설정 저장 실패");
+
         setImagePrompts(normalizedImagePrompts);
+        setLevelSettings(Array.isArray(levelData.levels) ? levelData.levels : levelSettings);
 
         setReviewTemplateStats((prev) => ({
           approved: templates.approved.map((template) => ({
@@ -433,6 +460,20 @@ export default function SettingsClient({
         references: [],
       },
     ]);
+  }
+
+  function addLevelSetting() {
+    setLevelSettings((prev) => [...prev, createEmptyLevelSetting(prev.length)]);
+  }
+
+  function updateLevelSetting(id: string, patch: Partial<LevelSetting>) {
+    setLevelSettings((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+    );
+  }
+
+  function removeLevelSetting(id: string) {
+    setLevelSettings((prev) => prev.filter((item) => item.id !== id));
   }
 
   function updateImagePromptPreset(id: string, patch: Partial<ImagePromptPreset>) {
@@ -1341,6 +1382,191 @@ export default function SettingsClient({
                 3. 실제 이미지 생성 시 이 프리셋과 참조 이미지가 자동으로 불러와지고, 필요하면 생성 직전에 프롬프트를 수정할 수 있습니다.
               </div>
             </Card>
+
+            <SaveFooter />
+          </div>
+        )}
+
+        {tab === "levels" && canManageReviewTemplates && (
+          <div style={{ maxWidth: "760px" }}>
+            <SectionTitle>레벨설정(난이도)</SectionTitle>
+            <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px", lineHeight: 1.7 }}>
+              스튜디오 시작 전에 선택할 기본 레벨을 만듭니다. 각 레벨은 이름, 공식 난이도, Lexile 구간을 가지며 스튜디오 대화와 생성 파이프라인의 기본 기준값으로 사용됩니다.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", gap: "12px", flexWrap: "wrap" }}>
+              <div style={{ fontSize: "12px", color: "var(--color-text-subtle)" }}>
+                현재 {levelSettings.length}개의 레벨이 있습니다.
+              </div>
+              <button
+                type="button"
+                onClick={addLevelSetting}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px dashed var(--color-primary)",
+                  background: "var(--color-primary-light)",
+                  color: "var(--color-primary)",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                }}
+              >
+                + 레벨생성
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: "12px" }}>
+              {levelSettings.length === 0 ? (
+                <Card>
+                  <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                    아직 만든 레벨이 없습니다. <strong style={{ color: "var(--color-text)" }}>+ 레벨생성</strong>으로 스튜디오에서 바로 선택할 레벨을 추가해 주세요.
+                  </div>
+                </Card>
+              ) : (
+                levelSettings.map((level, index) => {
+                  const band = getOfficialDifficultyBand(level.difficultyBandId);
+                  return (
+                    <Card key={level.id}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+                        <div>
+                          <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
+                            {level.name || `레벨 ${index + 1}`}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", marginTop: "4px" }}>
+                            {band.label} · Lexile {level.lexileMin}L ~ {level.lexileMax}L
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeLevelSetting(level.id)}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid #FECACA",
+                            background: "#FEF2F2",
+                            color: "#B91C1C",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          삭제
+                        </button>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 120px 120px", gap: "10px" }}>
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                            레벨명칭
+                          </label>
+                          <input
+                            type="text"
+                            value={level.name}
+                            onChange={(e) => updateLevelSetting(level.id, { name: e.target.value })}
+                            placeholder="예: A"
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid var(--color-border-strong)",
+                              fontSize: "12px",
+                              fontFamily: "inherit",
+                              background: "var(--color-bg)",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                            난이도설정
+                          </label>
+                          <select
+                            value={level.difficultyBandId}
+                            onChange={(e) =>
+                              updateLevelSetting(level.id, {
+                                difficultyBandId: e.target.value as LevelSetting["difficultyBandId"],
+                              })
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid var(--color-border-strong)",
+                              fontSize: "12px",
+                              fontFamily: "inherit",
+                              background: "var(--color-bg)",
+                            }}
+                          >
+                            {OFFICIAL_DIFFICULTY_BANDS.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                            내부 난이도 기준: {band.internalDifficulty} · {band.description}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                            Lexile 시작
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={level.lexileMin}
+                            onChange={(e) =>
+                              updateLevelSetting(level.id, {
+                                lexileMin: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid var(--color-border-strong)",
+                              fontSize: "12px",
+                              fontFamily: "inherit",
+                              background: "var(--color-bg)",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                            Lexile 종료
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={level.lexileMax}
+                            onChange={(e) =>
+                              updateLevelSetting(level.id, {
+                                lexileMax: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid var(--color-border-strong)",
+                              fontSize: "12px",
+                              fontFamily: "inherit",
+                              background: "var(--color-bg)",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
 
             <SaveFooter />
           </div>

@@ -16,6 +16,13 @@ import {
 } from "@/lib/documentTemplates";
 import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
 import { getTemplateImageItems } from "@/lib/documentTemplateRender";
+import {
+  buildLevelContextText,
+  DEFAULT_LEVEL_SETTINGS,
+  getLevelInternalDifficulty,
+  getOfficialDifficultyBand,
+  LevelSetting,
+} from "@/lib/levelSettings";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
@@ -32,6 +39,7 @@ interface StudioClientProps {
   canExportTeacher: boolean;
   defaultProvider?: AIProvider;
   initialDocumentTemplates: DocumentTemplate[];
+  initialLevelSettings: LevelSetting[];
 }
 
 interface GeneratedPassageImage {
@@ -71,6 +79,7 @@ export default function StudioClient({
   canExportTeacher,
   defaultProvider,
   initialDocumentTemplates,
+  initialLevelSettings,
 }: StudioClientProps) {
   const [mode, setMode] = useState<Mode>("chat");
   const [provider, setProvider] = useState<AIProvider>(defaultProvider ?? AIProvider.CLAUDE);
@@ -81,6 +90,8 @@ export default function StudioClient({
   const [showCounts, setShowCounts] = useState(false);
   const [contentCounts, setContentCounts] = useState<Required<ContentCounts>>({ ...DEFAULT_CONTENT_COUNTS });
   const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
+  const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(initialLevelSettings);
+  const [selectedLevelId, setSelectedLevelId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState(AUTO_DOCUMENT_TEMPLATE_ID);
   const [generationTarget, setGenerationTarget] = useState<GenerationTarget>("full");
   const [reviewTitle, setReviewTitle] = useState("");
@@ -96,6 +107,10 @@ export default function StudioClient({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
+  const selectedLevel = useMemo(
+    () => levelSettings.find((level) => level.id === selectedLevelId) ?? null,
+    [levelSettings, selectedLevelId]
+  );
   const suggestedContentCounts = useMemo(
     () => getTemplateSuggestedContentCounts(activeTemplate),
     [activeTemplate]
@@ -166,6 +181,25 @@ export default function StudioClient({
           nextTemplates.some((template) => template.id === current)
             ? current
             : AUTO_DOCUMENT_TEMPLATE_ID
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/system-settings/level-settings", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !Array.isArray(data.levels)) return;
+        setLevelSettings(data.levels);
+        setSelectedLevelId((current) =>
+          data.levels.some((level: LevelSetting) => level.id === current) ? current : ""
         );
       })
       .catch(() => {});
@@ -287,22 +321,30 @@ export default function StudioClient({
 
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
 
+  function buildLevelScopedInput(baseInput: string) {
+    const levelContext = buildLevelContextText(selectedLevel);
+    if (!levelContext) return baseInput;
+    return `${baseInput}\n\n[기본 레벨 설정]\n${levelContext}`;
+  }
+
   function handleConfirmGenerate(chatSummary: string) {
     setGeneratedImages([]);
     setImageRevisionText("");
     setImageError(null);
-    setLastUserInput(chatSummary || "전체 파이프라인을 실행해 주세요.");
+    const nextInput = buildLevelScopedInput(chatSummary || "전체 파이프라인을 실행해 주세요.");
+    setLastUserInput(nextInput);
     generate({
-      userInput: chatSummary || "전체 파이프라인을 실행해 주세요.",
+      userInput: nextInput,
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget,
     });
   }
 
   function handleRunAll(userInput?: string) {
-    const nextInput = userInput || "전체 파이프라인을 실행해 주세요.";
+    const nextInput = buildLevelScopedInput(userInput || "전체 파이프라인을 실행해 주세요.");
     setGeneratedImages([]);
     setImageRevisionText("");
     setImageError(null);
@@ -311,6 +353,7 @@ export default function StudioClient({
       userInput: nextInput,
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget,
     });
@@ -351,6 +394,7 @@ export default function StudioClient({
       userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget:
         generationTarget === "passage_and_content_review"
@@ -378,6 +422,7 @@ export default function StudioClient({
       userInput: nextInput,
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget:
         generationTarget === "passage_and_content_review"
@@ -392,6 +437,7 @@ export default function StudioClient({
       userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget: "full",
       contentCheckpoint,
@@ -404,6 +450,7 @@ export default function StudioClient({
       userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget: "content_review",
       contentCheckpoint,
@@ -418,6 +465,7 @@ export default function StudioClient({
       userInput: lastUserInput || "전체 파이프라인을 실행해 주세요.",
       provider,
       approvalMode,
+      difficulty: getLevelInternalDifficulty(selectedLevel),
       contentCounts,
       generationTarget: "content_review",
       passageCheckpoint: {
@@ -678,7 +726,7 @@ export default function StudioClient({
           </>
         )}
 
-        <div style={{ position: "relative" }}>
+              <div style={{ position: "relative" }}>
           <select
             value={selectedTemplateId}
             onChange={(e) => setSelectedTemplateId(e.target.value)}
@@ -700,6 +748,38 @@ export default function StudioClient({
                 {template.name}
               </option>
             ))}
+          </select>
+          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+
+        <div style={{ position: "relative", minWidth: 0 }}>
+          <select
+            value={selectedLevelId}
+            onChange={(e) => setSelectedLevelId(e.target.value)}
+            disabled={isRunning}
+            style={{
+              appearance: "none",
+              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+              borderRadius: "6px", border: "1px solid var(--color-border)",
+              fontSize: "12px", color: "var(--color-text-muted)",
+              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.6 : 1,
+              minWidth: "130px",
+            }}
+            title="레벨설정(난이도 + Lexile 기본값)을 선택합니다"
+          >
+            <option value="">레벨설정(난이도)</option>
+            {levelSettings.map((level) => {
+              const band = getOfficialDifficultyBand(level.difficultyBandId);
+              return (
+                <option key={level.id} value={level.id}>
+                  {level.name} · {band.label} · {level.lexileMin}-{level.lexileMax}L
+                </option>
+              );
+            })}
           </select>
           <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -731,6 +811,22 @@ export default function StudioClient({
             </svg>
             문항 수 설정
           </button>
+          {selectedLevel && (
+            <div
+              style={{
+                padding: "4px 9px",
+                borderRadius: "999px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                fontSize: "11px",
+                color: "var(--color-text-muted)",
+                fontWeight: "700",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {selectedLevel.name} · {selectedLevel.lexileMin}-{selectedLevel.lexileMax}L
+            </div>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: "6px", minWidth: 0 }}>
             {[
               { label: "독해", value: contentCounts.reading },
@@ -1738,6 +1834,7 @@ export default function StudioClient({
             onConfirmGenerate={handleConfirmGenerate}
             onReset={reset}
             approvalMode={approvalMode}
+            selectedLevel={selectedLevel}
           />
         ) : (
           <PipelinePanel

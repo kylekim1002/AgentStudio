@@ -9,6 +9,7 @@ import {
   DEFAULT_DOCUMENT_TEMPLATES,
   normalizeDocumentTemplates,
 } from "@/lib/documentTemplates";
+import { DEFAULT_LEVEL_SETTINGS, normalizeLevelSettings } from "@/lib/levelSettings";
 
 function resolveProvider(value: unknown): AIProvider | undefined {
   if (value === AIProvider.CLAUDE || value === AIProvider.GPT || value === AIProvider.GEMINI) {
@@ -55,6 +56,14 @@ export default async function StudioPage() {
     ),
   ];
 
+  const { data: levelSetting } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "level_settings")
+    .maybeSingle();
+
+  const levelSettings = normalizeLevelSettings(levelSetting?.value ?? DEFAULT_LEVEL_SETTINGS);
+
   return (
     <StudioClient
       canViewPipeline={access.features.includes("studio.pipeline_view")}
@@ -63,6 +72,7 @@ export default async function StudioPage() {
       canExportTeacher={access.features.includes("library.export_teacher")}
       defaultProvider={defaultProvider}
       initialDocumentTemplates={documentTemplates}
+      initialLevelSettings={levelSettings}
     />
   );
 }
