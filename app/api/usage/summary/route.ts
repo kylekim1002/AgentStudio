@@ -40,9 +40,9 @@ export async function GET(_req: NextRequest) {
     totalTokens: 0,
     totalRequests: logs.length,
     byProvider: {
-      claude: 0,
-      gpt: 0,
-      gemini: 0,
+      claude: { tokens: 0, requests: 0 },
+      gpt: { tokens: 0, requests: 0 },
+      gemini: { tokens: 0, requests: 0 },
     },
   };
 
@@ -51,7 +51,8 @@ export async function GET(_req: NextRequest) {
     summary.totalTokens += total;
     const provider = item.provider?.toLowerCase();
     if (provider === "claude" || provider === "gpt" || provider === "gemini") {
-      summary.byProvider[provider] += total;
+      summary.byProvider[provider].tokens += total;
+      summary.byProvider[provider].requests += 1;
     }
   }
 

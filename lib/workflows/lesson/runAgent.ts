@@ -148,6 +148,12 @@ export async function runLessonAgent<T = unknown>(
     userId?: string;
     workflow?: string;
     endpoint?: string;
+    metadata?: {
+      sessionId?: string | null;
+      sessionTitle?: string | null;
+      executionId?: string | null;
+      [key: string]: unknown;
+    };
   }
 ): Promise<T> {
   const systemPrompt = loadSystemPrompt(agentName);
@@ -198,6 +204,7 @@ export async function runLessonAgent<T = unknown>(
     inputTokens: usage?.inputTokens ?? null,
     outputTokens: usage?.outputTokens ?? null,
     totalTokens: usage?.totalTokens ?? null,
+    metadata: context?.metadata,
   });
 
   try {

@@ -105,5 +105,5 @@ export function createExecutionRuntime<TStep extends string>(params: {
     });
   };
 
-  return { workflow, emit, step, setCheckpoint, requestApproval };
+  return { workflow, executionId: execution.id, emit, step, setCheckpoint, requestApproval };
 }

@@ -1,14 +1,16 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { AGENT_META } from "@/lib/agentMeta";
-import { AgentName } from "@/lib/agents/types";
+import { AgentName, AIProvider } from "@/lib/agents/types";
 import { createClient } from "@/lib/supabase/server";
 import { logAIUsage } from "@/lib/usage/aiUsage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+type ChatMessage = { role: "user" | "assistant"; content: string };
 
 function buildSystemPrompt(agentName: AgentName): string {
   const meta = AGENT_META[agentName];
@@ -29,14 +31,106 @@ function buildSystemPrompt(agentName: AgentName): string {
 - 전문적이지만 친근한 톤을 유지합니다`;
 }
 
+function normalizeProvider(value: unknown): AIProvider {
+  if (value === AIProvider.GPT || value === AIProvider.GEMINI || value === AIProvider.CLAUDE) {
+    return value;
+  }
+  return AIProvider.CLAUDE;
+}
+
+async function loadChatProviderSettings(userId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("settings")
+    .eq("id", userId)
+    .single();
+
+  const settings = (data?.settings ?? {}) as Record<string, unknown>;
+  const apiKeys = (settings.apiKeys ?? {}) as {
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+  };
+
+  const provider = normalizeProvider(settings.chatProvider ?? settings.defaultProvider);
+  return { provider, apiKeys };
+}
+
+async function runClaudeChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
+  const client = new Anthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY });
+  return client.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 512,
+    system: systemPrompt,
+    messages,
+    stream: true,
+  });
+}
+
+async function runGptChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
+  const client = new OpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY });
+  const response = await client.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages,
+    ],
+  });
+
+  return {
+    text: response.choices[0]?.message?.content ?? "",
+    model: "gpt-4o",
+    usage: {
+      inputTokens: response.usage?.prompt_tokens ?? null,
+      outputTokens: response.usage?.completion_tokens ?? null,
+      totalTokens: response.usage?.total_tokens ?? null,
+    },
+  };
+}
+
+async function runGeminiChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
+  const client = new GoogleGenerativeAI(apiKey || process.env.GOOGLE_API_KEY || "");
+  const model = client.getGenerativeModel({
+    model: "gemini-1.5-pro",
+    systemInstruction: systemPrompt,
+  });
+
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  const priorHistory = messages
+    .slice(0, latestUserMessage ? -1 : messages.length)
+    .map((message) => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: message.content }],
+    }));
+
+  const chat = model.startChat({ history: priorHistory });
+  const result = await chat.sendMessage(latestUserMessage);
+  const usage = (result.response as unknown as {
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+  }).usageMetadata;
+
+  return {
+    text: result.response.text(),
+    model: "gemini-1.5-pro",
+    usage: {
+      inputTokens: usage?.promptTokenCount ?? null,
+      outputTokens: usage?.candidatesTokenCount ?? null,
+      totalTokens: usage?.totalTokenCount ?? null,
+    },
+  };
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { agentName, messages } = await req.json() as {
+  const { agentName, messages, sessionId, sessionTitle } = (await req.json()) as {
     agentName: AgentName;
-    messages: { role: "user" | "assistant"; content: string }[];
+    messages: ChatMessage[];
+    sessionId?: string;
+    sessionTitle?: string;
   };
 
   if (!agentName || !messages?.length) {
@@ -49,32 +143,84 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const response = await client.messages.create({
-          model: "claude-opus-4-6",
-          max_tokens: 512,
-          system: systemPrompt,
-          messages,
-          stream: true,
-        });
+        const { provider, apiKeys } = user?.id
+          ? await loadChatProviderSettings(user.id)
+          : { provider: AIProvider.CLAUDE, apiKeys: {} };
 
-        for await (const event of response) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
-            );
+        if (provider === AIProvider.CLAUDE) {
+          const response = await runClaudeChat(systemPrompt, messages, apiKeys.anthropic);
+          let inputTokens: number | null = null;
+          let outputTokens: number | null = null;
+
+          for await (const event of response) {
+            const usageCarrier = event as {
+              type?: string;
+              message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+              usage?: { input_tokens?: number; output_tokens?: number };
+              delta?: { type?: string; text?: string };
+            };
+
+            if (usageCarrier.type === "message_start") {
+              inputTokens = usageCarrier.message?.usage?.input_tokens ?? usageCarrier.usage?.input_tokens ?? inputTokens;
+              outputTokens = usageCarrier.message?.usage?.output_tokens ?? usageCarrier.usage?.output_tokens ?? outputTokens;
+            }
+
+            if (usageCarrier.type === "message_delta") {
+              outputTokens = usageCarrier.usage?.output_tokens ?? outputTokens;
+            }
+
+            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
+              );
+            }
           }
+
+          void logAIUsage({
+            userId: user?.id,
+            provider: AIProvider.CLAUDE,
+            model: "claude-opus-4-6",
+            workflow: "agent_chat",
+            agent: agentName,
+            endpoint: "agent.messages",
+            inputTokens,
+            outputTokens,
+            totalTokens:
+              inputTokens !== null || outputTokens !== null
+                ? (inputTokens ?? 0) + (outputTokens ?? 0)
+                : null,
+            metadata: {
+              sessionId: sessionId ?? null,
+              sessionTitle: sessionTitle ?? null,
+            },
+          });
+        } else {
+          const response =
+            provider === AIProvider.GPT
+              ? await runGptChat(systemPrompt, messages, apiKeys.openai)
+              : await runGeminiChat(systemPrompt, messages, apiKeys.google);
+
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ text: response.text })}\n\n`)
+          );
+
+          void logAIUsage({
+            userId: user?.id,
+            provider,
+            model: response.model,
+            workflow: "agent_chat",
+            agent: agentName,
+            endpoint: "agent.messages",
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+            totalTokens: response.usage.totalTokens,
+            metadata: {
+              sessionId: sessionId ?? null,
+              sessionTitle: sessionTitle ?? null,
+            },
+          });
         }
-        void logAIUsage({
-          userId: user?.id,
-          provider: "claude",
-          model: "claude-opus-4-6",
-          workflow: "agent_chat",
-          agent: agentName,
-          endpoint: "agent.messages",
-          inputTokens: null,
-          outputTokens: null,
-          totalTokens: null,
-        });
+
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Agent chat failed";

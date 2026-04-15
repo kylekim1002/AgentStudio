@@ -13,7 +13,12 @@ export interface AIUsageLogPayload {
   inputTokens?: number | null;
   outputTokens?: number | null;
   totalTokens?: number | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: {
+    sessionId?: string | null;
+    sessionTitle?: string | null;
+    executionId?: string | null;
+    [key: string]: unknown;
+  } | null;
 }
 
 export async function logAIUsage(payload: AIUsageLogPayload) {

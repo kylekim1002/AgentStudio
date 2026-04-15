@@ -25,6 +25,7 @@ export type OnWorkflowProgress<TStep extends string = string> = (
 
 export interface WorkflowRuntime<TStep extends string = string> {
   workflow: string;
+  executionId: string;
   emit: (progress: Omit<WorkflowProgress<TStep>, "workflow">) => void;
   step: <T>(stepName: TStep, run: () => Promise<T>) => Promise<T>;
   setCheckpoint: (checkpoint: unknown) => void;

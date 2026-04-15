@@ -58,6 +58,7 @@ export default function ChatPanel({
   agentStates, isRunning, lessonPackage, error, onConfirmGenerate, onReset,
   approvalMode,
 }: ChatPanelProps) {
+  const [chatSessionId, setChatSessionId] = useState(() => crypto.randomUUID());
   const [displayMessages, setDisplayMessages] = useState<DisplayMsg[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory>([]);
   const [input, setInput] = useState("");
@@ -186,9 +187,12 @@ export default function ChatPanel({
     setStreamingText("");
 
     const endpoint = targetAgent ? "/api/agent-chat" : "/api/chat";
+    const sessionTitle =
+      chatHistory.find((message) => message.role === "user")?.content?.slice(0, 80) ??
+      text.slice(0, 80);
     const body = targetAgent
-      ? { agentName: targetAgent, messages: newHistory }
-      : { messages: newHistory };
+      ? { agentName: targetAgent, messages: newHistory, sessionId: chatSessionId, sessionTitle }
+      : { messages: newHistory, sessionId: chatSessionId, sessionTitle };
 
     try {
       const res = await fetch(endpoint, {
@@ -265,6 +269,7 @@ export default function ChatPanel({
 
   // ── Reset ────────────────────────────────────────────────────
   function handleReset() {
+    setChatSessionId(crypto.randomUUID());
     setDisplayMessages([]);
     setChatHistory([]);
     setStreamingText("");

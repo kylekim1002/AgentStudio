@@ -314,12 +314,18 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
   ],
   async run(request, runtime) {
     const state: LessonWorkflowState = {};
+    const sessionTitle = request.userInput.trim().slice(0, 80) || "레슨 생성";
 
     const callAgent = <T>(name: AgentName, input: unknown): Promise<T> =>
       runLessonAgent<T>(name, request.provider, input, request.apiKeys, {
         userId: request.userId,
         workflow: LESSON_WORKFLOW_NAME,
         endpoint: "workflow",
+        metadata: {
+          sessionId: runtime.executionId,
+          executionId: runtime.executionId,
+          sessionTitle,
+        },
       });
 
     const generateValidatedPassage = async (params: {
@@ -802,6 +808,7 @@ export async function runLessonWorkflow(
 ): Promise<LessonPackage | PassageReviewResult | ContentReviewResult> {
   return lessonWorkflowDefinition.run(request, {
     workflow: lessonWorkflowDefinition.name,
+    executionId: "local-execution",
     emit(progress) {
       onProgress({
         workflow: lessonWorkflowDefinition.name,

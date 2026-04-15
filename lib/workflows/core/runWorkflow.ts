@@ -44,7 +44,7 @@ function createWorkflowRuntime<TStep extends string>(
     });
   };
 
-  return { workflow, emit, step, setCheckpoint, requestApproval };
+  return { workflow, executionId: "local-execution", emit, step, setCheckpoint, requestApproval };
 }
 
 export async function runWorkflow<TRequest, TResult, TStep extends string>(

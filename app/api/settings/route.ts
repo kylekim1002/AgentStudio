@@ -16,6 +16,7 @@ const API_KEY_KEYS = ["anthropicApiKey", "openaiApiKey", "googleApiKey"] as cons
 
 const ADVANCED_SETTING_KEYS = [
   "defaultProvider",
+  "chatProvider",
   "agentProviders",
   "tokenLimit",
   "warnMinutes",

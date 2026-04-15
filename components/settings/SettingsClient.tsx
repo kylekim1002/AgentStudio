@@ -61,6 +61,7 @@ export default function SettingsClient({
 
   // AI provider settings
   const [defaultProvider, setDefaultProvider] = useState<AIProvider>(AIProvider.CLAUDE);
+  const [chatProvider, setChatProvider] = useState<AIProvider>(AIProvider.CLAUDE);
   const [agentProviders, setAgentProviders] = useState<AgentProviderMap>(initAgentProviders);
 
   // Token settings
@@ -105,11 +106,19 @@ export default function SettingsClient({
   const [usageSummary, setUsageSummary] = useState<{
     totalTokens: number;
     totalRequests: number;
-    byProvider: { claude: number; gpt: number; gemini: number };
+    byProvider: {
+      claude: { tokens: number; requests: number };
+      gpt: { tokens: number; requests: number };
+      gemini: { tokens: number; requests: number };
+    };
   }>({
     totalTokens: 0,
     totalRequests: 0,
-    byProvider: { claude: 0, gpt: 0, gemini: 0 },
+    byProvider: {
+      claude: { tokens: 0, requests: 0 },
+      gpt: { tokens: 0, requests: 0 },
+      gemini: { tokens: 0, requests: 0 },
+    },
   });
 
   // Load settings on mount
@@ -127,9 +136,18 @@ export default function SettingsClient({
           totalTokens: Number(data.summary.totalTokens ?? 0),
           totalRequests: Number(data.summary.totalRequests ?? 0),
           byProvider: {
-            claude: Number(data.summary.byProvider?.claude ?? 0),
-            gpt: Number(data.summary.byProvider?.gpt ?? 0),
-            gemini: Number(data.summary.byProvider?.gemini ?? 0),
+            claude: {
+              tokens: Number(data.summary.byProvider?.claude?.tokens ?? 0),
+              requests: Number(data.summary.byProvider?.claude?.requests ?? 0),
+            },
+            gpt: {
+              tokens: Number(data.summary.byProvider?.gpt?.tokens ?? 0),
+              requests: Number(data.summary.byProvider?.gpt?.requests ?? 0),
+            },
+            gemini: {
+              tokens: Number(data.summary.byProvider?.gemini?.tokens ?? 0),
+              requests: Number(data.summary.byProvider?.gemini?.requests ?? 0),
+            },
           },
         });
       })
@@ -140,6 +158,7 @@ export default function SettingsClient({
     const settings = data?.settings;
     if (settings) {
       if (settings.defaultProvider !== undefined) setDefaultProvider(settings.defaultProvider as AIProvider);
+      if (settings.chatProvider !== undefined) setChatProvider(settings.chatProvider as AIProvider);
       if (settings.agentProviders  !== undefined) setAgentProviders({ ...initAgentProviders(), ...(settings.agentProviders as Partial<AgentProviderMap>) });
       if (settings.tokenLimit      !== undefined) setTokenLimit(settings.tokenLimit as number);
       if (settings.warnMinutes     !== undefined) setWarnMinutes(settings.warnMinutes as number);
@@ -230,6 +249,7 @@ export default function SettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           defaultProvider,
+          chatProvider,
           agentProviders,
           tokenLimit,
           warnMinutes,
@@ -429,7 +449,7 @@ export default function SettingsClient({
           <div style={{ maxWidth: "640px" }}>
             <SectionTitle>AI 제공자 설정</SectionTitle>
             <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px" }}>
-              레슨 생성에 사용할 AI 서비스를 설정합니다.
+              레슨 생성과 채팅에 사용할 AI 서비스를 설정합니다.
             </p>
 
             <div style={{ marginBottom: "14px", padding: "10px 12px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "7px", fontSize: "11px", color: "#1E40AF", lineHeight: "1.5" }}>
@@ -515,6 +535,39 @@ export default function SettingsClient({
                 );
               })}
             </div>
+
+            <Card style={{ marginTop: "14px" }}>
+              <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                채팅 AI 선택
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.5, marginBottom: "12px" }}>
+                스튜디오 채팅과 에이전트 대화에 사용할 AI입니다. 이 채팅도 선택한 제공자의 API를 직접 호출하므로 사용량과 비용이 기록됩니다.
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {PROVIDERS.map((p) => {
+                  const isSelected = chatProvider === p.value;
+                  return (
+                    <button
+                      key={`chat-${p.value}`}
+                      type="button"
+                      onClick={() => setChatProvider(p.value)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        border: `1px solid ${isSelected ? p.color : "var(--color-border)"}`,
+                        background: isSelected ? `${p.color}15` : "var(--color-surface)",
+                        color: isSelected ? p.color : "var(--color-text)",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
 
             <SaveFooter />
           </div>
@@ -663,9 +716,9 @@ export default function SettingsClient({
                   요청 {usageSummary.totalRequests}회 · 총 {usageSummary.totalTokens.toLocaleString("ko-KR")} 토큰
                 </div>
               </div>
-              <UsageBar label="Claude" used={usageSummary.byProvider.claude} total={tokenLimit} color="#D97706" />
-              <UsageBar label="GPT-4o" used={usageSummary.byProvider.gpt} total={tokenLimit} color="#10A37F" style={{ marginTop: "8px" }} />
-              <UsageBar label="Gemini" used={usageSummary.byProvider.gemini} total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
+              <UsageBar label={`Claude · ${usageSummary.byProvider.claude.requests}회`} used={usageSummary.byProvider.claude.tokens} total={tokenLimit} color="#D97706" />
+              <UsageBar label={`GPT-4o · ${usageSummary.byProvider.gpt.requests}회`} used={usageSummary.byProvider.gpt.tokens} total={tokenLimit} color="#10A37F" style={{ marginTop: "8px" }} />
+              <UsageBar label={`Gemini · ${usageSummary.byProvider.gemini.requests}회`} used={usageSummary.byProvider.gemini.tokens} total={tokenLimit} color="#4285F4" style={{ marginTop: "8px" }} />
             </Card>
 
             <SaveFooter />
