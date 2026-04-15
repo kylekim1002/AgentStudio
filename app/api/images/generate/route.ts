@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
 import { logAIUsage } from "@/lib/usage/aiUsage";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+const GENERATED_IMAGE_BUCKET = "lesson-generated-images";
 
 function buildPrompt({
   passage,
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const referenceFiles = await loadReferenceFiles();
+    const service = await createServiceClient();
     const result = referenceFiles.length > 0
       ? await client.images.edit({
           model: "gpt-image-1",
@@ -157,6 +159,24 @@ export async function POST(req: NextRequest) {
     if (!base64) {
       return NextResponse.json({ error: "이미지 생성 결과를 받지 못했습니다." }, { status: 502 });
     }
+
+    const imageId = `img-${Date.now()}`;
+    const storagePath = `${user.id}/${imageId}.png`;
+    const imageBuffer = Buffer.from(base64, "base64");
+    const { error: uploadError } = await service.storage
+      .from(GENERATED_IMAGE_BUCKET)
+      .upload(storagePath, imageBuffer, {
+        contentType: "image/png",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    }
+
+    const { data: publicUrlData } = service.storage
+      .from(GENERATED_IMAGE_BUCKET)
+      .getPublicUrl(storagePath);
 
     void logAIUsage({
       userId: user.id,
@@ -177,8 +197,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       image: {
-        id: `img-${Date.now()}`,
-        url: `data:image/png;base64,${base64}`,
+        id: imageId,
+        url: publicUrlData.publicUrl,
+        storagePath,
         prompt,
         presetId: body.presetId ?? null,
         references,

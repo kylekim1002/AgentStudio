@@ -151,7 +151,7 @@ export default function ChatPanel({
     );
   }
 
-  async function loadThreads(selectId?: string | null) {
+  async function loadThreads(selectId?: string | null): Promise<StoredThread[] | null> {
     setThreadError(null);
     const res = await fetch("/api/studio-chat/threads", { cache: "no-store" });
     const payload = await res.json().catch(() => ({}));
@@ -162,7 +162,7 @@ export default function ChatPanel({
         setThreads([]);
         setSelectedThreadId("local-thread");
         setThreadError("대화 저장용 테이블이 아직 없어 임시 대화 모드로 동작합니다. 채팅은 계속 가능하지만, 화면을 이동하면 대화는 사라집니다.");
-        return [];
+        return null;
       }
       setThreadError(errorMessage);
       return [];
@@ -270,7 +270,7 @@ export default function ChatPanel({
       setLoadingThreads(true);
       const nextThreads = await loadThreads();
       if (cancelled) return;
-      if (!nextThreads.length && !storageUnavailable) {
+      if (nextThreads && !nextThreads.length && !storageUnavailable) {
         await createThread();
       }
       setLoadingThreads(false);
@@ -644,7 +644,24 @@ export default function ChatPanel({
           </p>
         </div>
 
-        {threadError && (
+        {storageUnavailable && threadError && (
+          <div
+            style={{
+              margin: "10px 12px 0",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              background: "#EFF6FF",
+              border: "1px solid #BFDBFE",
+              color: "#1D4ED8",
+              fontSize: "12px",
+              lineHeight: 1.6,
+            }}
+          >
+            {threadError}
+          </div>
+        )}
+
+        {!storageUnavailable && threadError && (
           <div
             style={{
               margin: "10px 12px 0",

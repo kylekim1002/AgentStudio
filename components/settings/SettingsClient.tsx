@@ -96,6 +96,8 @@ export default function SettingsClient({
     needs_revision: [],
   });
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
+  const [imagePromptUploadError, setImagePromptUploadError] = useState<string | null>(null);
+  const [uploadingReferenceId, setUploadingReferenceId] = useState<string | null>(null);
 
   // API key state
   const [apiKeyStatus, setApiKeyStatus] = useState<{
@@ -296,6 +298,7 @@ export default function SettingsClient({
                 id: reference.id || createPromptReferenceId(),
                 name: reference.name.trim() || `참조 이미지 ${refIndex + 1}`,
                 url: reference.url.trim(),
+                storagePath: reference.storagePath?.trim() || undefined,
                 notes: reference.notes?.trim() || undefined,
               }))
               .filter((reference) => reference.url),
@@ -508,6 +511,38 @@ export default function SettingsClient({
           : item
       )
     );
+  }
+
+  async function uploadImagePromptReference(
+    presetId: string,
+    referenceId: string,
+    file: File
+  ) {
+    setImagePromptUploadError(null);
+    setUploadingReferenceId(referenceId);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/system-settings/image-prompts/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "참조 이미지 업로드 실패");
+      }
+      updateImagePromptReference(presetId, referenceId, {
+        name: data.reference?.name || file.name,
+        url: data.reference?.url || "",
+        storagePath: data.reference?.storagePath || undefined,
+      });
+    } catch (error) {
+      setImagePromptUploadError(
+        error instanceof Error ? error.message : "참조 이미지 업로드 중 오류가 발생했습니다."
+      );
+    } finally {
+      setUploadingReferenceId(null);
+    }
   }
 
   return (
@@ -1092,6 +1127,22 @@ export default function SettingsClient({
                         </button>
                       </div>
 
+                      {imagePromptUploadError && (
+                        <div
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid #FECACA",
+                            background: "#FEF2F2",
+                            color: "#B91C1C",
+                            fontSize: "11px",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {imagePromptUploadError}
+                        </div>
+                      )}
+
                       {(preset.references ?? []).length === 0 ? (
                         <div
                           style={{
@@ -1160,6 +1211,43 @@ export default function SettingsClient({
                                 }}
                               />
 
+                              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    padding: "8px 10px",
+                                    borderRadius: "8px",
+                                    border: "1px solid var(--color-border)",
+                                    background: "#fff",
+                                    color: "var(--color-text)",
+                                    fontSize: "11px",
+                                    fontWeight: "700",
+                                    cursor: uploadingReferenceId === reference.id ? "not-allowed" : "pointer",
+                                    opacity: uploadingReferenceId === reference.id ? 0.6 : 1,
+                                  }}
+                                >
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    style={{ display: "none" }}
+                                    disabled={uploadingReferenceId === reference.id}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        void uploadImagePromptReference(preset.id, reference.id, file);
+                                      }
+                                      e.currentTarget.value = "";
+                                    }}
+                                  />
+                                  {uploadingReferenceId === reference.id ? "업로드 중..." : "로컬 이미지 업로드"}
+                                </label>
+                                <span style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                                  URL 직접 입력 대신 로컬에서 올려 바로 참조 이미지로 쓸 수 있습니다.
+                                </span>
+                              </div>
+
                               <input
                                 value={reference.url}
                                 onChange={(e) =>
@@ -1178,6 +1266,38 @@ export default function SettingsClient({
                                   background: "#fff",
                                 }}
                               />
+
+                              {reference.url ? (
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "120px minmax(0, 1fr)",
+                                    gap: "10px",
+                                    alignItems: "start",
+                                  }}
+                                >
+                                  <img
+                                    src={reference.url}
+                                    alt={reference.name || `참조 이미지 ${refIndex + 1}`}
+                                    style={{
+                                      width: "120px",
+                                      aspectRatio: "4 / 3",
+                                      objectFit: "cover",
+                                      borderRadius: "10px",
+                                      border: "1px solid var(--color-border)",
+                                      background: "#fff",
+                                    }}
+                                  />
+                                  <div style={{ display: "grid", gap: "4px", fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                                    <div>
+                                      {reference.storagePath
+                                        ? "업로드된 파일을 참조 이미지로 사용합니다."
+                                        : "외부 URL 이미지를 참조 이미지로 사용합니다."}
+                                    </div>
+                                    <div style={{ wordBreak: "break-all" }}>{reference.url}</div>
+                                  </div>
+                                </div>
+                              ) : null}
 
                               <textarea
                                 value={reference.notes ?? ""}

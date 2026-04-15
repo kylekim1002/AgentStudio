@@ -9,6 +9,7 @@ export interface ImagePromptReference {
   id: string;
   name: string;
   url: string;
+  storagePath?: string;
   notes?: string;
 }
 
@@ -72,6 +73,10 @@ export function normalizeImagePromptPresets(value: unknown): ImagePromptPreset[]
                     ? refSource.name.trim()
                     : `참조 이미지 ${refIndex + 1}`,
                 url,
+                storagePath:
+                  typeof refSource.storagePath === "string" && refSource.storagePath.trim()
+                    ? refSource.storagePath.trim()
+                    : undefined,
                 notes:
                   typeof refSource.notes === "string" && refSource.notes.trim()
                     ? refSource.notes.trim()

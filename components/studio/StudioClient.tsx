@@ -39,6 +39,7 @@ interface GeneratedPassageImage {
   prompt: string;
   presetId?: string | null;
   url: string;
+  storagePath?: string;
   createdAt: string;
 }
 

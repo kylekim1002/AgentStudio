@@ -38,12 +38,40 @@ function rule() {
 
 function dataUrlToUint8Array(dataUrl: string) {
   const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  return new Uint8Array(Buffer.from(base64, "base64"));
+}
+
+function getImageRunType(source: string, contentType?: string | null): "png" | "jpg" | "gif" | "bmp" {
+  const normalizedType = (contentType || "").toLowerCase();
+  if (normalizedType.includes("jpeg") || normalizedType.includes("jpg")) return "jpg";
+  if (normalizedType.includes("gif")) return "gif";
+  if (normalizedType.includes("bmp")) return "bmp";
+  if (normalizedType.includes("png")) return "png";
+
+  const normalizedSource = source.toLowerCase();
+  if (normalizedSource.startsWith("data:image/jpeg") || normalizedSource.startsWith("data:image/jpg")) return "jpg";
+  if (normalizedSource.startsWith("data:image/gif")) return "gif";
+  if (normalizedSource.startsWith("data:image/bmp")) return "bmp";
+  return "png";
+}
+
+async function loadImageData(source: string): Promise<{ data: Uint8Array; type: "png" | "jpg" | "gif" | "bmp" }> {
+  if (source.startsWith("data:")) {
+    return {
+      data: dataUrlToUint8Array(source),
+      type: getImageRunType(source),
+    };
   }
-  return bytes;
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`이미지 파일을 불러오지 못했습니다: ${response.status}`);
+  }
+
+  return {
+    data: new Uint8Array(await response.arrayBuffer()),
+    type: getImageRunType(source, response.headers.get("content-type")),
+  };
 }
 
 function getDocxFontName(item?: Pick<TemplateCanvasItem, "fontFamily">) {
@@ -90,7 +118,8 @@ async function buildCanvasDocxChildren(pkg: LessonPackage, isTeacher: boolean, t
   const renderedPages = renderCanvasTemplatePages(template, effectivePkg, isTeacher);
   const children: (Paragraph | Table)[] = [];
 
-  renderedPages.forEach((page, pageIndex) => {
+  for (let pageIndex = 0; pageIndex < renderedPages.length; pageIndex += 1) {
+    const page = renderedPages[pageIndex];
     if (pageIndex > 0) {
       children.push(new Paragraph({ children: [], pageBreakBefore: true }));
     }
@@ -104,17 +133,18 @@ async function buildCanvasDocxChildren(pkg: LessonPackage, isTeacher: boolean, t
     );
 
     const sortedItems = [...page.items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
-    sortedItems.forEach((item) => {
+    for (const item of sortedItems) {
       const blockChildren: Paragraph[] = [canvasBlockTitle(item.label, item)];
 
       if (item.type === "image") {
         if (item.resolvedImage) {
+          const imageData = await loadImageData(item.resolvedImage.url);
           blockChildren.push(
             new Paragraph({
               children: [
                 new ImageRun({
-                  data: dataUrlToUint8Array(item.resolvedImage.url),
-                  type: "png",
+                  data: imageData.data,
+                  type: imageData.type,
                   transformation: {
                     width: Math.max(180, Math.round(item.w * 4.2)),
                     height: Math.max(120, Math.round(item.h * 4.2)),
@@ -173,8 +203,8 @@ async function buildCanvasDocxChildren(pkg: LessonPackage, isTeacher: boolean, t
         }),
         new Paragraph({ children: [], spacing: { after: 120 } })
       );
-    });
-  });
+    }
+  }
 
   return children;
 }
@@ -222,15 +252,17 @@ export async function generateDocx(
   const imageItems = getTemplateImageItems(template);
   if (imageItems.length > 0 && (effectivePkg.generatedImages?.length ?? 0) > 0) {
     children.push(heading("🖼️ 학습 이미지", HeadingLevel.HEADING_1));
-    imageItems.forEach(({ item }, index) => {
+    for (let index = 0; index < imageItems.length; index += 1) {
+      const { item } = imageItems[index];
       const image = resolveTemplateImage(template, effectivePkg, item.id);
-      if (!image) return;
+      if (!image) continue;
+      const imageData = await loadImageData(image.url);
       children.push(
         new Paragraph({
           children: [
             new ImageRun({
-              data: dataUrlToUint8Array(image.url),
-              type: "png",
+              data: imageData.data,
+              type: imageData.type,
               transformation: {
                 width: 480,
                 height: 320,
@@ -246,7 +278,7 @@ export async function generateDocx(
           alignment: AlignmentType.CENTER,
         })
       );
-    });
+    }
     children.push(rule());
   }
 
