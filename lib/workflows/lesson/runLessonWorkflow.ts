@@ -316,7 +316,11 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     const state: LessonWorkflowState = {};
 
     const callAgent = <T>(name: AgentName, input: unknown): Promise<T> =>
-      runLessonAgent<T>(name, request.provider, input, request.apiKeys);
+      runLessonAgent<T>(name, request.provider, input, request.apiKeys, {
+        userId: request.userId,
+        workflow: LESSON_WORKFLOW_NAME,
+        endpoint: "workflow",
+      });
 
     const generateValidatedPassage = async (params: {
       mode: SourceMode | undefined;
@@ -778,7 +782,11 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     }
 
     await runtime.step<PublisherMetaOutput>(AgentName.PUBLISHER, () =>
-      runLessonAgent(AgentName.PUBLISHER, request.provider, { qa: resumePoint.qa }, request.apiKeys)
+      runLessonAgent(AgentName.PUBLISHER, request.provider, { qa: resumePoint.qa }, request.apiKeys, {
+        userId: request.userId,
+        workflow: LESSON_WORKFLOW_NAME,
+        endpoint: "workflow",
+      })
     );
     runtime.setCheckpoint(undefined);
 

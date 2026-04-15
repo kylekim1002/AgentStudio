@@ -27,7 +27,7 @@ export const TEMPLATE_FONT_OPTIONS: Array<{
   value: TemplateFontPreset;
   label: string;
   webFamily: string;
-  pdfFamily: "Helvetica" | "Times-Roman" | "Courier";
+  pdfFamily: string;
   pdfBoldFamily: string;
   pdfItalicFamily: string;
   pdfBoldItalicFamily: string;
@@ -36,37 +36,37 @@ export const TEMPLATE_FONT_OPTIONS: Array<{
     value: "system-sans",
     label: "기본 산세리프",
     webFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    pdfFamily: "Helvetica",
-    pdfBoldFamily: "Helvetica-Bold",
-    pdfItalicFamily: "Helvetica-Oblique",
-    pdfBoldItalicFamily: "Helvetica-BoldOblique",
+    pdfFamily: "CYJAppleGothic",
+    pdfBoldFamily: "CYJAppleGothicBold",
+    pdfItalicFamily: "CYJAppleGothic",
+    pdfBoldItalicFamily: "CYJAppleGothicBold",
   },
   {
     value: "korean-gothic",
     label: "고딕체",
     webFamily: '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif',
-    pdfFamily: "Helvetica",
-    pdfBoldFamily: "Helvetica-Bold",
-    pdfItalicFamily: "Helvetica-Oblique",
-    pdfBoldItalicFamily: "Helvetica-BoldOblique",
+    pdfFamily: "CYJAppleGothic",
+    pdfBoldFamily: "CYJAppleGothicBold",
+    pdfItalicFamily: "CYJAppleGothic",
+    pdfBoldItalicFamily: "CYJAppleGothicBold",
   },
   {
     value: "serif",
     label: "명조체",
     webFamily: 'Georgia, "Times New Roman", serif',
-    pdfFamily: "Times-Roman",
-    pdfBoldFamily: "Times-Bold",
-    pdfItalicFamily: "Times-Italic",
-    pdfBoldItalicFamily: "Times-BoldItalic",
+    pdfFamily: "CYJAppleGothic",
+    pdfBoldFamily: "CYJAppleGothicBold",
+    pdfItalicFamily: "CYJAppleGothic",
+    pdfBoldItalicFamily: "CYJAppleGothicBold",
   },
   {
     value: "mono",
     label: "고정폭",
     webFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-    pdfFamily: "Courier",
-    pdfBoldFamily: "Courier-Bold",
-    pdfItalicFamily: "Courier-Oblique",
-    pdfBoldItalicFamily: "Courier-BoldOblique",
+    pdfFamily: "CYJAppleGothic",
+    pdfBoldFamily: "CYJAppleGothicBold",
+    pdfItalicFamily: "CYJAppleGothic",
+    pdfBoldItalicFamily: "CYJAppleGothicBold",
   },
 ];
 

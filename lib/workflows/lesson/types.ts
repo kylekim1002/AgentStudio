@@ -249,6 +249,7 @@ export interface ApiKeys {
 
 export interface LessonRequest {
   userInput: string;
+  userId?: string;
   provider: AIProvider;
   difficulty?: DifficultyLevel;
   providedPassage?: string;

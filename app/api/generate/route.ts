@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
 
   const lessonRequest: LessonRequest = {
     userInput,
+    userId: user.id,
     provider: access.features.includes("studio.provider_select")
       ? (resolvedProvider ?? AIProvider.CLAUDE)
       : AIProvider.CLAUDE,

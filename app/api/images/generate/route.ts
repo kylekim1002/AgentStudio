@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getViewerAccess } from "@/lib/authz/server";
+import { logAIUsage } from "@/lib/usage/aiUsage";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -95,6 +96,22 @@ export async function POST(req: NextRequest) {
     if (!base64) {
       return NextResponse.json({ error: "이미지 생성 결과를 받지 못했습니다." }, { status: 502 });
     }
+
+    void logAIUsage({
+      userId: user.id,
+      provider: "gpt",
+      model: "gpt-image-1",
+      workflow: "image_generation",
+      agent: "image_prompt",
+      endpoint: "images.generate",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      metadata: {
+        presetId: body.presetId ?? null,
+        title: body.title ?? null,
+      },
+    });
 
     return NextResponse.json({
       image: {

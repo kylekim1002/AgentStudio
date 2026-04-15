@@ -13,48 +13,57 @@ import { getWritingTasks } from "@/lib/workflows/lesson/types";
 type ExportType  = "student" | "teacher";
 const PAGE_WIDTH_MM = 210;
 const PAGE_HEIGHT_MM = 297;
+const PDF_FONT_REGISTRY_KEY = "__cyj_pdf_font_registered__";
+const PDF_SANS = "CYJAppleGothic";
+const PDF_SANS_BOLD = "CYJAppleGothicBold";
+
+if (!(globalThis as Record<string, unknown>)[PDF_FONT_REGISTRY_KEY]) {
+  Font.register({ family: PDF_SANS, src: "/fonts/AppleGothic.ttf" });
+  Font.register({ family: PDF_SANS_BOLD, src: "/fonts/AppleGothic.ttf" });
+  (globalThis as Record<string, unknown>)[PDF_FONT_REGISTRY_KEY] = true;
+}
 
 // ─── Styles ───────────────────────────────────────────────────
 
 const S = StyleSheet.create({
-  page:       { fontFamily: "Helvetica", fontSize: 10, color: "#0F172A", padding: "48 52 48 52" },
-  // Advanced layout: 2-column cover + colored section headers
-  pageAdv:    { fontFamily: "Helvetica", fontSize: 10, color: "#0F172A", padding: "40 44 40 44" },
+  page:       { fontFamily: PDF_SANS, fontSize: 10, color: "#0F172A", padding: "42 44 42 44", backgroundColor: "#FFFFFF" },
+  pageAdv:    { fontFamily: PDF_SANS, fontSize: 10, color: "#0F172A", padding: "34 38 34 38", backgroundColor: "#FFFFFF" },
 
-  // Cover
-  coverTitle: { fontSize: 22, fontFamily: "Helvetica-Bold", marginBottom: 6, textAlign: "center" },
-  coverSub:   { fontSize: 10, color: "#64748B", textAlign: "center", marginBottom: 28 },
+  coverKicker: { fontSize: 9, color: "#475569", textAlign: "center", marginBottom: 8, letterSpacing: 0.6 },
+  coverTitle: { fontSize: 20, fontFamily: PDF_SANS_BOLD, marginBottom: 8, textAlign: "center", lineHeight: 1.35 },
+  coverSub:   { fontSize: 10, color: "#64748B", textAlign: "center", marginBottom: 18, lineHeight: 1.45 },
+  metaPanel:  { backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8, padding: "10 12", marginBottom: 18 },
+  metaRow:    { flexDirection: "row", justifyContent: "space-between", marginBottom: 4, gap: 10 },
+  metaLabel:  { fontSize: 9, color: "#64748B" },
+  metaValue:  { fontSize: 9, color: "#0F172A", fontFamily: PDF_SANS_BOLD },
 
-  // Section header
-  sectionHdr: { backgroundColor: "#4F46E5", color: "#fff", padding: "5 10", borderRadius: 4, marginBottom: 8, marginTop: 16 },
-  sectionHdrAdv: { backgroundColor: "#4F46E5", color: "#fff", padding: "6 12", borderRadius: 4, marginBottom: 8, marginTop: 20 },
-  sectionTitle: { fontFamily: "Helvetica-Bold", fontSize: 11, color: "#fff" },
+  sectionHdr: { backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0", borderLeftWidth: 4, padding: "7 10", borderRadius: 6, marginBottom: 10, marginTop: 16 },
+  sectionHdrAdv: { backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0", borderLeftWidth: 4, padding: "8 12", borderRadius: 6, marginBottom: 10, marginTop: 18 },
+  sectionTitle: { fontFamily: PDF_SANS_BOLD, fontSize: 11, color: "#0F172A" },
 
-  // Body
-  para:       { marginBottom: 6, lineHeight: 1.6 },
-  bold:       { fontFamily: "Helvetica-Bold" },
+  para:       { marginBottom: 7, lineHeight: 1.72 },
+  bold:       { fontFamily: PDF_SANS_BOLD },
   muted:      { color: "#64748B" },
-  answer:     { color: "#059669", fontFamily: "Helvetica-Bold" },
-  indent:     { marginLeft: 12, marginBottom: 4 },
+  answer:     { color: "#059669", fontFamily: PDF_SANS_BOLD },
+  indent:     { marginLeft: 12, marginBottom: 5, lineHeight: 1.6 },
+  questionBlock: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8, padding: "10 12", marginBottom: 10 },
+  paragraphBox: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8, padding: "12 14", marginBottom: 12 },
 
-  // Table
   table:      { marginBottom: 10 },
-  tableHdr:   { backgroundColor: "#EEF2FF", flexDirection: "row" },
+  tableHdr:   { backgroundColor: "#F8FAFC", flexDirection: "row", borderTopLeftRadius: 6, borderTopRightRadius: 6 },
   tableRow:   { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#E2E8F0" },
-  tableCell:  { padding: "4 6", flex: 1, fontSize: 9 },
-  tableCellHdr: { padding: "4 6", flex: 1, fontSize: 9, fontFamily: "Helvetica-Bold", color: "#4F46E5" },
+  tableCell:  { padding: "5 7", flex: 1, fontSize: 9, lineHeight: 1.45 },
+  tableCellHdr: { padding: "5 7", flex: 1, fontSize: 9, fontFamily: PDF_SANS_BOLD, color: "#334155" },
 
-  // Rule
   rule:       { borderBottomWidth: 0.5, borderBottomColor: "#E2E8F0", marginVertical: 10 },
 
-  // Advanced: 2-col
   row2:       { flexDirection: "row", gap: 12 },
   col:        { flex: 1 },
-  badge:      { backgroundColor: "#EEF2FF", color: "#4F46E5", fontSize: 8, padding: "2 6", borderRadius: 3, alignSelf: "flex-start", marginBottom: 4, fontFamily: "Helvetica-Bold" },
-  passBg:     { backgroundColor: "#F8FAFC", padding: "10 12", borderRadius: 6, borderWidth: 0.5, borderColor: "#E2E8F0", marginBottom: 10 },
-  canvasPage: { fontFamily: "Helvetica", fontSize: 10, color: "#0F172A", padding: "20 20 20 20", backgroundColor: "#FFFFFF" },
+  badge:      { backgroundColor: "#F8FAFC", color: "#334155", fontSize: 8, padding: "3 8", borderRadius: 999, alignSelf: "flex-start", marginBottom: 4, borderWidth: 1, borderColor: "#E2E8F0", fontFamily: PDF_SANS_BOLD },
+  passBg:     { backgroundColor: "#FFFFFF", padding: "12 14", borderRadius: 8, borderWidth: 1, borderColor: "#E2E8F0", marginBottom: 10 },
+  canvasPage: { fontFamily: PDF_SANS, fontSize: 10, color: "#0F172A", padding: "20 20 20 20", backgroundColor: "#FFFFFF" },
   canvasBox: { position: "absolute", borderWidth: 1, borderColor: "#CBD5E1", borderRadius: 6, padding: 6, overflow: "hidden" },
-  canvasItemLabel: { fontSize: 8, fontFamily: "Helvetica-Bold", marginBottom: 4, color: "#0F172A" },
+  canvasItemLabel: { fontSize: 8, fontFamily: PDF_SANS_BOLD, marginBottom: 4, color: "#0F172A" },
   canvasItemText: { fontSize: 8, lineHeight: 1.35, color: "#334155" },
   canvasImage: { width: "100%", height: "100%", objectFit: "cover" },
   canvasPlaceholder: { fontSize: 8, color: "#64748B", lineHeight: 1.4 },
@@ -64,7 +73,7 @@ const S = StyleSheet.create({
 
 function SectionHeader({ title, advanced, accentColor }: { title: string; advanced?: boolean; accentColor: string }) {
   return (
-    <View style={[advanced ? S.sectionHdrAdv : S.sectionHdr, { backgroundColor: accentColor }]}>
+    <View style={[advanced ? S.sectionHdrAdv : S.sectionHdr, { borderLeftColor: accentColor }]}>
       <Text style={S.sectionTitle}>{title}</Text>
     </View>
   );
@@ -120,8 +129,8 @@ function CanvasDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
                     top: (item.y / PAGE_HEIGHT_MM) * innerHeight,
                     width: (item.w / PAGE_WIDTH_MM) * innerWidth,
                     height: (item.h / PAGE_HEIGHT_MM) * innerHeight,
-                    borderColor: item.type === "image" ? "#93C5FD" : "#CBD5E1",
-                    backgroundColor: item.type === "image" ? "#EFF6FF" : "#F8FAFC",
+                    borderColor: item.type === "image" ? "#BFDBFE" : "#CBD5E1",
+                    backgroundColor: item.type === "image" ? "#F8FAFC" : "#FFFFFF",
                   },
                 ]}
               >
@@ -152,23 +161,39 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
   const writingTasks = getWritingTasks(effectivePkg.writing);
   return (
     <Document>
-      <Page size="A4" style={S.page}>
-        {/* Cover */}
+        <Page size="A4" style={S.page}>
+        <Text style={S.coverKicker}>{isTeacher ? "교사용 워크북" : "학생용 워크북"}</Text>
         <Text style={S.coverTitle}>{effectivePkg.title}</Text>
-        <Text style={S.coverSub}>난이도: {effectivePkg.difficulty}  |  단어 수: {effectivePkg.wordCount}  |  {isTeacher ? "교사용" : "학생용"}</Text>
+        <Text style={S.coverSub}>읽기 자료와 활동지를 한 장의 학습 문서 형식으로 정리한 출력본입니다.</Text>
+        <View style={S.metaPanel}>
+          <View style={S.metaRow}>
+            <Text style={S.metaLabel}>문서 유형</Text>
+            <Text style={S.metaValue}>{isTeacher ? "교사용" : "학생용"}</Text>
+          </View>
+          <View style={S.metaRow}>
+            <Text style={S.metaLabel}>난이도</Text>
+            <Text style={S.metaValue}>{effectivePkg.difficulty}</Text>
+          </View>
+          <View style={S.metaRow}>
+            <Text style={S.metaLabel}>단어 수</Text>
+            <Text style={S.metaValue}>{effectivePkg.wordCount}</Text>
+          </View>
+        </View>
         <Rule />
 
-        {/* Passage */}
-        {visible.has("passage") && <SectionHeader title="📖 지문 (Reading Passage)" accentColor={template.accentColor} />}
-        {visible.has("passage") && effectivePkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
-          <Text key={i} style={S.para}>{p.trim()}</Text>
-        ))}
+        {visible.has("passage") && <SectionHeader title="지문" accentColor={template.accentColor} />}
+        {visible.has("passage") && (
+          <View style={S.paragraphBox}>
+            {effectivePkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
+              <Text key={i} style={S.para}>{p.trim()}</Text>
+            ))}
+          </View>
+        )}
         {visible.has("passage") && <Rule />}
 
-        {/* Reading */}
-        {visible.has("reading") && <SectionHeader title="❓ 독해 문제 (Reading Questions)" accentColor={template.accentColor} />}
+        {visible.has("reading") && <SectionHeader title="독해 문제" accentColor={template.accentColor} />}
         {visible.has("reading") && effectivePkg.reading.questions.map((q, i) => (
-          <View key={i} style={{ marginBottom: 10 }}>
+          <View key={i} style={S.questionBlock}>
             <Text style={[S.para, S.bold]}>Q{i + 1}. {q.question}</Text>
             {q.options.map((opt, j) => (
               <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>
@@ -179,8 +204,7 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
         ))}
         {visible.has("reading") && <Rule />}
 
-        {/* Vocabulary */}
-        {visible.has("vocabulary") && <SectionHeader title="📝 어휘 학습 (Vocabulary)" accentColor={template.accentColor} />}
+        {visible.has("vocabulary") && <SectionHeader title="어휘 학습" accentColor={template.accentColor} />}
         {visible.has("vocabulary") && (
         <View style={S.table}>
           <View style={S.tableHdr}>
@@ -201,8 +225,7 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
         )}
         {visible.has("vocabulary") && <Rule />}
 
-        {/* Grammar */}
-        {visible.has("grammar") && <SectionHeader title="📐 문법 문제 (Grammar)" accentColor={template.accentColor} />}
+        {visible.has("grammar") && <SectionHeader title="문법 포인트" accentColor={template.accentColor} />}
         {visible.has("grammar") && <Text style={[S.para, S.bold]}>{effectivePkg.grammar.focusPoint}</Text>}
         {visible.has("grammar") && <Text style={S.para}>{effectivePkg.grammar.explanation}</Text>}
         {visible.has("grammar") && effectivePkg.grammar.examples.map((ex, i) => (
@@ -210,10 +233,9 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
         ))}
         {visible.has("grammar") && <Rule />}
 
-        {/* Writing */}
-        {visible.has("writing") && <SectionHeader title="✍️ 쓰기 과제 (Writing)" accentColor={template.accentColor} />}
+        {visible.has("writing") && <SectionHeader title="쓰기 과제" accentColor={template.accentColor} />}
         {visible.has("writing") && writingTasks.map((task, index) => (
-          <View key={index} style={{ marginBottom: 8 }}>
+          <View key={index} style={S.questionBlock}>
             <Text style={[S.para, S.bold]}>{`쓰기 ${index + 1}. ${task.prompt}`}</Text>
             {task.scaffolding.map((s, i) => (
               <Text key={i} style={S.indent}>• {s}</Text>
@@ -228,10 +250,9 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
         ))}
         {visible.has("writing") && <Rule />}
 
-        {/* Assessment */}
-        {visible.has("assessment") && <SectionHeader title={`📊 평가지 (Assessment) — 총 ${effectivePkg.assessment.totalPoints}점`} accentColor={template.accentColor} />}
+        {visible.has("assessment") && <SectionHeader title={`평가 문항 — 총 ${effectivePkg.assessment.totalPoints}점`} accentColor={template.accentColor} />}
         {visible.has("assessment") && effectivePkg.assessment.questions.map((q, i) => (
-          <View key={i} style={{ marginBottom: 8 }}>
+          <View key={i} style={S.questionBlock}>
             <Text style={S.para}><Text style={S.bold}>Q{i + 1}.</Text> [{q.points}점] {q.question}</Text>
             {q.options?.map((opt, j) => (
               <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>
@@ -254,14 +275,16 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
     <Document>
       {/* Page 1: Cover + Passage */}
       <Page size="A4" style={S.pageAdv}>
+        <Text style={S.coverKicker}>{isTeacher ? "교사용 워크북" : "학생용 워크북"}</Text>
         <Text style={S.coverTitle}>{effectivePkg.title}</Text>
-        <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 20 }}>
+        <Text style={S.coverSub}>자동 템플릿 기반으로 정리된 수업 자료입니다.</Text>
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 18 }}>
           <Text style={[S.badge, { color: template.accentColor }]}>{effectivePkg.difficulty.toUpperCase()}</Text>
           <Text style={S.badge}>{effectivePkg.wordCount} WORDS</Text>
-          <Text style={S.badge}>{isTeacher ? "TEACHER" : "STUDENT"}</Text>
+          <Text style={S.badge}>{isTeacher ? "교사용" : "학생용"}</Text>
         </View>
 
-        {visible.has("passage") && <SectionHeader title="📖 Reading Passage" advanced accentColor={template.accentColor} />}
+        {visible.has("passage") && <SectionHeader title="지문" advanced accentColor={template.accentColor} />}
         {visible.has("passage") && <View style={S.passBg}>
           {effectivePkg.passage.split("\n\n").filter(Boolean).map((p, i) => (
             <Text key={i} style={S.para}>{p.trim()}</Text>
@@ -271,12 +294,12 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
 
       {/* Page 2: Reading + Vocabulary */}
       <Page size="A4" style={S.pageAdv}>
-        {visible.has("reading") && <SectionHeader title="❓ Reading Questions" advanced accentColor={template.accentColor} />}
+        {visible.has("reading") && <SectionHeader title="독해 문제" advanced accentColor={template.accentColor} />}
         {visible.has("reading") && (
         <View style={S.row2}>
           <View style={S.col}>
             {effectivePkg.reading.questions.slice(0, Math.ceil(effectivePkg.reading.questions.length / 2)).map((q, i) => (
-              <View key={i} style={{ marginBottom: 10 }}>
+              <View key={i} style={S.questionBlock}>
                 <Text style={[S.para, S.bold]}>Q{i + 1}. {q.question}</Text>
                 {q.options.map((opt, j) => <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>)}
                 {isTeacher && <Text style={[S.indent, S.answer]}>▶ {q.answer}</Text>}
@@ -285,7 +308,7 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
           </View>
           <View style={S.col}>
             {effectivePkg.reading.questions.slice(Math.ceil(effectivePkg.reading.questions.length / 2)).map((q, i) => (
-              <View key={i} style={{ marginBottom: 10 }}>
+              <View key={i} style={S.questionBlock}>
                 <Text style={[S.para, S.bold]}>Q{i + Math.ceil(effectivePkg.reading.questions.length / 2) + 1}. {q.question}</Text>
                 {q.options.map((opt, j) => <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>)}
                 {isTeacher && <Text style={[S.indent, S.answer]}>▶ {q.answer}</Text>}
@@ -295,7 +318,7 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
         </View>
         )}
 
-        {visible.has("vocabulary") && <SectionHeader title="📝 Vocabulary" advanced accentColor={template.accentColor} />}
+        {visible.has("vocabulary") && <SectionHeader title="어휘 학습" advanced accentColor={template.accentColor} />}
         {visible.has("vocabulary") && (
         <View style={S.table}>
           <View style={S.tableHdr}>
@@ -317,16 +340,16 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
 
       {/* Page 3: Grammar + Writing + Assessment */}
       <Page size="A4" style={S.pageAdv}>
-        {visible.has("grammar") && <SectionHeader title="📐 Grammar Mini-Lesson" advanced accentColor={template.accentColor} />}
+        {visible.has("grammar") && <SectionHeader title="문법 포인트" advanced accentColor={template.accentColor} />}
         {visible.has("grammar") && <Text style={[S.para, S.bold]}>{effectivePkg.grammar.focusPoint}</Text>}
         {visible.has("grammar") && <Text style={S.para}>{effectivePkg.grammar.explanation}</Text>}
         {visible.has("grammar") && effectivePkg.grammar.examples.slice(0, 3).map((ex, i) => (
           <Text key={i} style={S.indent}>• {ex}</Text>
         ))}
 
-        {visible.has("writing") && <SectionHeader title="✍️ Writing Task" advanced accentColor={template.accentColor} />}
+        {visible.has("writing") && <SectionHeader title="쓰기 과제" advanced accentColor={template.accentColor} />}
         {visible.has("writing") && writingTasks.map((task, index) => (
-          <View key={index} style={{ marginBottom: 8 }}>
+          <View key={index} style={S.questionBlock}>
             <Text style={[S.para, S.bold]}>{`쓰기 ${index + 1}. ${task.prompt}`}</Text>
             {task.scaffolding.map((s, i) => <Text key={i} style={S.indent}>• {s}</Text>)}
             {isTeacher && task.modelAnswer && (
@@ -335,11 +358,11 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
           </View>
         ))}
 
-        {visible.has("assessment") && <SectionHeader title={`📊 Assessment — ${effectivePkg.assessment.totalPoints}pts`} advanced accentColor={template.accentColor} />}
+        {visible.has("assessment") && <SectionHeader title={`평가 문항 — 총 ${effectivePkg.assessment.totalPoints}점`} advanced accentColor={template.accentColor} />}
         {visible.has("assessment") && <View style={S.row2}>
           <View style={S.col}>
             {effectivePkg.assessment.questions.slice(0, Math.ceil(effectivePkg.assessment.questions.length / 2)).map((q, i) => (
-              <View key={i} style={{ marginBottom: 8 }}>
+              <View key={i} style={S.questionBlock}>
                 <Text style={S.para}><Text style={S.bold}>Q{i + 1}.</Text> [{q.points}pt] {q.question}</Text>
                 {q.options?.map((opt, j) => <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>)}
                 {isTeacher && <Text style={[S.indent, S.answer]}>▶ {q.answer}</Text>}
@@ -348,7 +371,7 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
           </View>
           <View style={S.col}>
             {effectivePkg.assessment.questions.slice(Math.ceil(effectivePkg.assessment.questions.length / 2)).map((q, i) => (
-              <View key={i} style={{ marginBottom: 8 }}>
+              <View key={i} style={S.questionBlock}>
                 <Text style={S.para}><Text style={S.bold}>Q{i + Math.ceil(effectivePkg.assessment.questions.length / 2) + 1}.</Text> [{q.points}pt] {q.question}</Text>
                 {q.options?.map((opt, j) => <Text key={j} style={S.indent}>{String.fromCharCode(65 + j)}. {opt}</Text>)}
                 {isTeacher && <Text style={[S.indent, S.answer]}>▶ {q.answer}</Text>}

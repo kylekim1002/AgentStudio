@@ -242,6 +242,47 @@ export interface Database {
           reason?: string | null;
         };
       };
+      ai_usage_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          provider: string;
+          model: string | null;
+          workflow: string | null;
+          agent: string | null;
+          endpoint: string | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          provider: string;
+          model?: string | null;
+          workflow?: string | null;
+          agent?: string | null;
+          endpoint?: string | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          provider?: string;
+          model?: string | null;
+          workflow?: string | null;
+          agent?: string | null;
+          endpoint?: string | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          metadata?: Json | null;
+        };
+      };
     };
   };
 }

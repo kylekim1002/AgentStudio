@@ -229,6 +229,16 @@ export default function AppShell({
     ...(userFeatures.includes("ops.view")
       ? [
           {
+            href: "/usage",
+            label: "AI 사용량",
+            icon: (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M3 12.5V7.5M8 12.5v-9M13 12.5v-6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                <path d="M2 13h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            ),
+          },
+          {
             href: "/ops",
             label: "운영 센터",
             icon: (

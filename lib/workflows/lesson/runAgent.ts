@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import { AIProvider, AgentName, ApiKeys } from "./types";
+import { logAIUsage } from "@/lib/usage/aiUsage";
 
 let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
@@ -62,10 +63,11 @@ async function callClaude(
   systemPrompt: string,
   userMessage: string,
   apiKey?: string
-): Promise<string> {
+): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
+  const model = "claude-opus-4-6";
   const client = apiKey ? new Anthropic({ apiKey }) : getAnthropic();
   const response = await client.messages.create({
-    model: "claude-opus-4-6",
+    model,
     max_tokens: 4096,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
@@ -74,64 +76,129 @@ async function callClaude(
   if (block.type !== "text") {
     throw new Error("Unexpected response type from Claude");
   }
-  return block.text;
+  return {
+    text: block.text,
+    model,
+    usage: {
+      inputTokens: response.usage?.input_tokens,
+      outputTokens: response.usage?.output_tokens,
+      totalTokens:
+        (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
+    },
+  };
 }
 
 async function callGPT(
   systemPrompt: string,
   userMessage: string,
   apiKey?: string
-): Promise<string> {
+): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
+  const model = "gpt-4o";
   const client = apiKey ? new OpenAI({ apiKey }) : getOpenAI();
   const response = await client.chat.completions.create({
-    model: "gpt-4o",
+    model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
     response_format: { type: "json_object" },
   });
-  return response.choices[0].message.content ?? "{}";
+  return {
+    text: response.choices[0].message.content ?? "{}",
+    model,
+    usage: {
+      inputTokens: response.usage?.prompt_tokens,
+      outputTokens: response.usage?.completion_tokens,
+      totalTokens: response.usage?.total_tokens,
+    },
+  };
 }
 
 async function callGemini(
   systemPrompt: string,
   userMessage: string,
   apiKey?: string
-): Promise<string> {
+): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
   const client = apiKey ? new GoogleGenerativeAI(apiKey) : getGemini();
-  const model = client.getGenerativeModel({
-    model: "gemini-1.5-pro",
+  const modelName = "gemini-1.5-pro";
+  const modelClient = client.getGenerativeModel({
+    model: modelName,
     systemInstruction: systemPrompt,
   });
-  const result = await model.generateContent(userMessage);
-  return result.response.text();
+  const result = await modelClient.generateContent(userMessage);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const usage = (result.response as any).usageMetadata;
+  return {
+    text: result.response.text(),
+    model: modelName,
+    usage: {
+      inputTokens: usage?.promptTokenCount,
+      outputTokens: usage?.candidatesTokenCount,
+      totalTokens: usage?.totalTokenCount,
+    },
+  };
 }
 
 export async function runLessonAgent<T = unknown>(
   agentName: AgentName,
   provider: AIProvider,
   input: unknown,
-  apiKeys?: ApiKeys
+  apiKeys?: ApiKeys,
+  context?: {
+    userId?: string;
+    workflow?: string;
+    endpoint?: string;
+  }
 ): Promise<T> {
   const systemPrompt = loadSystemPrompt(agentName);
   const userMessage = JSON.stringify(input, null, 2);
 
   let rawOutput: string;
+  let modelName: string | undefined;
+  let usage:
+    | { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+    | undefined;
 
   switch (provider) {
     case AIProvider.CLAUDE:
-      rawOutput = await callClaude(systemPrompt, userMessage, apiKeys?.anthropic);
+      {
+        const response = await callClaude(systemPrompt, userMessage, apiKeys?.anthropic);
+        rawOutput = response.text;
+        modelName = response.model;
+        usage = response.usage;
+      }
       break;
     case AIProvider.GPT:
-      rawOutput = await callGPT(systemPrompt, userMessage, apiKeys?.openai);
+      {
+        const response = await callGPT(systemPrompt, userMessage, apiKeys?.openai);
+        rawOutput = response.text;
+        modelName = response.model;
+        usage = response.usage;
+      }
       break;
     case AIProvider.GEMINI:
-      rawOutput = await callGemini(systemPrompt, userMessage, apiKeys?.google);
+      {
+        const response = await callGemini(systemPrompt, userMessage, apiKeys?.google);
+        rawOutput = response.text;
+        modelName = response.model;
+        usage = response.usage;
+      }
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }
+
+  void logAIUsage({
+    userId: context?.userId,
+    provider,
+    model: modelName ?? null,
+    workflow: context?.workflow ?? "lesson_generation",
+    agent: agentName,
+    endpoint: context?.endpoint ?? "workflow",
+    inputTokens: usage?.inputTokens ?? null,
+    outputTokens: usage?.outputTokens ?? null,
+    totalTokens: usage?.totalTokens ?? null,
+  });
 
   try {
     return extractJSON(rawOutput) as T;
