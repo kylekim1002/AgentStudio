@@ -91,7 +91,7 @@ function formatDateTime(value: string) {
 }
 
 function workflowLabel(value: string | null) {
-  if (value === "lesson_generation") return "레슨 생성";
+  if (value === "lesson_generation") return "레슨 생성 파이프라인";
   if (value === "studio_chat") return "스튜디오 채팅";
   if (value === "agent_chat") return "에이전트 대화";
   return value ?? "기타";
@@ -192,7 +192,7 @@ export default function UsageClient() {
                 AI 사용량
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                한 번의 채팅 또는 한 번의 레슨 생성 실행을 한 묶음으로 보고, 토큰과 예상 비용까지 확인합니다.
+                스튜디오에서 한 번 실행한 파이프라인 또는 한 번의 채팅 작업을 묶음으로 보고, 토큰과 예상 비용까지 확인합니다.
               </p>
             </div>
 
@@ -246,7 +246,7 @@ export default function UsageClient() {
 
           <div className="mt-5 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
             <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-4 text-white">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Sessions</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Workflows</div>
               <div className="mt-2 text-3xl font-semibold">{formatNumber(summaryCards.sessions)}</div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
@@ -285,13 +285,13 @@ export default function UsageClient() {
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">세션별 사용 내역</h2>
+              <h2 className="text-base font-semibold text-slate-900">작업 묶음별 사용 내역</h2>
               <p className="text-sm text-slate-500">
                 {data ? `${data.range.from} ~ ${data.range.to}` : "선택한 기간의 로그를 보여줍니다."}
               </p>
             </div>
             <div className="text-sm text-slate-500">
-              페이지 {pagination.page} / {pagination.totalPages} · 총 {formatNumber(pagination.totalGroups)}세션
+              페이지 {pagination.page} / {pagination.totalPages} · 총 {formatNumber(pagination.totalGroups)}묶음
             </div>
           </div>
 

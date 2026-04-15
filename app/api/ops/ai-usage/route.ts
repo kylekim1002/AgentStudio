@@ -166,19 +166,32 @@ export async function GET(req: NextRequest) {
 
   for (const item of items) {
     const meta = item.metadata;
+    const executionId =
+      typeof meta.executionId === "string" && meta.executionId.trim()
+        ? meta.executionId.trim()
+        : null;
+    const sessionId =
+      typeof meta.sessionId === "string" && meta.sessionId.trim()
+        ? meta.sessionId.trim()
+        : null;
+    const sessionTitle =
+      typeof meta.sessionTitle === "string" && meta.sessionTitle.trim()
+        ? meta.sessionTitle.trim()
+        : null;
+
     const groupId =
-      (typeof meta.sessionId === "string" && meta.sessionId) ||
-      (typeof meta.executionId === "string" && meta.executionId) ||
-      item.id;
+      item.workflow === "lesson_generation"
+        ? executionId ?? item.id
+        : sessionId ?? executionId ?? item.id;
     const groupTitle =
-      (typeof meta.sessionTitle === "string" && meta.sessionTitle.trim()) ||
-      (item.workflow === "lesson_generation"
-        ? "레슨 생성 실행"
-        : item.workflow === "studio_chat"
-          ? "스튜디오 채팅"
-          : item.workflow === "agent_chat"
-            ? `${item.agent ?? "에이전트"} 대화`
-            : "AI 사용 세션");
+      item.workflow === "lesson_generation"
+        ? sessionTitle ?? "레슨 생성 파이프라인"
+        : sessionTitle ??
+          (item.workflow === "studio_chat"
+            ? "스튜디오 채팅"
+            : item.workflow === "agent_chat"
+              ? `${item.agent ?? "에이전트"} 대화`
+              : "AI 사용 세션");
 
     const existing = groupsMap.get(groupId);
     if (!existing) {
