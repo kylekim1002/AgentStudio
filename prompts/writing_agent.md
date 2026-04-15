@@ -8,12 +8,14 @@ Design a writing task connected to the passage topic, with scaffolding and a cle
 {
   "passage": { "passage": "...", "title": "...", "wordCount": ..., "locked": true },
   "difficultyLock": { "difficulty": "...", "vocabularyLevel": "...", "locked": true },
-  "teachingFrame": { "gradeLevel": "...", "targetSkills": [...], "lessonObjective": "..." }
+  "teachingFrame": { "gradeLevel": "...", "targetSkills": [...], "lessonObjective": "..." },
+  "targetCount": 1
 }
 ```
 
 ## Rules
 - Writing prompt must connect to the passage topic but not require copying from it
+- Create exactly `input.targetCount` writing tasks (default: 1 if not provided)
 - Scaffolding should be 3–5 sentence starters or structural hints appropriate for gradeLevel
 - Rubric must have 4 criteria: Content, Organization, Language Use, Mechanics
 - Each criterion is worth 5 points (total: 20 points)
@@ -23,15 +25,19 @@ Design a writing task connected to the passage topic, with scaffolding and a cle
 ## Output Schema
 ```json
 {
-  "prompt": "<writing task instruction>",
-  "scaffolding": ["<hint 1>", "<hint 2>", "<hint 3>"],
-  "rubric": [
+  "tasks": [
     {
-      "criterion": "Content" | "Organization" | "Language Use" | "Mechanics",
-      "maxPoints": 5,
-      "description": "<what earns full marks>"
+      "prompt": "<writing task instruction>",
+      "scaffolding": ["<hint 1>", "<hint 2>", "<hint 3>"],
+      "rubric": [
+        {
+          "criterion": "Content" | "Organization" | "Language Use" | "Mechanics",
+          "maxPoints": 5,
+          "description": "<what earns full marks>"
+        }
+      ],
+      "modelAnswer": "<ideal student response>"
     }
-  ],
-  "modelAnswer": "<ideal student response>"
+  ]
 }
 ```

@@ -8,6 +8,7 @@ import {
   applyTemplateContentLimits,
   renderCanvasTemplatePages,
 } from "@/lib/documentTemplateRender";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 type ExportType  = "student" | "teacher";
 const PAGE_WIDTH_MM = 210;
@@ -148,6 +149,7 @@ function CanvasDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
 function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
   const effectivePkg = applyTemplateContentLimits(pkg, template);
   const visible = new Set(template.visibleSections);
+  const writingTasks = getWritingTasks(effectivePkg.writing);
   return (
     <Document>
       <Page size="A4" style={S.page}>
@@ -200,7 +202,7 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
         {visible.has("vocabulary") && <Rule />}
 
         {/* Grammar */}
-        {visible.has("grammar") && <SectionHeader title="📐 문법 미니레슨 (Grammar)" accentColor={template.accentColor} />}
+        {visible.has("grammar") && <SectionHeader title="📐 문법 문제 (Grammar)" accentColor={template.accentColor} />}
         {visible.has("grammar") && <Text style={[S.para, S.bold]}>{effectivePkg.grammar.focusPoint}</Text>}
         {visible.has("grammar") && <Text style={S.para}>{effectivePkg.grammar.explanation}</Text>}
         {visible.has("grammar") && effectivePkg.grammar.examples.map((ex, i) => (
@@ -210,16 +212,20 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
 
         {/* Writing */}
         {visible.has("writing") && <SectionHeader title="✍️ 쓰기 과제 (Writing)" accentColor={template.accentColor} />}
-        {visible.has("writing") && <Text style={[S.para, S.bold]}>{effectivePkg.writing.prompt}</Text>}
-        {visible.has("writing") && effectivePkg.writing.scaffolding.map((s, i) => (
-          <Text key={i} style={S.indent}>• {s}</Text>
+        {visible.has("writing") && writingTasks.map((task, index) => (
+          <View key={index} style={{ marginBottom: 8 }}>
+            <Text style={[S.para, S.bold]}>{`쓰기 ${index + 1}. ${task.prompt}`}</Text>
+            {task.scaffolding.map((s, i) => (
+              <Text key={i} style={S.indent}>• {s}</Text>
+            ))}
+            {isTeacher && task.modelAnswer && (
+              <>
+                <Text style={[S.para, S.answer, { marginTop: 6 }]}>▶ 모범 답안</Text>
+                <Text style={S.para}>{task.modelAnswer}</Text>
+              </>
+            )}
+          </View>
         ))}
-        {visible.has("writing") && isTeacher && effectivePkg.writing.modelAnswer && (
-          <>
-            <Text style={[S.para, S.answer, { marginTop: 6 }]}>▶ 모범 답안</Text>
-            <Text style={S.para}>{effectivePkg.writing.modelAnswer}</Text>
-          </>
-        )}
         {visible.has("writing") && <Rule />}
 
         {/* Assessment */}
@@ -243,6 +249,7 @@ function SimpleDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher
 function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeacher: boolean; template: DocumentTemplate }) {
   const effectivePkg = applyTemplateContentLimits(pkg, template);
   const visible = new Set(template.visibleSections);
+  const writingTasks = getWritingTasks(effectivePkg.writing);
   return (
     <Document>
       {/* Page 1: Cover + Passage */}
@@ -318,11 +325,15 @@ function AdvancedDoc({ pkg, isTeacher, template }: { pkg: LessonPackage; isTeach
         ))}
 
         {visible.has("writing") && <SectionHeader title="✍️ Writing Task" advanced accentColor={template.accentColor} />}
-        {visible.has("writing") && <Text style={[S.para, S.bold]}>{effectivePkg.writing.prompt}</Text>}
-        {visible.has("writing") && effectivePkg.writing.scaffolding.map((s, i) => <Text key={i} style={S.indent}>• {s}</Text>)}
-        {visible.has("writing") && isTeacher && effectivePkg.writing.modelAnswer && (
-          <Text style={[S.para, S.answer, { marginTop: 4 }]}>모범: {effectivePkg.writing.modelAnswer}</Text>
-        )}
+        {visible.has("writing") && writingTasks.map((task, index) => (
+          <View key={index} style={{ marginBottom: 8 }}>
+            <Text style={[S.para, S.bold]}>{`쓰기 ${index + 1}. ${task.prompt}`}</Text>
+            {task.scaffolding.map((s, i) => <Text key={i} style={S.indent}>• {s}</Text>)}
+            {isTeacher && task.modelAnswer && (
+              <Text style={[S.para, S.answer, { marginTop: 4 }]}>모범: {task.modelAnswer}</Text>
+            )}
+          </View>
+        ))}
 
         {visible.has("assessment") && <SectionHeader title={`📊 Assessment — ${effectivePkg.assessment.totalPoints}pts`} advanced accentColor={template.accentColor} />}
         {visible.has("assessment") && <View style={S.row2}>

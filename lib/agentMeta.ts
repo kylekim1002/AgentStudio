@@ -68,8 +68,8 @@ export const AGENT_META: Record<AgentName, AgentMeta> = {
     tag: "병렬", group: "콘텐츠 생성", parallel: true,
   },
   [AgentName.GRAMMAR]: {
-    num: "12", label: "문법 미니레슨 생성기", mention: "grammar",
-    desc: "지문에서 핵심 문법 포인트를 뽑아 설명·예문·연습 문제를 구성합니다. 학년 수준에 맞는 문법 개념을 선택합니다.",
+    num: "12", label: "문법 문제 생성기", mention: "grammar",
+    desc: "지문에서 핵심 문법 포인트를 뽑아 설명·예문·문법 문제를 구성합니다. 학년 수준에 맞는 문법 개념을 선택합니다.",
     tag: "병렬", group: "콘텐츠 생성", parallel: true,
   },
   [AgentName.WRITING]: {

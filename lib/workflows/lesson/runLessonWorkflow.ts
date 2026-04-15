@@ -129,6 +129,45 @@ function normalizeAssessmentOutput(assessment: AssessmentOutput): AssessmentOutp
   };
 }
 
+function normalizeWritingOutput(writing: WritingOutput, targetCount: number): WritingOutput {
+  const rawTasks =
+    Array.isArray(writing.tasks) && writing.tasks.length > 0
+      ? writing.tasks
+      : [
+          {
+            prompt: writing.prompt,
+            scaffolding: writing.scaffolding,
+            rubric: writing.rubric,
+            modelAnswer: writing.modelAnswer,
+          },
+        ];
+
+  const normalizedTasks = rawTasks
+    .slice(0, Math.max(1, targetCount))
+    .map((task) => ({
+      prompt: task.prompt ?? "",
+      scaffolding: Array.isArray(task.scaffolding) ? task.scaffolding : [],
+      rubric: Array.isArray(task.rubric) ? task.rubric : [],
+      modelAnswer: task.modelAnswer ?? "",
+    }))
+    .filter((task) => task.prompt.trim());
+
+  const fallbackTask = normalizedTasks[0] ?? {
+    prompt: writing.prompt ?? "",
+    scaffolding: Array.isArray(writing.scaffolding) ? writing.scaffolding : [],
+    rubric: Array.isArray(writing.rubric) ? writing.rubric : [],
+    modelAnswer: writing.modelAnswer ?? "",
+  };
+
+  return {
+    prompt: fallbackTask.prompt,
+    scaffolding: fallbackTask.scaffolding,
+    rubric: fallbackTask.rubric,
+    modelAnswer: fallbackTask.modelAnswer,
+    tasks: normalizedTasks.length > 0 ? normalizedTasks : [fallbackTask],
+  };
+}
+
 export const lessonWorkflowDefinition: WorkflowDefinition<
   LessonRequest,
   LessonPackage | PassageReviewResult | ContentReviewResult,
@@ -170,6 +209,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         vocabulary: request.contentCounts?.vocabulary ?? DEFAULT_CONTENT_COUNTS.vocabulary,
         assessment: request.contentCounts?.assessment ?? DEFAULT_CONTENT_COUNTS.assessment,
         grammarExercises: request.contentCounts?.grammarExercises ?? DEFAULT_CONTENT_COUNTS.grammarExercises,
+        writing: request.contentCounts?.writing ?? DEFAULT_CONTENT_COUNTS.writing,
       };
 
       const regenerateAgents = new Set(request.regenerateAgents ?? []);
@@ -180,6 +220,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         ...(agent === AgentName.READING ? { targetCount: counts.reading } : {}),
         ...(agent === AgentName.VOCABULARY ? { targetCount: counts.vocabulary } : {}),
         ...(agent === AgentName.GRAMMAR ? { targetCount: counts.grammarExercises } : {}),
+        ...(agent === AgentName.WRITING ? { targetCount: counts.writing } : {}),
         ...(agent === AgentName.ASSESSMENT ? { targetCount: counts.assessment } : {}),
         ...(revisionInstructions[agent]
           ? {
@@ -219,7 +260,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.reading = reading;
       state.vocabulary = vocabulary;
       state.grammar = grammar;
-      state.writing = writing;
+      state.writing = normalizeWritingOutput(writing, counts.writing);
       state.assessment = normalizeAssessmentOutput(assessment);
     };
 
@@ -316,7 +357,10 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.reading = request.contentCheckpoint.reading;
       state.vocabulary = request.contentCheckpoint.vocabulary;
       state.grammar = request.contentCheckpoint.grammar;
-      state.writing = request.contentCheckpoint.writing;
+      state.writing = normalizeWritingOutput(
+        request.contentCheckpoint.writing,
+        request.contentCounts?.writing ?? DEFAULT_CONTENT_COUNTS.writing
+      );
       state.assessment = normalizeAssessmentOutput(request.contentCheckpoint.assessment);
 
       runtime.emit({ step: AgentName.INTENT_ROUTER, status: "skipped" });

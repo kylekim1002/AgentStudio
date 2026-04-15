@@ -16,6 +16,7 @@ import {
   renderCanvasTemplatePages,
   resolveTemplateImage,
 } from "@/lib/documentTemplateRender";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 type ExportType = "student" | "teacher";
 
@@ -208,6 +209,7 @@ export async function generateDocx(
   }
 
   const effectivePkg = applyTemplateContentLimits(pkg, template);
+  const writingTasks = getWritingTasks(effectivePkg.writing);
   const children: (Paragraph | Table)[] = [];
   const visible = new Set(template.visibleSections);
 
@@ -294,7 +296,7 @@ export async function generateDocx(
 
   // ── Grammar ───────────────────────────────────────────────
   if (visible.has("grammar")) {
-    children.push(heading("📐 문법 미니레슨 (Grammar)", HeadingLevel.HEADING_1));
+    children.push(heading("📐 문법 문제 (Grammar)", HeadingLevel.HEADING_1));
     children.push(body(effectivePkg.grammar.focusPoint, true));
     children.push(body(effectivePkg.grammar.explanation));
     if (effectivePkg.grammar.examples.length > 0) {
@@ -315,19 +317,21 @@ export async function generateDocx(
   // ── Writing ───────────────────────────────────────────────
   if (visible.has("writing")) {
     children.push(heading("✍️ 쓰기 과제 (Writing)", HeadingLevel.HEADING_1));
-    children.push(body(effectivePkg.writing.prompt, true));
-    if (effectivePkg.writing.scaffolding.length > 0) {
-      children.push(body("힌트:"));
-      effectivePkg.writing.scaffolding.forEach((s) => children.push(body(`  • ${s}`)));
-    }
-    if (isTeacher && effectivePkg.writing.modelAnswer) {
-      children.push(body("▶ 모범 답안:", true));
-      children.push(body(effectivePkg.writing.modelAnswer));
-    }
-    if (effectivePkg.writing.rubric.length > 0) {
-      children.push(body("채점 기준표:", true));
-      effectivePkg.writing.rubric.forEach((r) => children.push(body(`  • ${r.criterion} (${r.maxPoints}점): ${r.description}`)));
-    }
+    writingTasks.forEach((task, index) => {
+      children.push(body(`쓰기 ${index + 1}. ${task.prompt}`, true));
+      if (task.scaffolding.length > 0) {
+        children.push(body("힌트:"));
+        task.scaffolding.forEach((s) => children.push(body(`  • ${s}`)));
+      }
+      if (isTeacher && task.modelAnswer) {
+        children.push(body("▶ 모범 답안:", true));
+        children.push(body(task.modelAnswer));
+      }
+      if (task.rubric.length > 0) {
+        children.push(body("채점 기준표:", true));
+        task.rubric.forEach((r) => children.push(body(`  • ${r.criterion} (${r.maxPoints}점): ${r.description}`)));
+      }
+    });
     children.push(rule());
   }
 

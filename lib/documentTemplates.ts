@@ -84,6 +84,7 @@ export const DEFAULT_TEMPLATE_SECTION_COUNTS = {
   reading: 5,
   vocabulary: 8,
   grammar: 8,
+  writing: 1,
   assessment: 10,
 } as const;
 
@@ -666,6 +667,7 @@ export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
     vocabulary: [] as number[],
     assessment: [] as number[],
     grammarExercises: [] as number[],
+    writing: [] as number[],
   };
 
   for (const page of template.pages) {
@@ -675,6 +677,7 @@ export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
       if (item.sectionKey === "vocabulary") sectionLimits.vocabulary.push(item.sectionItemLimit);
       if (item.sectionKey === "assessment") sectionLimits.assessment.push(item.sectionItemLimit);
       if (item.sectionKey === "grammar") sectionLimits.grammarExercises.push(item.sectionItemLimit);
+      if (item.sectionKey === "writing") sectionLimits.writing.push(item.sectionItemLimit);
     }
   }
 
@@ -707,5 +710,9 @@ export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
       sectionBlockCounts.grammar > 0
         ? sectionBlockCounts.grammar
         : resolveSuggestedCount(sectionLimits.grammarExercises, DEFAULT_TEMPLATE_SECTION_COUNTS.grammar),
+    writing:
+      sectionBlockCounts.writing > 0
+        ? sectionBlockCounts.writing
+        : resolveSuggestedCount(sectionLimits.writing, DEFAULT_TEMPLATE_SECTION_COUNTS.writing),
   };
 }

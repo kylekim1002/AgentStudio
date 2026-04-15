@@ -12,6 +12,7 @@ import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
 import { AUTO_DOCUMENT_TEMPLATE_ID, DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import { applyTemplateContentLimits, getTemplateImageItems } from "@/lib/documentTemplateRender";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -2086,7 +2087,12 @@ export default function LibraryClient({
                   <DetailSection title={`❓ 독해 문제 (${effectiveDetailPackage?.reading.questions.length ?? 0}문항)`} content={(effectiveDetailPackage?.reading.questions ?? []).map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
                   <DetailSection title={`📝 어휘 (${effectiveDetailPackage?.vocabulary.words.length ?? 0}단어)`} content={(effectiveDetailPackage?.vocabulary.words ?? []).map((w) => `• ${w.word}: ${w.definition}`).join("\n")} />
                   <DetailSection title="📐 문법 포인트" content={effectiveDetailPackage ? `${effectiveDetailPackage.grammar.focusPoint}\n\n${effectiveDetailPackage.grammar.explanation}` : ""} />
-                  <DetailSection title="✍️ 쓰기 과제" content={lessonDetail.package.writing.prompt} />
+                  <DetailSection
+                    title={`✍️ 쓰기 과제 (${effectiveDetailPackage ? getWritingTasks(effectiveDetailPackage.writing).length : 0}개)`}
+                    content={(effectiveDetailPackage ? getWritingTasks(effectiveDetailPackage.writing) : [])
+                      .map((task, index) => `쓰기 ${index + 1}\n${task.prompt}`)
+                      .join("\n\n")}
+                  />
                   <DetailSection title={`📊 평가지 (${effectiveDetailPackage?.assessment.totalPoints ?? 0}점)`} content={(effectiveDetailPackage?.assessment.questions ?? []).map((q, i) => `Q${i + 1}. ${q.question}`).join("\n\n")} />
 
                   <DetailSection

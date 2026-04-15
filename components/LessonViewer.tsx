@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LessonPackage } from "@/lib/agents/types";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 interface LessonViewerProps {
   lesson: LessonPackage;
@@ -21,6 +22,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function LessonViewer({ lesson, onReset }: LessonViewerProps) {
   const [activeTab, setActiveTab] = useState<Tab>("passage");
+  const writingTasks = getWritingTasks(lesson.writing);
 
   const handleDownload = () => {
     const blob = new Blob([JSON.stringify(lesson, null, 2)], {
@@ -157,43 +159,47 @@ export function LessonViewer({ lesson, onReset }: LessonViewerProps) {
 
         {activeTab === "writing" && (
           <div className="space-y-4">
-            <div className="bg-yellow-50 rounded-lg p-3">
-              <p className="font-medium text-yellow-800">과제</p>
-              <p className="mt-1">{lesson.writing.prompt}</p>
-            </div>
-            <div>
-              <p className="font-medium mb-2">도움말</p>
-              <ul className="space-y-1 pl-4">
-                {lesson.writing.scaffolding.map((s, i) => (
-                  <li key={i} className="list-disc text-gray-600">{s}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="font-medium mb-2">루브릭</p>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="border px-2 py-1 text-left">기준</th>
-                    <th className="border px-2 py-1 text-center">점수</th>
-                    <th className="border px-2 py-1 text-left">설명</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lesson.writing.rubric.map((r, i) => (
-                    <tr key={i}>
-                      <td className="border px-2 py-1 font-medium">{r.criterion}</td>
-                      <td className="border px-2 py-1 text-center">{r.maxPoints}</td>
-                      <td className="border px-2 py-1 text-gray-600">{r.description}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="bg-green-50 rounded-lg p-3">
-              <p className="font-medium text-green-800 mb-1">모범 답안</p>
-              <p className="text-gray-700 whitespace-pre-wrap">{lesson.writing.modelAnswer}</p>
-            </div>
+            {writingTasks.map((task, index) => (
+              <div key={index} className="space-y-4 border rounded-xl p-4">
+                <div className="bg-yellow-50 rounded-lg p-3">
+                  <p className="font-medium text-yellow-800">과제 {index + 1}</p>
+                  <p className="mt-1">{task.prompt}</p>
+                </div>
+                <div>
+                  <p className="font-medium mb-2">도움말</p>
+                  <ul className="space-y-1 pl-4">
+                    {task.scaffolding.map((s, i) => (
+                      <li key={i} className="list-disc text-gray-600">{s}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="font-medium mb-2">루브릭</p>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border px-2 py-1 text-left">기준</th>
+                        <th className="border px-2 py-1 text-center">점수</th>
+                        <th className="border px-2 py-1 text-left">설명</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {task.rubric.map((r, i) => (
+                        <tr key={i}>
+                          <td className="border px-2 py-1 font-medium">{r.criterion}</td>
+                          <td className="border px-2 py-1 text-center">{r.maxPoints}</td>
+                          <td className="border px-2 py-1 text-gray-600">{r.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="bg-green-50 rounded-lg p-3">
+                  <p className="font-medium text-green-800 mb-1">모범 답안</p>
+                  <p className="text-gray-700 whitespace-pre-wrap">{task.modelAnswer}</p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

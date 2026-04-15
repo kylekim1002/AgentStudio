@@ -20,7 +20,7 @@ const AGENT_LABELS: Record<AgentName, string> = {
   [AgentName.APPROVED_PASSAGE_LOCK]: "지문 잠금",
   [AgentName.READING]: "독해 문제",
   [AgentName.VOCABULARY]: "어휘 학습",
-  [AgentName.GRAMMAR]: "문법 미니레슨",
+  [AgentName.GRAMMAR]: "문법 문제",
   [AgentName.WRITING]: "쓰기 과제",
   [AgentName.ASSESSMENT]: "평가지",
   [AgentName.QA]: "QA 검수",

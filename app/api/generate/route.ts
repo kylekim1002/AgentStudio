@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
         vocabulary: contentCounts.vocabulary !== undefined ? clamp(contentCounts.vocabulary, 1, 30, 8) : undefined,
         assessment: contentCounts.assessment !== undefined ? clamp(contentCounts.assessment, 1, 30, 10) : undefined,
         grammarExercises: contentCounts.grammarExercises !== undefined ? clamp(contentCounts.grammarExercises, 1, 20, 8) : undefined,
+        writing: contentCounts.writing !== undefined ? clamp(contentCounts.writing, 1, 10, 1) : undefined,
       }
     : undefined;
 

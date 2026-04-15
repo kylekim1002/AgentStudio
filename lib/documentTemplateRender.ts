@@ -7,6 +7,7 @@ import {
   TemplateCanvasItem,
   TemplateCanvasPage,
 } from "@/lib/documentTemplates";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 export interface ResolvedTemplateImage {
   id: string;
@@ -114,6 +115,10 @@ export function applyTemplateContentLimits(
       words: pkg.vocabulary.words.slice(0, counts.vocabulary),
     },
     grammar: trimGrammarExercises(pkg.grammar, counts.grammarExercises),
+    writing: {
+      ...pkg.writing,
+      tasks: getWritingTasks(pkg.writing).slice(0, counts.writing),
+    },
     assessment: {
       ...pkg.assessment,
       questions: assessmentQuestions,
@@ -153,11 +158,18 @@ export function getSectionContent(
         ...pkg.grammar.examples.map((example) => `• ${example}`),
       ].join("\n\n");
     case "writing":
-      return [
-        pkg.writing.prompt,
-        ...pkg.writing.scaffolding.map((item) => `• ${item}`),
-        ...(isTeacher && pkg.writing.modelAnswer ? [`모범 답안\n${pkg.writing.modelAnswer}`] : []),
-      ].join("\n\n");
+      return getWritingTasks(pkg.writing)
+        .map((task, index) =>
+          [
+            `쓰기 ${index + 1}`,
+            task.prompt,
+            ...task.scaffolding.map((item) => `• ${item}`),
+            ...(isTeacher && task.modelAnswer ? [`모범 답안\n${task.modelAnswer}`] : []),
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+        )
+        .join("\n\n");
     case "assessment":
       return pkg.assessment.questions
         .map((q, index) => {
@@ -173,13 +185,13 @@ export function getSectionContent(
 
 function isStructuredSection(
   key: DocumentSectionKey | undefined
-): key is "reading" | "vocabulary" | "grammar" | "assessment" {
-  return key === "reading" || key === "vocabulary" || key === "grammar" || key === "assessment";
+): key is "reading" | "vocabulary" | "grammar" | "writing" | "assessment" {
+  return key === "reading" || key === "vocabulary" || key === "grammar" || key === "writing" || key === "assessment";
 }
 
 function getStructuredSectionEntries(
   pkg: LessonPackage,
-  key: "reading" | "vocabulary" | "grammar" | "assessment",
+  key: "reading" | "vocabulary" | "grammar" | "writing" | "assessment",
   isTeacher: boolean
 ) {
   switch (key) {
@@ -220,6 +232,16 @@ function getStructuredSectionEntries(
 
       return practiceEntries;
     }
+    case "writing":
+      return getWritingTasks(pkg.writing).map((task, index) =>
+        [
+          `쓰기 ${index + 1}. ${task.prompt}`,
+          ...task.scaffolding.map((item) => `• ${item}`),
+          ...(isTeacher && task.modelAnswer ? [`모범 답안\n${task.modelAnswer}`] : []),
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      );
     case "assessment":
       return pkg.assessment.questions.map((q, index) => {
         const options = q.options?.map((option, optionIndex) => `${String.fromCharCode(65 + optionIndex)}. ${option}`).join("\n") ?? "";

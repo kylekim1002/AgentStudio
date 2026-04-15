@@ -4,6 +4,7 @@ import { useState } from "react";
 import { LessonPackage } from "@/lib/agents/types";
 import { downloadBlob, safeFilename } from "@/lib/export/downloadFile";
 import { DEFAULT_TEMPLATE_TEXT_STYLE, DocumentTemplate, getTemplateFontOption, resolveDocumentTemplate } from "@/lib/documentTemplates";
+import { getWritingTasks } from "@/lib/workflows/lesson/types";
 import {
   applyTemplateContentLimits,
   canvasLayoutLabel,
@@ -36,6 +37,7 @@ export default function PreviewPanel({
   const [exporting, setExporting] = useState<string | null>(null);
   const activeTemplate = resolveDocumentTemplate(templates, selectedTemplateId);
   const previewPackage = lessonPackage ? applyTemplateContentLimits(lessonPackage, activeTemplate) : null;
+  const writingTasks = previewPackage ? getWritingTasks(previewPackage.writing) : [];
 
   function mmToPercentX(mm: number) {
     return (mm / PAGE_WIDTH_MM) * 100;
@@ -91,8 +93,16 @@ export default function PreviewPanel({
     { key: "passage",    icon: "📖", title: "지문", badge: `${previewPackage.wordCount} words`, content: previewPackage.passage },
     { key: "reading",    icon: "❓", title: "독해 문제", badge: `${previewPackage.reading.questions.length}문항`, content: previewPackage.reading.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
     { key: "vocabulary", icon: "📝", title: "어휘 학습", badge: `${previewPackage.vocabulary.words.length}단어`, content: previewPackage.vocabulary.words.map((w) => `• ${w.word} — ${w.definition}`).join("\n") },
-    { key: "grammar",    icon: "📐", title: "문법 미니레슨", badge: null, content: `${previewPackage.grammar.focusPoint}\n\n${previewPackage.grammar.explanation}` },
-    { key: "writing",    icon: "✍️", title: "쓰기 과제", badge: null, content: previewPackage.writing.prompt },
+    { key: "grammar",    icon: "📐", title: "문법 문제", badge: null, content: `${previewPackage.grammar.focusPoint}\n\n${previewPackage.grammar.explanation}` },
+    {
+      key: "writing",
+      icon: "✍️",
+      title: "쓰기 과제",
+      badge: `${writingTasks.length}과제`,
+      content: writingTasks
+        .map((task, index) => `쓰기 ${index + 1}\n${task.prompt}`)
+        .join("\n\n"),
+    },
     { key: "assessment", icon: "📊", title: "평가지", badge: `${previewPackage.assessment.questions.length}문항 / ${previewPackage.assessment.totalPoints}점`, content: previewPackage.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n") },
   ].filter((section) => activeTemplate.visibleSections.includes(section.key as typeof activeTemplate.visibleSections[number])) : [];
 

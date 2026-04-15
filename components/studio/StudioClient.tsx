@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { AgentName, AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
-import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
+import { ContentCheckpoint, PassageCheckpoint, getWritingTasks } from "@/lib/workflows/lesson/types";
 import {
   AUTO_DOCUMENT_TEMPLATE,
   AUTO_DOCUMENT_TEMPLATE_ID,
@@ -166,6 +166,7 @@ export default function StudioClient({
     suggestedContentCounts.vocabulary,
     suggestedContentCounts.assessment,
     suggestedContentCounts.grammarExercises,
+    suggestedContentCounts.writing,
   ]);
 
   // Auto-open save dialog when a new lesson package is generated
@@ -390,7 +391,9 @@ export default function StudioClient({
       return `${checkpoint.grammar.focusPoint}\n\n${checkpoint.grammar.explanation}`;
     }
     if (key === "writing") {
-      return checkpoint.writing.prompt;
+      return getWritingTasks(checkpoint.writing)
+        .map((task, index) => `쓰기 ${index + 1}. ${task.prompt}`)
+        .join("\n");
     }
     if (key === "assessment") {
       return checkpoint.assessment.questions.map((q, i) => `Q${i + 1}. ${q.question}`).join("\n");
@@ -618,6 +621,34 @@ export default function StudioClient({
           </>
         )}
 
+        <div style={{ position: "relative" }}>
+          <select
+            value={selectedTemplateId}
+            onChange={(e) => setSelectedTemplateId(e.target.value)}
+            disabled={isRunning}
+            style={{
+              appearance: "none",
+              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+              borderRadius: "6px", border: "1px solid var(--color-border)",
+              fontSize: "12px", color: "var(--color-text-muted)",
+              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.6 : 1,
+              maxWidth: "180px",
+            }}
+            title="문서 템플릿을 선택합니다"
+          >
+            {documentTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+
         {/* 문항 수 설정 */}
         <div style={{ position: "relative" }}>
           <button
@@ -639,59 +670,99 @@ export default function StudioClient({
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 2h8M2 6h8M2 10h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            문항수 {contentCounts.reading}·{contentCounts.vocabulary}·{contentCounts.assessment}·{contentCounts.grammarExercises}
+            문항 수 설정
           </button>
-          <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.4 }}>
-            {activeTemplate.name} 기준 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises}
-          </div>
-          <div style={{ marginTop: "2px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.4 }}>
-            템플릿 슬롯 지문 {templateSectionCounts.passage} · 독해 {templateSectionCounts.reading} · 어휘 {templateSectionCounts.vocabulary} · 문법 {templateSectionCounts.grammar} · 쓰기 {templateSectionCounts.writing} · 평가 {templateSectionCounts.assessment}
+          <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {[
+              { label: "독해", value: contentCounts.reading },
+              { label: "어휘", value: contentCounts.vocabulary },
+              { label: "평가", value: contentCounts.assessment },
+              { label: "문법", value: contentCounts.grammarExercises },
+              { label: "쓰기", value: contentCounts.writing },
+            ].map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: "999px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  fontSize: "10px",
+                  color: "var(--color-text-muted)",
+                  fontWeight: "700",
+                }}
+              >
+                {item.label} {item.value}
+              </div>
+            ))}
           </div>
 
           {showCounts && (
             <>
-              {/* Click-outside backdrop */}
               <div
                 onClick={() => setShowCounts(false)}
                 style={{ position: "fixed", inset: 0, zIndex: 40 }}
               />
-              {/* Popover */}
               <div style={{
                 position: "absolute", top: "calc(100% + 6px)", left: 0,
-                minWidth: "260px", padding: "12px 14px",
+                minWidth: "300px", padding: "14px",
                 background: "var(--color-surface)",
                 border: "1px solid var(--color-border)",
-                borderRadius: "9px",
-                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+                borderRadius: "12px",
+                boxShadow: "0 10px 28px rgba(0,0,0,0.14)",
                 zIndex: 50,
               }}>
-                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px", letterSpacing: ".3px", textTransform: "uppercase" }}>
+                <div style={{ fontSize: "12px", fontWeight: "800", color: "var(--color-text)", marginBottom: "4px" }}>
                   영역별 문항 수
                 </div>
-                <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "10px", lineHeight: "1.4" }}>
-                  생성 시작 전에 각 영역의 문항 수를 지정할 수 있습니다. 현재 템플릿 기준 추천값은 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises} 입니다.
+                <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "10px", lineHeight: "1.5" }}>
+                  템플릿을 먼저 고르고, 그 기준에 맞춰 필요한 영역만 미세 조정하는 방식이 가장 안정적입니다.
                 </div>
-                <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginBottom: "10px", lineHeight: "1.5" }}>
-                  템플릿 슬롯: 지문 {templateSectionCounts.passage} / 독해 {templateSectionCounts.reading} / 어휘 {templateSectionCounts.vocabulary} / 문법 {templateSectionCounts.grammar} / 쓰기 {templateSectionCounts.writing} / 평가 {templateSectionCounts.assessment}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                    gap: "6px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  {[
+                    { label: "지문", value: templateSectionCounts.passage },
+                    { label: "독해", value: templateSectionCounts.reading },
+                    { label: "어휘", value: templateSectionCounts.vocabulary },
+                    { label: "문법", value: templateSectionCounts.grammar },
+                    { label: "쓰기", value: templateSectionCounts.writing },
+                    { label: "평가", value: templateSectionCounts.assessment },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--color-border)",
+                        background: "var(--color-bg)",
+                        display: "grid",
+                        gap: "2px",
+                      }}
+                    >
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>{item.label}</div>
+                      <div style={{ fontSize: "14px", fontWeight: "800", color: "var(--color-text)" }}>{item.value}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {([
-                  { key: "reading" as const,          label: "독해 문항",    hint: "ex. 5",  min: 1,  max: 30 },
-                  { key: "vocabulary" as const,       label: "어휘 단어",    hint: "ex. 8",  min: 1,  max: 30 },
-                  { key: "assessment" as const,       label: "평가 문항",    hint: "ex. 10", min: 1,  max: 30 },
-                  { key: "grammarExercises" as const, label: "문법 연습",    hint: "ex. 8",  min: 1,  max: 20 },
+                  { key: "reading" as const, label: "독해 문항", min: 1, max: 30, templateValue: suggestedContentCounts.reading },
+                  { key: "vocabulary" as const, label: "어휘 단어", min: 1, max: 30, templateValue: suggestedContentCounts.vocabulary },
+                  { key: "assessment" as const, label: "평가 문항", min: 1, max: 30, templateValue: suggestedContentCounts.assessment },
+                  { key: "grammarExercises" as const, label: "문법 문제", min: 1, max: 20, templateValue: suggestedContentCounts.grammarExercises },
+                  { key: "writing" as const, label: "쓰기 과제", min: 1, max: 10, templateValue: suggestedContentCounts.writing },
                 ]).map((row) => (
-                  <div key={row.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" }}>
+                  <div key={row.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "12px", color: "var(--color-text)", fontWeight: "500" }}>{row.label}</div>
+                      <div style={{ fontSize: "12px", color: "var(--color-text)", fontWeight: "600" }}>{row.label}</div>
                       <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>
-                        기본 {DEFAULT_CONTENT_COUNTS[row.key]} · 템플릿 {row.key === "reading"
-                          ? suggestedContentCounts.reading
-                          : row.key === "vocabulary"
-                            ? suggestedContentCounts.vocabulary
-                            : row.key === "assessment"
-                              ? suggestedContentCounts.assessment
-                              : suggestedContentCounts.grammarExercises}
+                        기본 {DEFAULT_CONTENT_COUNTS[row.key]} · 템플릿 {row.templateValue}
                       </div>
                     </div>
                     <input
@@ -706,8 +777,8 @@ export default function StudioClient({
                         setContentCounts((prev) => ({ ...prev, [row.key]: clamped }));
                       }}
                       style={{
-                        width: "58px", padding: "5px 8px",
-                        borderRadius: "6px",
+                        width: "62px", padding: "6px 8px",
+                        borderRadius: "8px",
                         border: "1px solid var(--color-border-strong)",
                         fontSize: "12px", textAlign: "center",
                         color: "var(--color-text)",
@@ -746,34 +817,6 @@ export default function StudioClient({
               </div>
             </>
           )}
-        </div>
-
-        <div style={{ position: "relative" }}>
-          <select
-            value={selectedTemplateId}
-            onChange={(e) => setSelectedTemplateId(e.target.value)}
-            disabled={isRunning}
-            style={{
-              appearance: "none",
-              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
-              borderRadius: "6px", border: "1px solid var(--color-border)",
-              fontSize: "12px", color: "var(--color-text-muted)",
-              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
-              cursor: isRunning ? "not-allowed" : "pointer",
-              opacity: isRunning ? 0.6 : 1,
-              maxWidth: "180px",
-            }}
-            title="문서 템플릿을 선택합니다"
-          >
-            {documentTemplates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </select>
-          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
-          </div>
         </div>
 
         <div style={{ position: "relative" }}>

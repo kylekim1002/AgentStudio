@@ -151,7 +151,19 @@ export interface GrammarOutput {
   }>;
 }
 
+export interface WritingTask {
+  prompt: string;
+  scaffolding: string[];
+  rubric: Array<{
+    criterion: string;
+    maxPoints: number;
+    description: string;
+  }>;
+  modelAnswer: string;
+}
+
 export interface WritingOutput {
+  tasks?: WritingTask[];
   prompt: string;
   scaffolding: string[];
   rubric: Array<{
@@ -218,6 +230,7 @@ export interface ContentCounts {
   vocabulary?: number;        // default 8 — 어휘 단어 수
   assessment?: number;        // default 10 — 평가 문항 수
   grammarExercises?: number;  // default 8 — 문법 연습 문제 총 개수
+  writing?: number;           // default 1 — 쓰기 과제 수
 }
 
 export const DEFAULT_CONTENT_COUNTS: Required<ContentCounts> = {
@@ -225,6 +238,7 @@ export const DEFAULT_CONTENT_COUNTS: Required<ContentCounts> = {
   vocabulary: 8,
   assessment: 10,
   grammarExercises: 8,
+  writing: 1,
 };
 
 export interface ApiKeys {
@@ -277,3 +291,23 @@ export interface AgentProgress
 }
 
 export type OnProgressCallback = OnWorkflowProgress<AgentName>;
+
+export function getWritingTasks(writing: WritingOutput): WritingTask[] {
+  if (Array.isArray(writing.tasks) && writing.tasks.length > 0) {
+    return writing.tasks.map((task) => ({
+      prompt: task.prompt,
+      scaffolding: Array.isArray(task.scaffolding) ? task.scaffolding : [],
+      rubric: Array.isArray(task.rubric) ? task.rubric : [],
+      modelAnswer: task.modelAnswer ?? "",
+    }));
+  }
+
+  return [
+    {
+      prompt: writing.prompt,
+      scaffolding: Array.isArray(writing.scaffolding) ? writing.scaffolding : [],
+      rubric: Array.isArray(writing.rubric) ? writing.rubric : [],
+      modelAnswer: writing.modelAnswer ?? "",
+    },
+  ];
+}
