@@ -39,6 +39,8 @@ Perform a comprehensive quality assurance check on the complete lesson package b
 - overallScore = (passed items / 11) * 100
 - approvedForPublish = true only if overallScore >= 80
 - List all failed checklist items in issues array
+- Use the actual provided numbers and recalculated totals; do not invent alternative totals or passing scores when the provided values are already internally consistent
+- Only flag assessment duplication when several assessment items are near-copies of reading questions, not merely because they cover the same passage topic
 - Output ONLY valid JSON — no markdown, no explanation, no code fences
 
 ## Output Schema

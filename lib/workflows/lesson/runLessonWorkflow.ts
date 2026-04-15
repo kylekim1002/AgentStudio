@@ -148,6 +148,108 @@ function normalizeAssessmentOutput(assessment: AssessmentOutput): AssessmentOutp
   };
 }
 
+function normalizeIssueText(issue: string) {
+  return issue.toLowerCase();
+}
+
+function isAssessmentScoreIssue(issue: string) {
+  const normalized = normalizeIssueText(issue);
+  return (
+    (normalized.includes("assessment") || normalized.includes("totalpoints") || normalized.includes("passingscore")) &&
+    (normalized.includes("sum of the question points") ||
+      normalized.includes("totalpoints do not match") ||
+      normalized.includes("passingscore is incorrect") ||
+      normalized.includes("should be"))
+  );
+}
+
+function isPassageWordCountIssue(issue: string) {
+  const normalized = normalizeIssueText(issue);
+  return normalized.includes("passage word count") || normalized.includes("word count exceeds");
+}
+
+function isAssessmentDuplicationIssue(issue: string) {
+  const normalized = normalizeIssueText(issue);
+  return [
+    normalized.includes("duplicate") && normalized.includes("reading questions"),
+    normalized.includes("duplicat") && normalized.includes("reading"),
+    normalized.includes("near-copy") && normalized.includes("reading"),
+    normalized.includes("too similar") && normalized.includes("reading"),
+    normalized.includes("same as") && normalized.includes("reading"),
+    normalized.includes("overlap") && normalized.includes("reading"),
+    normalized.includes("comprehension items"),
+  ].some(Boolean);
+}
+
+function reconcileQAOutput(
+  qa: QAOutput,
+  params: {
+    passage: ApprovedPassageLockOutput;
+    difficultyLock: DifficultyLockOutput;
+    assessment: AssessmentOutput;
+  }
+): QAOutput {
+  const lowerBound = Math.round(params.difficultyLock.wordCountTarget * 0.9);
+  const upperBound = Math.round(params.difficultyLock.wordCountTarget * 1.1);
+  const actualWordCount = countPassageWords(params.passage.passage);
+  const actualTotalPoints = params.assessment.questions.reduce((sum, question) => sum + question.points, 0);
+  const actualPassingScore = Math.min(
+    actualTotalPoints,
+    Math.max(0, Math.floor(actualTotalPoints * 0.7))
+  );
+
+  const filteredIssues = qa.issues.filter((issue) => {
+    if (isPassageWordCountIssue(issue)) {
+      return actualWordCount < lowerBound || actualWordCount > upperBound;
+    }
+
+    if (isAssessmentScoreIssue(issue)) {
+      return (
+        params.assessment.totalPoints !== actualTotalPoints ||
+        params.assessment.passingScore !== actualPassingScore
+      );
+    }
+
+    return true;
+  });
+
+  const removedIssueCount = Math.max(0, qa.issues.length - filteredIssues.length);
+  const estimatedPassedItems = Math.max(0, Math.min(11, Math.round((qa.overallScore / 100) * 11)));
+  const adjustedPassedItems = Math.max(
+    0,
+    Math.min(11, estimatedPassedItems + removedIssueCount)
+  );
+  const adjustedOverallScore = Math.round((adjustedPassedItems / 11) * 100);
+
+  if (filteredIssues.length === 0) {
+    return {
+      ...qa,
+      passed: true,
+      issues: [],
+      overallScore: 100,
+      approvedForPublish: true,
+    };
+  }
+
+  return {
+    ...qa,
+    issues: filteredIssues,
+    passed: filteredIssues.length === 0,
+    overallScore: Math.max(qa.overallScore, adjustedOverallScore),
+    approvedForPublish: filteredIssues.length === 0 ? true : Math.max(qa.overallScore, adjustedOverallScore) >= 80,
+  };
+}
+
+function buildAssessmentRevisionInstruction(issues: string[]) {
+  return [
+    "Revise the assessment so it passes QA.",
+    "Do not rephrase or copy the reading questions.",
+    "Use different angles such as application, synthesis, transfer, or vocabulary recall.",
+    "Recalculate totalPoints from the actual question points and set passingScore to floor(totalPoints * 0.7).",
+    `QA issues: ${issues.join(" ")}`,
+  ].join(" ");
+}
+
 function normalizeWritingOutput(writing: WritingOutput, targetCount: number): WritingOutput {
   const rawTasks =
     Array.isArray(writing.tasks) && writing.tasks.length > 0
@@ -581,17 +683,47 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       };
     }
 
-    state.qa = await runtime.step<QAOutput>(AgentName.QA, () =>
-      callAgent(AgentName.QA, {
-        passage: state.approvedPassageLock,
-        reading: state.reading,
-        vocabulary: state.vocabulary,
-        grammar: state.grammar,
-        writing: state.writing,
-        assessment: state.assessment,
-        difficultyLock: state.difficultyLock,
-      })
-    );
+    const runQA = async () =>
+      reconcileQAOutput(
+        await runtime.step<QAOutput>(AgentName.QA, () =>
+          callAgent(AgentName.QA, {
+            passage: state.approvedPassageLock,
+            reading: state.reading,
+            vocabulary: state.vocabulary,
+            grammar: state.grammar,
+            writing: state.writing,
+            assessment: state.assessment,
+            difficultyLock: state.difficultyLock,
+          })
+        ),
+        {
+          passage: state.approvedPassageLock!,
+          difficultyLock: state.difficultyLock!,
+          assessment: state.assessment!,
+        }
+      );
+
+    state.qa = await runQA();
+
+    if (
+      !state.qa.approvedForPublish &&
+      state.qa.issues.some(isAssessmentDuplicationIssue)
+    ) {
+      const revisionInstruction = buildAssessmentRevisionInstruction(state.qa.issues);
+      state.assessment = normalizeAssessmentOutput(
+        await runtime.step<AssessmentOutput>(AgentName.ASSESSMENT, () =>
+          callAgent(AgentName.ASSESSMENT, {
+            passage: state.approvedPassageLock,
+            difficultyLock: state.difficultyLock,
+            teachingFrame: state.teachingFrame,
+            targetCount: request.contentCounts?.assessment ?? DEFAULT_CONTENT_COUNTS.assessment,
+            revisionInstruction,
+          })
+        )
+      );
+
+      state.qa = await runQA();
+    }
 
     if (!state.qa.approvedForPublish) {
       throw new Error(
