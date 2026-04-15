@@ -12,16 +12,28 @@ function buildPrompt({
   title,
   prompt,
   revision,
+  references,
 }: {
   passage?: string;
   title?: string;
   prompt: string;
   revision?: string;
+  references?: Array<{ name?: string; notes?: string }>;
 }) {
   const parts = [
     `Lesson title: ${title ?? "Untitled lesson"}`,
     passage ? `Passage excerpt:\n${passage.slice(0, 1600)}` : null,
     `Base prompt:\n${prompt}`,
+    references?.length
+      ? `Reference guidance:\n${references
+          .map(
+            (reference, index) =>
+              `${index + 1}. ${reference.name ?? `Reference ${index + 1}`}${
+                reference.notes?.trim() ? ` — ${reference.notes.trim()}` : ""
+              }`
+          )
+          .join("\n")}`
+      : null,
     revision?.trim() ? `Revision request:\n${revision.trim()}` : null,
   ].filter(Boolean);
 
@@ -50,12 +62,29 @@ export async function POST(req: NextRequest) {
     passage?: string;
     title?: string;
     presetId?: string | null;
+    references?: Array<{
+      id?: string;
+      name?: string;
+      url?: string;
+      notes?: string;
+    }>;
   };
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) {
     return NextResponse.json({ error: "이미지 프롬프트가 필요합니다." }, { status: 400 });
   }
+
+  const references = Array.isArray(body.references)
+    ? body.references
+        .map((reference) => ({
+          id: typeof reference?.id === "string" ? reference.id : undefined,
+          name: typeof reference?.name === "string" ? reference.name : undefined,
+          url: typeof reference?.url === "string" ? reference.url.trim() : "",
+          notes: typeof reference?.notes === "string" ? reference.notes : undefined,
+        }))
+        .filter((reference) => reference.url)
+    : [];
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -83,14 +112,46 @@ export async function POST(req: NextRequest) {
     passage: body.passage,
     prompt,
     revision: body.revision,
+    references,
   });
 
+  async function loadReferenceFiles() {
+    const files: File[] = [];
+    for (let index = 0; index < references.length; index += 1) {
+      const reference = references[index];
+      try {
+        const response = await fetch(reference.url);
+        if (!response.ok) continue;
+        const contentType = response.headers.get("content-type") || "image/png";
+        if (!contentType.startsWith("image/")) continue;
+        const arrayBuffer = await response.arrayBuffer();
+        const extension = contentType.split("/")[1] || "png";
+        files.push(
+          new File([arrayBuffer], `reference-${index + 1}.${extension}`, {
+            type: contentType,
+          })
+        );
+      } catch {
+        continue;
+      }
+    }
+    return files;
+  }
+
   try {
-    const result = await client.images.generate({
-      model: "gpt-image-1",
-      prompt: finalPrompt,
-      size: "1536x1024",
-    });
+    const referenceFiles = await loadReferenceFiles();
+    const result = referenceFiles.length > 0
+      ? await client.images.edit({
+          model: "gpt-image-1",
+          prompt: finalPrompt,
+          image: referenceFiles,
+          size: "1536x1024",
+        })
+      : await client.images.generate({
+          model: "gpt-image-1",
+          prompt: finalPrompt,
+          size: "1536x1024",
+        });
 
     const base64 = result.data?.[0]?.b64_json;
     if (!base64) {
@@ -110,6 +171,7 @@ export async function POST(req: NextRequest) {
       metadata: {
         presetId: body.presetId ?? null,
         title: body.title ?? null,
+        referenceCount: references.length,
       },
     });
 
@@ -119,6 +181,7 @@ export async function POST(req: NextRequest) {
         url: `data:image/png;base64,${base64}`,
         prompt,
         presetId: body.presetId ?? null,
+        references,
         createdAt: new Date().toISOString(),
       },
     });

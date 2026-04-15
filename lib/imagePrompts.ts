@@ -2,6 +2,14 @@ export interface ImagePromptPreset {
   id: string;
   name: string;
   prompt: string;
+  references?: ImagePromptReference[];
+}
+
+export interface ImagePromptReference {
+  id: string;
+  name: string;
+  url: string;
+  notes?: string;
 }
 
 export const DEFAULT_IMAGE_PROMPT_PRESETS: ImagePromptPreset[] = [
@@ -23,13 +31,17 @@ function createId() {
   return `prompt-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createReferenceId() {
+  return `ref-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function normalizeImagePromptPresets(value: unknown): ImagePromptPreset[] {
   if (!Array.isArray(value) || value.length === 0) {
     return DEFAULT_IMAGE_PROMPT_PRESETS;
   }
 
   const presets = value
-    .map((item, index) => {
+    .map((item, index): ImagePromptPreset | null => {
       const source = (item ?? {}) as Record<string, unknown>;
       const name =
         typeof source.name === "string" && source.name.trim()
@@ -40,6 +52,35 @@ export function normalizeImagePromptPresets(value: unknown): ImagePromptPreset[]
           ? source.prompt.trim()
           : "";
 
+      const references = Array.isArray(source.references)
+        ? source.references
+            .map((reference, refIndex): ImagePromptReference | null => {
+              const refSource = (reference ?? {}) as Record<string, unknown>;
+              const url =
+                typeof refSource.url === "string" && refSource.url.trim()
+                  ? refSource.url.trim()
+                  : "";
+              if (!url) return null;
+
+              return {
+                id:
+                  typeof refSource.id === "string" && refSource.id.trim()
+                    ? refSource.id.trim()
+                    : createReferenceId(),
+                name:
+                  typeof refSource.name === "string" && refSource.name.trim()
+                    ? refSource.name.trim()
+                    : `참조 이미지 ${refIndex + 1}`,
+                url,
+                notes:
+                  typeof refSource.notes === "string" && refSource.notes.trim()
+                    ? refSource.notes.trim()
+                    : undefined,
+              } satisfies ImagePromptReference;
+            })
+            .filter((reference): reference is ImagePromptReference => Boolean(reference))
+        : [];
+
       if (!prompt) return null;
 
       return {
@@ -49,10 +90,10 @@ export function normalizeImagePromptPresets(value: unknown): ImagePromptPreset[]
             : createId(),
         name,
         prompt,
+        references,
       } satisfies ImagePromptPreset;
     })
     .filter((preset): preset is ImagePromptPreset => Boolean(preset));
 
   return presets.length > 0 ? presets : DEFAULT_IMAGE_PROMPT_PRESETS;
 }
-

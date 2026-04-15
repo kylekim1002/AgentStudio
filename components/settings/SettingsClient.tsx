@@ -6,7 +6,11 @@ import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 import { AppRole } from "@/lib/authz/roles";
 import { DEFAULT_REVIEW_NOTE_TEMPLATES } from "@/lib/reviewTemplates";
 import { DEFAULT_REVIEW_SLA_HOURS } from "@/lib/reviewSettings";
-import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
+import {
+  DEFAULT_IMAGE_PROMPT_PRESETS,
+  ImagePromptPreset,
+  ImagePromptReference,
+} from "@/lib/imagePrompts";
 
 type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "notifications" | "users" | "folders";
 
@@ -39,6 +43,10 @@ function initAgentProviders(): AgentProviderMap {
 
 function createPromptId() {
   return `prompt-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createPromptReferenceId() {
+  return `ref-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default function SettingsClient({
@@ -283,6 +291,14 @@ export default function SettingsClient({
             id: item.id || createPromptId(),
             name: item.name.trim() || `프롬프트 ${index + 1}`,
             prompt: item.prompt.trim(),
+            references: (item.references ?? [])
+              .map((reference, refIndex) => ({
+                id: reference.id || createPromptReferenceId(),
+                name: reference.name.trim() || `참조 이미지 ${refIndex + 1}`,
+                url: reference.url.trim(),
+                notes: reference.notes?.trim() || undefined,
+              }))
+              .filter((reference) => reference.url),
           }))
           .filter((item) => item.prompt);
 
@@ -411,6 +427,7 @@ export default function SettingsClient({
         id: createPromptId(),
         name: `프리셋 ${prev.length + 1}`,
         prompt: "",
+        references: [],
       },
     ]);
   }
@@ -436,6 +453,61 @@ export default function SettingsClient({
       next.splice(targetIndex, 0, moved);
       return next;
     });
+  }
+
+  function addImagePromptReference(presetId: string) {
+    setImagePrompts((prev) =>
+      prev.map((item) =>
+        item.id === presetId
+          ? {
+              ...item,
+              references: [
+                ...(item.references ?? []),
+                {
+                  id: createPromptReferenceId(),
+                  name: `참조 이미지 ${(item.references?.length ?? 0) + 1}`,
+                  url: "",
+                  notes: "",
+                },
+              ],
+            }
+          : item
+      )
+    );
+  }
+
+  function updateImagePromptReference(
+    presetId: string,
+    referenceId: string,
+    patch: Partial<ImagePromptReference>
+  ) {
+    setImagePrompts((prev) =>
+      prev.map((item) =>
+        item.id === presetId
+          ? {
+              ...item,
+              references: (item.references ?? []).map((reference) =>
+                reference.id === referenceId ? { ...reference, ...patch } : reference
+              ),
+            }
+          : item
+      )
+    );
+  }
+
+  function removeImagePromptReference(presetId: string, referenceId: string) {
+    setImagePrompts((prev) =>
+      prev.map((item) =>
+        item.id === presetId
+          ? {
+              ...item,
+              references: (item.references ?? []).filter(
+                (reference) => reference.id !== referenceId
+              ),
+            }
+          : item
+      )
+    );
   }
 
   return (
@@ -991,6 +1063,149 @@ export default function SettingsClient({
                         }}
                       />
                     </div>
+
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)" }}>
+                            참조 이미지
+                          </div>
+                          <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", marginTop: "4px", lineHeight: 1.6 }}>
+                            선택사항입니다. 이미지 URL과 참고 메모를 넣어두면 생성 시 해당 이미지를 참고하도록 함께 전달합니다.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addImagePromptReference(preset.id)}
+                          style={{
+                            padding: "7px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text)",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          + 참조 이미지
+                        </button>
+                      </div>
+
+                      {(preset.references ?? []).length === 0 ? (
+                        <div
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "1px dashed var(--color-border-strong)",
+                            fontSize: "11px",
+                            color: "var(--color-text-subtle)",
+                            background: "var(--color-bg)",
+                          }}
+                        >
+                          아직 참조 이미지가 없습니다. 필요하면 URL과 설명을 추가해 주세요.
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: "10px" }}>
+                          {(preset.references ?? []).map((reference, refIndex) => (
+                            <div
+                              key={reference.id}
+                              style={{
+                                display: "grid",
+                                gap: "8px",
+                                padding: "12px",
+                                borderRadius: "10px",
+                                border: "1px solid var(--color-border)",
+                                background: "var(--color-bg)",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>
+                                  참조 이미지 {refIndex + 1}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeImagePromptReference(preset.id, reference.id)}
+                                  style={{
+                                    padding: "6px 9px",
+                                    borderRadius: "8px",
+                                    border: "1px solid #FECACA",
+                                    background: "#FEF2F2",
+                                    color: "#B91C1C",
+                                    fontSize: "11px",
+                                    fontWeight: "700",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  삭제
+                                </button>
+                              </div>
+
+                              <input
+                                value={reference.name}
+                                onChange={(e) =>
+                                  updateImagePromptReference(preset.id, reference.id, {
+                                    name: e.target.value,
+                                  })
+                                }
+                                placeholder="예: 우주 배경 참고"
+                                style={{
+                                  width: "100%",
+                                  padding: "10px 12px",
+                                  borderRadius: "10px",
+                                  border: "1px solid var(--color-border-strong)",
+                                  fontSize: "13px",
+                                  boxSizing: "border-box",
+                                  background: "#fff",
+                                }}
+                              />
+
+                              <input
+                                value={reference.url}
+                                onChange={(e) =>
+                                  updateImagePromptReference(preset.id, reference.id, {
+                                    url: e.target.value,
+                                  })
+                                }
+                                placeholder="참조 이미지 URL"
+                                style={{
+                                  width: "100%",
+                                  padding: "10px 12px",
+                                  borderRadius: "10px",
+                                  border: "1px solid var(--color-border-strong)",
+                                  fontSize: "13px",
+                                  boxSizing: "border-box",
+                                  background: "#fff",
+                                }}
+                              />
+
+                              <textarea
+                                value={reference.notes ?? ""}
+                                onChange={(e) =>
+                                  updateImagePromptReference(preset.id, reference.id, {
+                                    notes: e.target.value,
+                                  })
+                                }
+                                rows={3}
+                                placeholder="이 참조 이미지에서 어떤 느낌을 참고해야 하는지 적어주세요."
+                                style={{
+                                  width: "100%",
+                                  padding: "12px 14px",
+                                  borderRadius: "10px",
+                                  border: "1px solid var(--color-border-strong)",
+                                  fontSize: "13px",
+                                  lineHeight: 1.6,
+                                  resize: "vertical",
+                                  boxSizing: "border-box",
+                                  fontFamily: "inherit",
+                                  background: "#fff",
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -1003,7 +1218,7 @@ export default function SettingsClient({
                 <br />
                 2. 템플릿 관리의 이미지 블록에서 기본 프리셋을 선택합니다.
                 <br />
-                3. 실제 이미지 생성 시 이 프리셋이 자동으로 불러와지고, 필요하면 생성 직전에 바꿀 수 있습니다.
+                3. 실제 이미지 생성 시 이 프리셋과 참조 이미지가 자동으로 불러와지고, 필요하면 생성 직전에 프롬프트를 수정할 수 있습니다.
               </div>
             </Card>
 

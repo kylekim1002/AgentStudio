@@ -116,6 +116,7 @@ export default function ChatPanel({
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
   const [input, setInput] = useState("");
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -139,14 +140,34 @@ export default function ChatPanel({
     [threads, selectedThreadId]
   );
 
+  function isStudioChatStorageMissing(message?: string | null) {
+    if (!message) return false;
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("studio_chat_threads") ||
+      normalized.includes("studio_chat_messages") ||
+      normalized.includes("schema cache") ||
+      normalized.includes("could not find the table")
+    );
+  }
+
   async function loadThreads(selectId?: string | null) {
     setThreadError(null);
     const res = await fetch("/api/studio-chat/threads", { cache: "no-store" });
-    const payload = await res.json();
+    const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setThreadError(payload.error ?? "대화 목록을 불러오지 못했습니다.");
+      const errorMessage = payload.error ?? "대화 목록을 불러오지 못했습니다.";
+      if (isStudioChatStorageMissing(errorMessage)) {
+        setStorageUnavailable(true);
+        setThreads([]);
+        setSelectedThreadId("local-thread");
+        setThreadError("대화 저장용 테이블이 아직 없어 임시 대화 모드로 동작합니다. 채팅은 계속 가능하지만, 화면을 이동하면 대화는 사라집니다.");
+        return [];
+      }
+      setThreadError(errorMessage);
       return [];
     }
+    setStorageUnavailable(false);
     const nextThreads = (payload.threads ?? []) as StoredThread[];
     setThreads(nextThreads);
 
@@ -159,6 +180,10 @@ export default function ChatPanel({
   }
 
   async function loadMessages(threadId: string) {
+    if (storageUnavailable) {
+      setLoadingMessages(false);
+      return;
+    }
     setLoadingMessages(true);
     setThreadError(null);
     setEphemeralMessages([]);
@@ -178,6 +203,17 @@ export default function ChatPanel({
   }
 
   async function createThread(resetStudio = false) {
+    if (storageUnavailable) {
+      setSelectedThreadId("local-thread");
+      setStoredMessages([]);
+      setEphemeralMessages([]);
+      setShowConfirmButton(false);
+      setActiveAgentName(null);
+      if (resetStudio) {
+        onReset();
+      }
+      return "local-thread";
+    }
     setThreadError(null);
     const res = await fetch("/api/studio-chat/threads", {
       method: "POST",
@@ -234,7 +270,7 @@ export default function ChatPanel({
       setLoadingThreads(true);
       const nextThreads = await loadThreads();
       if (cancelled) return;
-      if (!nextThreads.length) {
+      if (!nextThreads.length && !storageUnavailable) {
         await createThread();
       }
       setLoadingThreads(false);
@@ -245,12 +281,12 @@ export default function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storageUnavailable]);
 
   useEffect(() => {
-    if (!selectedThreadId) return;
+    if (!selectedThreadId || storageUnavailable) return;
     void loadMessages(selectedThreadId);
-  }, [selectedThreadId]);
+  }, [selectedThreadId, storageUnavailable]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -354,6 +390,16 @@ export default function ChatPanel({
   }
 
   async function handleDeleteThread(threadId: string) {
+    if (storageUnavailable) {
+      if (!window.confirm("현재 임시 대화 내용을 비울까요? 저장된 학습자료는 삭제되지 않습니다.")) {
+        return;
+      }
+      setStoredMessages([]);
+      setEphemeralMessages([]);
+      setShowConfirmButton(false);
+      onReset();
+      return;
+    }
     if (!window.confirm("이 대화만 삭제할까요? 저장된 학습자료는 삭제되지 않습니다.")) {
       return;
     }
@@ -405,15 +451,25 @@ export default function ChatPanel({
     const nextTitle = titleSource.slice(0, 80);
 
     try {
-      const userMessage = await saveMessage({
-        threadId,
-        role: "user",
-        text,
-        title: selectedThread?.messageCount ? null : nextTitle,
-      });
+      const userMessage = storageUnavailable
+        ? {
+            id: `local-user-${Date.now()}`,
+            role: "user" as const,
+            text,
+            agent_name: null,
+            created_at: new Date().toISOString(),
+          }
+        : await saveMessage({
+            threadId,
+            role: "user",
+            text,
+            title: selectedThread?.messageCount ? null : nextTitle,
+          });
       const nextStoredMessages = [...storedMessages, userMessage];
       setStoredMessages(nextStoredMessages);
-      await loadThreads(threadId);
+      if (!storageUnavailable) {
+        await loadThreads(threadId);
+      }
 
       setIsAiThinking(true);
       setStreamingText("");
@@ -423,12 +479,12 @@ export default function ChatPanel({
         ? {
             agentName: targetAgent,
             messages: toChatHistory(nextStoredMessages),
-            sessionId: threadId,
+            sessionId: storageUnavailable ? null : threadId,
             sessionTitle: nextTitle,
           }
         : {
             messages: toChatHistory(nextStoredMessages),
-            sessionId: threadId,
+            sessionId: storageUnavailable ? null : threadId,
             sessionTitle: nextTitle,
           };
 
@@ -467,15 +523,25 @@ export default function ChatPanel({
         }
       }
 
-      const assistantMessage = await saveMessage({
-        threadId,
-        role: "assistant",
-        text: fullText,
-        agentName: targetAgent ?? null,
-      });
+      const assistantMessage = storageUnavailable
+        ? {
+            id: `local-assistant-${Date.now()}`,
+            role: "assistant" as const,
+            text: fullText,
+            agent_name: targetAgent ?? null,
+            created_at: new Date().toISOString(),
+          }
+        : await saveMessage({
+            threadId,
+            role: "assistant",
+            text: fullText,
+            agentName: targetAgent ?? null,
+          });
       setStoredMessages((prev) => [...prev, assistantMessage]);
       setStreamingText("");
-      await loadThreads(threadId);
+      if (!storageUnavailable) {
+        await loadThreads(threadId);
+      }
 
       if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
         setShowConfirmButton(true);
@@ -572,7 +638,9 @@ export default function ChatPanel({
             + 새 프로젝트
           </button>
           <p style={{ marginTop: "8px", fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: "1.5" }}>
-            대화만 따로 저장됩니다. 삭제해도 저장된 학습자료는 유지됩니다.
+            {storageUnavailable
+              ? "지금은 임시 대화 모드입니다. 화면을 이동하면 대화가 사라집니다."
+              : "대화만 따로 저장됩니다. 삭제해도 저장된 학습자료는 유지됩니다."}
           </p>
         </div>
 

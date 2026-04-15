@@ -14,7 +14,7 @@ import {
   normalizeDocumentTemplates,
   resolveDocumentTemplate,
 } from "@/lib/documentTemplates";
-import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
+import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
 import { getTemplateImageItems } from "@/lib/documentTemplateRender";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
@@ -32,12 +32,6 @@ interface StudioClientProps {
   canExportTeacher: boolean;
   defaultProvider?: AIProvider;
   initialDocumentTemplates: DocumentTemplate[];
-}
-
-interface ImagePromptPreset {
-  id: string;
-  name: string;
-  prompt: string;
 }
 
 interface GeneratedPassageImage {
@@ -110,6 +104,14 @@ export default function StudioClient({
     [activeTemplate]
   );
   const templateImageItems = useMemo(() => getTemplateImageItems(activeTemplate), [activeTemplate]);
+  const preferredImageTemplateItem = useMemo(
+    () => templateImageItems[0]?.item ?? null,
+    [templateImageItems]
+  );
+  const selectedImagePromptPreset = useMemo(
+    () => imagePrompts.find((prompt) => prompt.id === selectedImagePromptId) ?? null,
+    [imagePrompts, selectedImagePromptId]
+  );
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
   const imageSourceTitle = useMemo(
@@ -238,6 +240,41 @@ export default function StudioClient({
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!canOpenImageTools) {
+      setShowImageTools(false);
+    }
+  }, [canOpenImageTools]);
+
+  useEffect(() => {
+    if (!showImageTools) return;
+
+    const preferredPresetId =
+      preferredImageTemplateItem?.imagePromptPresetId &&
+      imagePrompts.some((prompt) => prompt.id === preferredImageTemplateItem.imagePromptPresetId)
+        ? preferredImageTemplateItem.imagePromptPresetId
+        : selectedImagePromptId || imagePrompts[0]?.id || "";
+    const preferredPreset =
+      imagePrompts.find((prompt) => prompt.id === preferredPresetId) ?? imagePrompts[0] ?? null;
+    const preferredPromptText =
+      preferredImageTemplateItem?.imagePromptText?.trim() ||
+      preferredPreset?.prompt ||
+      "";
+
+    if (preferredPresetId && preferredPresetId !== selectedImagePromptId) {
+      setSelectedImagePromptId(preferredPresetId);
+    }
+    if (preferredPromptText && preferredPromptText !== imagePromptText) {
+      setImagePromptText(preferredPromptText);
+    }
+  }, [
+    showImageTools,
+    preferredImageTemplateItem,
+    imagePrompts,
+    selectedImagePromptId,
+    imagePromptText,
+  ]);
 
   useEffect(() => {
     if (contentCheckpoint && contentCheckpoint !== prevContentCheckpoint.current) {
@@ -477,6 +514,7 @@ export default function StudioClient({
           prompt,
           revision: mode === "revise" ? imageRevisionText : undefined,
           presetId: selectedImagePromptId || null,
+          references: selectedImagePromptPreset?.references ?? [],
           previousImageId: imageId,
         }),
       });
@@ -885,7 +923,10 @@ export default function StudioClient({
           </button>
 
           <button
-            onClick={() => canOpenImageTools && setShowImageTools((v) => !v)}
+            onClick={() => {
+              if (!canOpenImageTools) return;
+              setShowImageTools((v) => !v);
+            }}
             disabled={!canOpenImageTools}
             title={
               canOpenImageTools
@@ -1332,47 +1373,121 @@ export default function StudioClient({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: "10px", marginBottom: "10px" }}>
-            <select
-              value={selectedImagePromptId}
-              onChange={(e) => handleSelectImagePrompt(e.target.value)}
-              disabled={isGeneratingImage}
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "11px", fontWeight: "700", color: "#9A3412" }}>
+                프롬프트 프리셋
+              </span>
+              <select
+                value={selectedImagePromptId}
+                onChange={(e) => handleSelectImagePrompt(e.target.value)}
+                disabled={isGeneratingImage}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: "12px",
+                  color: "var(--color-text)",
+                }}
+              >
+                {imagePrompts.map((prompt) => (
+                  <option key={prompt.id} value={prompt.id}>
+                    {prompt.name}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                선택하면 오른쪽 입력창에 해당 프롬프트가 채워지고, 필요하면 바로 수정할 수 있습니다.
+              </div>
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "11px", fontWeight: "700", color: "#9A3412" }}>
+                현재 이미지 생성 프롬프트
+              </span>
+              <textarea
+                value={imagePromptText}
+                onChange={(e) => setImagePromptText(e.target.value)}
+                disabled={isGeneratingImage}
+                placeholder="이미지 생성 기본 프롬프트"
+                rows={4}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: "12px",
+                  lineHeight: 1.6,
+                  color: "var(--color-text)",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                현재 템플릿 이미지 블록에 기본 프롬프트가 지정돼 있으면 우선 불러오고, 없으면 선택한 프리셋으로 채웁니다.
+              </div>
+            </label>
+          </div>
+
+          {selectedImagePromptPreset?.references?.length ? (
+            <div
               style={{
-                width: "100%",
-                padding: "9px 10px",
-                borderRadius: "8px",
-                border: "1px solid var(--color-border)",
-                background: "#fff",
-                fontSize: "12px",
-                color: "var(--color-text)",
+                display: "grid",
+                gap: "10px",
+                padding: "12px",
+                borderRadius: "12px",
+                border: "1px solid #FED7AA",
+                background: "rgba(255,255,255,0.75)",
               }}
             >
-              {imagePrompts.map((prompt) => (
-                <option key={prompt.id} value={prompt.id}>
-                  {prompt.name}
-                </option>
-              ))}
-            </select>
-            <textarea
-              value={imagePromptText}
-              onChange={(e) => setImagePromptText(e.target.value)}
-              disabled={isGeneratingImage}
-              placeholder="이미지 생성 기본 프롬프트"
-              rows={4}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                borderRadius: "8px",
-                border: "1px solid var(--color-border)",
-                background: "#fff",
-                fontSize: "12px",
-                lineHeight: 1.6,
-                color: "var(--color-text)",
-                outline: "none",
-                boxSizing: "border-box",
-                resize: "vertical",
-              }}
-            />
-          </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: "700", color: "#9A3412", marginBottom: "4px" }}>
+                  참조 이미지
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                  선택한 프리셋에 연결된 참조 이미지입니다. 실제 생성 시 함께 전달되어 구도, 질감, 분위기를 참고합니다.
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
+                {selectedImagePromptPreset.references.map((reference, index) => (
+                  <div
+                    key={reference.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: "1px solid var(--color-border)",
+                      background: "#fff",
+                      padding: "10px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>
+                      {reference.name || `참조 이미지 ${index + 1}`}
+                    </div>
+                    <img
+                      src={reference.url}
+                      alt={reference.name || `참조 이미지 ${index + 1}`}
+                      style={{
+                        width: "100%",
+                        aspectRatio: "4 / 3",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                        border: "1px solid var(--color-border)",
+                        background: "#F8FAFC",
+                      }}
+                    />
+                    {reference.notes && (
+                      <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                        {reference.notes}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <textarea
             value={imageRevisionText}
