@@ -185,10 +185,10 @@ export default function UsageClient() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <div className="mx-auto w-full max-w-[1760px] px-6 py-6 xl:px-10">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(420px,560px)] xl:items-start">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
                 AI 사용량
               </h1>
               <p className="mt-1 text-sm text-slate-500">
@@ -196,7 +196,7 @@ export default function UsageClient() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
               <label className="flex flex-col gap-1 text-sm text-slate-600">
                 시작일
                 <input
@@ -237,55 +237,55 @@ export default function UsageClient() {
                   setPage(1);
                   void loadData();
                 }}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 sm:self-end"
               >
                 {refreshing ? "조회 중..." : "조회"}
               </button>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-4 text-white">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+            <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3.5 text-white">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Workflows</div>
-              <div className="mt-2 text-3xl font-semibold">{formatNumber(summaryCards.sessions)}</div>
+              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.sessions)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Requests</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.totalRequests)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.totalRequests)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Input</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.inputTokens)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.inputTokens)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Output</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.outputTokens)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.outputTokens)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Total Tokens</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.totalTokens)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.totalTokens)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Estimated Cost</div>
-              <div className="mt-2 text-xl font-semibold">{formatMoneyUsd(summaryCards.totalCostUsd)}</div>
+              <div className="mt-2 text-lg font-semibold">{formatMoneyUsd(summaryCards.totalCostUsd)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Users</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.uniqueUsers)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.uniqueUsers)}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Models</div>
-              <div className="mt-2 text-2xl font-semibold">{formatNumber(summaryCards.modelsUsed)}</div>
+              <div className="mt-2 text-xl font-semibold">{formatNumber(summaryCards.modelsUsed)}</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 py-6">
+      <div className="mx-auto w-full max-w-[1760px] px-6 py-6 xl:px-10">
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">작업 묶음별 사용 내역</h2>
+              <h2 className="text-sm font-semibold text-slate-900">작업 묶음별 사용 내역</h2>
               <p className="text-sm text-slate-500">
                 {data ? `${data.range.from} ~ ${data.range.to}` : "선택한 기간의 로그를 보여줍니다."}
               </p>
@@ -310,12 +310,12 @@ export default function UsageClient() {
                     <button
                       type="button"
                       onClick={() => setExpandedGroupId(expanded ? null : group.id)}
-                      className="flex w-full flex-col gap-3 px-5 py-4 text-left transition hover:bg-slate-50"
+                      className="flex w-full flex-col gap-4 px-5 py-5 text-left transition hover:bg-slate-50"
                     >
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(540px,0.9fr)] xl:items-start">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-base font-semibold text-slate-900">{group.title}</span>
+                            <span className="text-sm font-semibold text-slate-900">{group.title}</span>
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                               {workflowLabel(group.workflow)}
                             </span>
@@ -328,69 +328,61 @@ export default function UsageClient() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                          <div>
-                            <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Tokens</div>
-                            <div className="mt-1 font-semibold text-slate-900">{formatNumber(group.totalTokens)}</div>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Tokens</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(group.totalTokens)}</div>
                           </div>
-                          <div>
-                            <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Input / Output</div>
-                            <div className="mt-1 font-semibold text-slate-900">
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Input / Output</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">
                               {formatNumber(group.inputTokens)} / {formatNumber(group.outputTokens)}
                             </div>
                           </div>
-                          <div>
-                            <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Estimated Cost</div>
-                            <div className="mt-1 font-semibold text-slate-900">{formatMoneyUsd(group.estimatedCostUsd)}</div>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Estimated Cost</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{formatMoneyUsd(group.estimatedCostUsd)}</div>
                           </div>
-                          <div>
-                            <div className="text-xs uppercase tracking-[0.14em] text-slate-400">AI</div>
-                            <div className="mt-1 font-semibold text-slate-900">{group.models.join(", ") || group.providers.join(", ")}</div>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">AI</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{group.models.join(", ") || group.providers.join(", ")}</div>
                           </div>
                         </div>
                       </div>
                     </button>
 
                     {expanded ? (
-                      <div className="overflow-x-auto border-t border-slate-100 bg-slate-50/70">
-                        <table className="min-w-full divide-y divide-slate-200 text-sm">
-                          <thead className="bg-white text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            <tr>
-                              <th className="px-5 py-3">사용일시</th>
-                              <th className="px-5 py-3">사용된 AI</th>
-                              <th className="px-5 py-3">에이전트/경로</th>
-                              <th className="px-5 py-3">토큰</th>
-                              <th className="px-5 py-3">예상 비용</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
-                            {group.items.map((item) => (
-                              <tr key={item.id} className="align-top text-slate-700">
-                                <td className="px-5 py-4">
-                                  <div className="font-medium text-slate-900">{formatDateTime(item.createdAt)}</div>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="font-medium text-slate-900">{providerLabel(item.provider, item.model)}</div>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="font-medium text-slate-900">{compactAgentLabel(item.agent)}</div>
-                                  <div className="mt-1 text-xs text-slate-400">
-                                    {item.workflow ?? item.endpoint ?? "-"}
-                                  </div>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="font-medium text-slate-900">총 {formatNumber(item.totalTokens)}</div>
-                                  <div className="mt-1 text-xs text-slate-400">
-                                    입력 {formatNumber(item.inputTokens)} / 출력 {formatNumber(item.outputTokens)}
-                                  </div>
-                                </td>
-                                <td className="px-5 py-4 font-medium text-slate-900">
-                                  {formatMoneyUsd(item.estimatedCostUsd)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-4">
+                        <div className="grid gap-3">
+                          {group.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="grid gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.9fr)_minmax(220px,0.8fr)_minmax(220px,0.8fr)]"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-slate-900">{formatDateTime(item.createdAt)}</div>
+                                <div className="mt-1 text-xs text-slate-400">
+                                  {compactAgentLabel(item.agent)} · {item.workflow ?? item.endpoint ?? "-"}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">사용된 AI</div>
+                                <div className="mt-1 text-sm font-medium text-slate-900">{providerLabel(item.provider, item.model)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">토큰 사용량</div>
+                                <div className="mt-1 text-sm font-medium text-slate-900">총 {formatNumber(item.totalTokens)}</div>
+                                <div className="mt-1 text-xs text-slate-400">
+                                  입력 {formatNumber(item.inputTokens)} / 출력 {formatNumber(item.outputTokens)}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">예상 비용</div>
+                                <div className="mt-1 text-sm font-medium text-slate-900">{formatMoneyUsd(item.estimatedCostUsd)}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : null}
                   </div>
