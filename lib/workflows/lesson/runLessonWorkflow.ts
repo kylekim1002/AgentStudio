@@ -21,6 +21,7 @@ import {
   QAOutput,
   ReadingOutput,
   ResearchCurationOutput,
+  SourceMode,
   SourceModeRouterOutput,
   TeachingFrameOutput,
   TopicSelectionOutput,
@@ -115,6 +116,24 @@ function reconcilePassageValidation(
   };
 }
 
+function buildPassageRevisionInstruction(validation: PassageValidationOutput) {
+  const issueText = validation.issues.length
+    ? `Validation issues: ${validation.issues.join(" ")}`
+    : "";
+  const suggestionText = validation.suggestions.length
+    ? `Suggestions: ${validation.suggestions.join(" ")}`
+    : "";
+
+  return [
+    "Revise the passage so it passes validation.",
+    "Keep one dominant focus only and make sure the title matches that focus.",
+    issueText,
+    suggestionText,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function normalizeAssessmentOutput(assessment: AssessmentOutput): AssessmentOutput {
   const normalizedQuestions = assessment.questions.map((question) => ({
     ...question,
@@ -196,6 +215,58 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
 
     const callAgent = <T>(name: AgentName, input: unknown): Promise<T> =>
       runLessonAgent<T>(name, request.provider, input, request.apiKeys);
+
+    const generateValidatedPassage = async (params: {
+      mode: SourceMode | undefined;
+      providedPassage?: string;
+      topicSelection?: TopicSelectionOutput;
+      researchCuration?: ResearchCurationOutput;
+      difficultyLock: DifficultyLockOutput;
+      teachingFrame: TeachingFrameOutput;
+      allowRetry?: boolean;
+    }) => {
+      const runGeneration = async (revisionInstruction?: string) =>
+        normalizePassageGenerationOutput(
+          await runtime.step<PassageGenerationOutput>(
+            AgentName.PASSAGE_GENERATION,
+            () =>
+              callAgent(AgentName.PASSAGE_GENERATION, {
+                mode: params.mode,
+                providedPassage: params.providedPassage,
+                topicSelection: params.topicSelection,
+                researchCuration: params.researchCuration,
+                difficultyLock: params.difficultyLock,
+                teachingFrame: params.teachingFrame,
+                ...(revisionInstruction ? { revisionInstruction } : {}),
+              })
+          ),
+          params.difficultyLock.difficulty
+        );
+
+      const runValidation = async (passage: PassageGenerationOutput) => {
+        const rawValidation = await runtime.step<PassageValidationOutput>(
+          AgentName.PASSAGE_VALIDATION,
+          () =>
+            callAgent(AgentName.PASSAGE_VALIDATION, {
+              passage,
+              difficultyLock: params.difficultyLock,
+            })
+        );
+
+        return reconcilePassageValidation(rawValidation, passage, params.difficultyLock);
+      };
+
+      let passage = await runGeneration();
+      let validation = await runValidation(passage);
+
+      if (!validation.approved && params.allowRetry !== false) {
+        const revisionInstruction = buildPassageRevisionInstruction(validation);
+        passage = await runGeneration(revisionInstruction);
+        validation = await runValidation(passage);
+      }
+
+      return { passage, validation };
+    };
 
     const runContentStage = async () => {
       const lockedContext = {
@@ -294,12 +365,15 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       });
 
       if (request.passageCheckpoint.needsRevalidation) {
-        state.passageGeneration = normalizePassageGenerationOutput({
-          passage: request.passageCheckpoint.approvedPassageLock.passage,
-          title: request.passageCheckpoint.approvedPassageLock.title,
-          wordCount: request.passageCheckpoint.approvedPassageLock.wordCount,
-          difficulty: request.passageCheckpoint.difficultyLock.difficulty,
-        }, request.passageCheckpoint.difficultyLock.difficulty);
+        state.passageGeneration = normalizePassageGenerationOutput(
+          {
+            passage: request.passageCheckpoint.approvedPassageLock.passage,
+            title: request.passageCheckpoint.approvedPassageLock.title,
+            wordCount: request.passageCheckpoint.approvedPassageLock.wordCount,
+            difficulty: request.passageCheckpoint.difficultyLock.difficulty,
+          },
+          request.passageCheckpoint.difficultyLock.difficulty
+        );
 
         runtime.emit({
           step: AgentName.PASSAGE_GENERATION,
@@ -307,19 +381,21 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
           output: state.passageGeneration,
         });
 
-        const rawValidation = await runtime.step<PassageValidationOutput>(
-          AgentName.PASSAGE_VALIDATION,
-          () =>
-            callAgent(AgentName.PASSAGE_VALIDATION, {
-              passage: state.passageGeneration,
-              difficultyLock: state.difficultyLock,
-            })
-        );
-        state.passageValidation = reconcilePassageValidation(
-          rawValidation,
-          state.passageGeneration,
-          state.difficultyLock
-        );
+        state.passageValidation = await (async () => {
+          const rawValidation = await runtime.step<PassageValidationOutput>(
+            AgentName.PASSAGE_VALIDATION,
+            () =>
+              callAgent(AgentName.PASSAGE_VALIDATION, {
+                passage: state.passageGeneration,
+                difficultyLock: state.difficultyLock,
+              })
+          );
+          return reconcilePassageValidation(
+            rawValidation,
+            state.passageGeneration!,
+            state.difficultyLock!
+          );
+        })();
 
         if (!state.passageValidation.approved) {
           throw new Error(
@@ -435,35 +511,16 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         runtime.emit({ step: AgentName.RESEARCH_CURATION, status: "skipped" });
       }
 
-      state.passageGeneration = normalizePassageGenerationOutput(
-        await runtime.step<PassageGenerationOutput>(
-        AgentName.PASSAGE_GENERATION,
-        () =>
-          callAgent(AgentName.PASSAGE_GENERATION, {
-            mode: state.sourceModeRouter?.mode,
-            providedPassage: state.sourceModeRouter?.providedPassage,
-            topicSelection: state.topicSelection,
-            researchCuration: state.researchCuration,
-            difficultyLock: state.difficultyLock,
-            teachingFrame: state.teachingFrame,
-          })
-      ),
-        state.difficultyLock.difficulty
-      );
-
-      const rawValidation = await runtime.step<PassageValidationOutput>(
-        AgentName.PASSAGE_VALIDATION,
-        () =>
-          callAgent(AgentName.PASSAGE_VALIDATION, {
-            passage: state.passageGeneration,
-            difficultyLock: state.difficultyLock,
-          })
-      );
-      state.passageValidation = reconcilePassageValidation(
-        rawValidation,
-        state.passageGeneration,
-        state.difficultyLock
-      );
+      const passageStage = await generateValidatedPassage({
+        mode: state.sourceModeRouter?.mode,
+        providedPassage: state.sourceModeRouter?.providedPassage,
+        topicSelection: state.topicSelection,
+        researchCuration: state.researchCuration,
+        difficultyLock: state.difficultyLock,
+        teachingFrame: state.teachingFrame,
+      });
+      state.passageGeneration = passageStage.passage;
+      state.passageValidation = passageStage.validation;
 
       if (!state.passageValidation.approved) {
         throw new Error(

@@ -11,7 +11,8 @@ Write an original reading passage suitable for the lesson, strictly respecting t
   "topicSelection": { ... } | null,
   "researchCuration": { ... } | null,
   "difficultyLock": { "difficulty": "...", "wordCountTarget": ..., "vocabularyLevel": "...", "locked": true },
-  "teachingFrame": { "gradeLevel": "...", "targetSkills": [...], "lessonObjective": "..." }
+  "teachingFrame": { "gradeLevel": "...", "targetSkills": [...], "lessonObjective": "..." },
+  "revisionInstruction": "<optional string describing what to fix from prior validation>"
 }
 ```
 
@@ -23,6 +24,11 @@ Write an original reading passage suitable for the lesson, strictly respecting t
 - Use clear paragraph structure with a title
 - Avoid first-person narration; write in third-person informational style
 - Do NOT include questions or activities in the passage
+- Keep exactly one dominant focus throughout the passage
+- The title MUST match the main focus of the passage, not a smaller side point
+- If the title is action-oriented (for example, "what kids can do", "ways to help", "how students can help"), most of the passage must also focus on actions or solutions
+- If the passage spends substantial space on causes or effects, use a broader explanatory title instead of a narrow action title
+- When revisionInstruction is provided, treat it as a required correction target for this rewrite
 - Output ONLY valid JSON — no markdown, no explanation, no code fences
 
 ## Output Schema

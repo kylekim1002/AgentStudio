@@ -650,20 +650,22 @@ export default function StudioClient({
         </div>
 
         {/* 문항 수 설정 */}
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: "1 1 360px", justifyContent: "flex-end" }}>
           <button
             onClick={() => setShowCounts((v) => !v)}
             disabled={isRunning}
             style={{
               display: "flex", alignItems: "center", gap: "6px",
-              padding: "5px 10px", borderRadius: "6px",
+              padding: "5px 10px", borderRadius: "8px",
               border: `1px solid ${showCounts ? "var(--color-primary)" : "var(--color-border)"}`,
               background: showCounts ? "var(--color-primary-light)" : "var(--color-surface)",
               color: showCounts ? "var(--color-primary)" : "var(--color-text-muted)",
-              fontSize: "12px", fontWeight: "500",
+              fontSize: "12px", fontWeight: "600",
               cursor: isRunning ? "not-allowed" : "pointer",
               opacity: isRunning ? 0.5 : 1,
               transition: ".15s",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
             }}
             title="각 영역별 문항 수를 조정합니다"
           >
@@ -672,7 +674,7 @@ export default function StudioClient({
             </svg>
             문항 수 설정
           </button>
-          <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: "6px", minWidth: 0 }}>
             {[
               { label: "독해", value: contentCounts.reading },
               { label: "어휘", value: contentCounts.vocabulary },
@@ -683,13 +685,14 @@ export default function StudioClient({
               <div
                 key={item.label}
                 style={{
-                  padding: "4px 8px",
+                  padding: "4px 9px",
                   borderRadius: "999px",
                   border: "1px solid var(--color-border)",
-                  background: "var(--color-surface)",
-                  fontSize: "10px",
-                  color: "var(--color-text-muted)",
+                  background: showCounts ? "rgba(59,130,246,0.08)" : "var(--color-surface)",
+                  fontSize: "11px",
+                  color: showCounts ? "var(--color-primary)" : "var(--color-text-muted)",
                   fontWeight: "700",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {item.label} {item.value}
@@ -704,7 +707,7 @@ export default function StudioClient({
                 style={{ position: "fixed", inset: 0, zIndex: 40 }}
               />
               <div style={{
-                position: "absolute", top: "calc(100% + 6px)", left: 0,
+                position: "absolute", top: "calc(100% + 8px)", right: 0,
                 minWidth: "300px", padding: "14px",
                 background: "var(--color-surface)",
                 border: "1px solid var(--color-border)",
