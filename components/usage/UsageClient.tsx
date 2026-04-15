@@ -183,7 +183,7 @@ export default function UsageClient() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="h-full overflow-y-auto bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-[1760px] px-6 py-6 xl:px-10">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(420px,560px)] xl:items-start">
