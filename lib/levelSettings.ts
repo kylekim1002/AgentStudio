@@ -101,5 +101,5 @@ export function getLevelInternalDifficulty(level: LevelSetting | null | undefine
 export function buildLevelContextText(level: LevelSetting | null | undefined) {
   if (!level) return "";
   const band = getOfficialDifficultyBand(level.difficultyBandId);
-  return `선택된 레벨 설정: ${level.name} / 공식 난이도 ${band.label} / 내부 난이도 ${band.internalDifficulty} / Lexile ${level.lexileMin}L-${level.lexileMax}L`;
+  return `선택된 레벨 설정: ${level.name} / 난이도 ${band.label} / Lexile ${level.lexileMin}L-${level.lexileMax}L`;
 }

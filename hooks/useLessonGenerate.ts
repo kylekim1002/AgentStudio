@@ -63,6 +63,10 @@ export function useLessonGenerate() {
       userInput: string;
       provider: AIProvider;
       difficulty?: DifficultyLevel;
+      requestedLevelName?: string;
+      requestedOfficialDifficulty?: string;
+      requestedLexileMin?: number;
+      requestedLexileMax?: number;
       providedPassage?: string;
       approvalMode?: "auto" | "require_review";
       contentCounts?: ContentCounts;

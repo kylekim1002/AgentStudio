@@ -53,6 +53,9 @@ export interface TeachingFrameOutput {
 
 export interface DifficultyLockOutput {
   difficulty: DifficultyLevel;
+  officialDifficulty?: string;
+  lexileMin?: number;
+  lexileMax?: number;
   wordCountTarget: number;
   vocabularyLevel: string;
   locked: true;
@@ -252,6 +255,10 @@ export interface LessonRequest {
   userId?: string;
   provider: AIProvider;
   difficulty?: DifficultyLevel;
+  requestedLevelName?: string;
+  requestedOfficialDifficulty?: string;
+  requestedLexileMin?: number;
+  requestedLexileMax?: number;
   providedPassage?: string;
   approvalMode?: "auto" | "require_review";
   contentCounts?: ContentCounts;

@@ -584,7 +584,12 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         () =>
           callAgent(AgentName.DIFFICULTY_LOCK, {
             teachingFrame: state.teachingFrame,
+            userInput: request.userInput,
             requestedDifficulty: request.difficulty,
+            requestedLevelName: request.requestedLevelName,
+            requestedOfficialDifficulty: request.requestedOfficialDifficulty,
+            requestedLexileMin: request.requestedLexileMin,
+            requestedLexileMax: request.requestedLexileMax,
           })
       );
 

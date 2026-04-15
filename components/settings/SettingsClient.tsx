@@ -1506,7 +1506,7 @@ export default function SettingsClient({
                             ))}
                           </select>
                           <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
-                            내부 난이도 기준: {band.internalDifficulty} · {band.description}
+                            {band.description}
                           </div>
                         </div>
 

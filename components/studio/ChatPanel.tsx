@@ -637,8 +637,12 @@ export default function ChatPanel({
 
   function handleConfirm() {
     setShowConfirmButton(false);
-    const lastAssistant = [...chatHistory].reverse().find((message) => message.role === "assistant");
-    const summary = lastAssistant?.content ?? "";
+    const transcript = chatHistory
+      .map((message) => `${message.role === "user" ? "교사" : "AI"}: ${message.content}`)
+      .join("\n");
+    const summary = transcript
+      ? `다음은 레슨 생성 전 대화 기록입니다. 사용자의 난이도/렉사일/어휘/문장 수준 조정 요청이 있으면 반드시 반영하세요.\n\n${transcript}`
+      : "";
     onConfirmGenerate(summary);
     setEphemeralMessages((prevItems) => [
       ...prevItems,

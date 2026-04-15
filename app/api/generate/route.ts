@@ -50,6 +50,10 @@ export async function POST(req: NextRequest) {
     userInput?: string;
     provider?: string;
     difficulty?: string;
+    requestedLevelName?: string;
+    requestedOfficialDifficulty?: string;
+    requestedLexileMin?: number;
+    requestedLexileMax?: number;
     providedPassage?: string;
     approvalMode?: "auto" | "require_review";
     contentCounts?: ContentCounts;
@@ -111,6 +115,11 @@ export async function POST(req: NextRequest) {
       }
     : undefined;
 
+  const safeLexileValue = (value: unknown) => {
+    const num = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(num) ? Math.max(0, Math.floor(num)) : undefined;
+  };
+
   const lessonRequest: LessonRequest = {
     userInput,
     userId: user.id,
@@ -118,6 +127,20 @@ export async function POST(req: NextRequest) {
       ? (resolvedProvider ?? AIProvider.CLAUDE)
       : AIProvider.CLAUDE,
     difficulty: difficulty as DifficultyLevel | undefined,
+    requestedLevelName:
+      body && typeof body === "object" && typeof (body as { requestedLevelName?: unknown }).requestedLevelName === "string"
+        ? ((body as { requestedLevelName?: string }).requestedLevelName || undefined)
+        : undefined,
+    requestedOfficialDifficulty:
+      body && typeof body === "object" && typeof (body as { requestedOfficialDifficulty?: unknown }).requestedOfficialDifficulty === "string"
+        ? ((body as { requestedOfficialDifficulty?: string }).requestedOfficialDifficulty || undefined)
+        : undefined,
+    requestedLexileMin: safeLexileValue(
+      body && typeof body === "object" ? (body as { requestedLexileMin?: unknown }).requestedLexileMin : undefined
+    ),
+    requestedLexileMax: safeLexileValue(
+      body && typeof body === "object" ? (body as { requestedLexileMax?: unknown }).requestedLexileMax : undefined
+    ),
     providedPassage,
     generationTarget:
       generationTarget === "passage_review" ||
