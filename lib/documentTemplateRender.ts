@@ -1,6 +1,7 @@
 import { LessonPackage } from "@/lib/agents/types";
 import {
   getTemplateSuggestedContentCounts,
+  getTemplateSectionBlockCounts,
   DocumentSectionKey,
   DocumentTemplate,
   TemplateCanvasItem,
@@ -235,6 +236,7 @@ function buildStructuredSectionAssignments(
 ) {
   const assignments = new Map<string, string>();
   const pools = new Map<string, string[]>();
+  const sectionBlockCounts = getTemplateSectionBlockCounts(template);
 
   for (const page of template.pages) {
     for (const item of page.items) {
@@ -243,7 +245,10 @@ function buildStructuredSectionAssignments(
         pools.set(item.sectionKey, [...getStructuredSectionEntries(pkg, item.sectionKey, isTeacher)]);
       }
       const pool = pools.get(item.sectionKey) ?? [];
-      const limit = Math.max(0, item.sectionItemLimit ?? 0);
+      const limit =
+        sectionBlockCounts[item.sectionKey] > 1
+          ? 1
+          : Math.max(0, item.sectionItemLimit ?? 0);
       const chunk = limit > 0 ? pool.splice(0, limit) : [];
       assignments.set(item.id, chunk.join("\n\n").trim());
     }

@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_TEMPLATE_TEXT_STYLE,
-  DEFAULT_TEMPLATE_SECTION_COUNTS,
   DEFAULT_DOCUMENT_TEMPLATES,
   DocumentSectionKey,
   DocumentTemplate,
+  getTemplateSectionBlockCounts,
   getTemplateFontOption,
   TEMPLATE_FONT_OPTIONS,
   TemplateCanvasItem,
@@ -25,12 +25,6 @@ const SECTION_OPTIONS: Array<{ key: DocumentSectionKey; label: string }> = [
   { key: "grammar", label: "문법" },
   { key: "writing", label: "쓰기" },
   { key: "assessment", label: "평가지" },
-];
-
-const ITEM_TYPE_OPTIONS: Array<{ value: TemplateCanvasItemType; label: string }> = [
-  { value: "section", label: "섹션 블록" },
-  { value: "text", label: "텍스트 블록" },
-  { value: "image", label: "이미지 블록" },
 ];
 
 interface ImagePromptPreset {
@@ -523,6 +517,10 @@ export default function TemplatesClient() {
     () => new Set(pageWarnings.flatMap((warning) => warning.itemIds)),
     [pageWarnings]
   );
+  const selectedTemplateSectionCounts = useMemo(
+    () => (selectedTemplate ? getTemplateSectionBlockCounts(selectedTemplate) : null),
+    [selectedTemplate]
+  );
   const layoutColumns = useMemo(() => {
     if (viewportWidth < 1180) return "1fr";
     if (viewportWidth < 1540) return "280px minmax(0, 1fr)";
@@ -876,6 +874,7 @@ export default function TemplatesClient() {
             type,
             label: "새 섹션",
             sectionKey,
+            sectionItemLimit: 1,
             x: 12,
             y: 12,
             w: 60,
@@ -946,6 +945,36 @@ export default function TemplatesClient() {
     updatePages(nextPages, { recordHistory: false });
     setSelectedItemId(null);
     setSelectedItemIds([]);
+  }
+
+  function addSectionItem(sectionKey: DocumentSectionKey) {
+    if (!selectedPage || !selectedTemplate) return;
+    recordHistorySnapshot();
+    const sectionLabel = SECTION_OPTIONS.find((section) => section.key === sectionKey)?.label ?? "섹션";
+    const nextItem: TemplateCanvasItem = {
+      id: createId("item"),
+      type: "section",
+      label: sectionLabel,
+      sectionKey,
+      sectionItemLimit: 1,
+      x: 12,
+      y: 12,
+      w: 60,
+      h: 28,
+      fontFamily: DEFAULT_TEMPLATE_TEXT_STYLE.fontFamily,
+      fontSize: DEFAULT_TEMPLATE_TEXT_STYLE.fontSize,
+      fontColor: DEFAULT_TEMPLATE_TEXT_STYLE.fontColor,
+      highlightColor: DEFAULT_TEMPLATE_TEXT_STYLE.highlightColor,
+      bold: DEFAULT_TEMPLATE_TEXT_STYLE.bold,
+      italic: DEFAULT_TEMPLATE_TEXT_STYLE.italic,
+      underline: DEFAULT_TEMPLATE_TEXT_STYLE.underline,
+    };
+    const nextPages = selectedTemplate.pages.map((page) =>
+      page.id === selectedPage.id ? { ...page, items: [...page.items, nextItem] } : page
+    );
+    updatePages(nextPages, { recordHistory: false });
+    setSelectedItemId(nextItem.id);
+    setSelectedItemIds([nextItem.id]);
   }
 
   function removeItems(itemIds: string[]) {
@@ -1484,8 +1513,67 @@ export default function TemplatesClient() {
                   )}
                 </div>
 
+                {selectedTemplateSectionCounts && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "var(--color-bg)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    {SECTION_OPTIONS.map((section) => (
+                      <div
+                        key={section.key}
+                        style={{
+                          padding: "6px 9px",
+                          borderRadius: "999px",
+                          background: "var(--color-surface)",
+                          border: "1px solid var(--color-border)",
+                          fontSize: "11px",
+                          color: "var(--color-text)",
+                          fontWeight: "700",
+                        }}
+                      >
+                        {section.label} {selectedTemplateSectionCounts[section.key]}
+                      </div>
+                    ))}
+                    <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                      섹션 블록을 하나 추가할 때마다 해당 항목 수가 1개씩 늘어납니다.
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {ITEM_TYPE_OPTIONS.map((itemType) => (
+                  {SECTION_OPTIONS.map((section) => (
+                    <button
+                      key={section.key}
+                      type="button"
+                      onClick={() => addSectionItem(section.key)}
+                      disabled={!selectedPage}
+                      style={{
+                        padding: "7px 10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--color-border)",
+                        background: "var(--color-surface)",
+                        color: "var(--color-text)",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: selectedPage ? "pointer" : "not-allowed",
+                        opacity: selectedPage ? 1 : 0.5,
+                      }}
+                    >
+                      +{section.label}
+                    </button>
+                  ))}
+                  {([
+                    { value: "text", label: "텍스트" },
+                    { value: "image", label: "이미지" },
+                  ] as const).map((itemType) => (
                     <button
                       key={itemType.value}
                       type="button"
@@ -1503,7 +1591,7 @@ export default function TemplatesClient() {
                         opacity: selectedPage ? 1 : 0.5,
                       }}
                     >
-                      + {itemType.label}
+                      +{itemType.label}
                     </button>
                   ))}
                 </div>
@@ -1906,15 +1994,9 @@ export default function TemplatesClient() {
                           updateItem(selectedItem.id, {
                             sectionKey: nextSectionKey,
                             sectionItemLimit:
-                              nextSectionKey === "reading"
-                                ? DEFAULT_TEMPLATE_SECTION_COUNTS.reading
-                                : nextSectionKey === "vocabulary"
-                                  ? DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary
-                                  : nextSectionKey === "grammar"
-                                    ? DEFAULT_TEMPLATE_SECTION_COUNTS.grammar
-                                    : nextSectionKey === "assessment"
-                                      ? DEFAULT_TEMPLATE_SECTION_COUNTS.assessment
-                                      : null,
+                              nextSectionKey === "passage" || nextSectionKey === "writing"
+                                ? null
+                                : 1,
                           });
                         }}
                         style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
@@ -1925,31 +2007,9 @@ export default function TemplatesClient() {
                       </select>
                     </label>
 
-                    {(selectedItem.sectionKey === "reading" ||
-                      selectedItem.sectionKey === "vocabulary" ||
-                      selectedItem.sectionKey === "grammar" ||
-                      selectedItem.sectionKey === "assessment") && (
-                      <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)" }}>
-                          이 섹션 표시 수
-                        </span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={30}
-                          value={selectedItem.sectionItemLimit ?? 1}
-                          onChange={(e) =>
-                            updateItem(selectedItem.id, {
-                              sectionItemLimit: Math.max(1, Math.min(30, Number(e.target.value) || 1)),
-                            })
-                          }
-                          style={{ padding: "8px 9px", borderRadius: "8px", border: "1px solid var(--color-border)", fontSize: "12px" }}
-                        />
-                        <span style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
-                          템플릿을 선택하면 이 수에 맞춰 생성 문항 수가 자동 조정되고, 미리보기와 내보내기에서도 이 개수까지만 표시됩니다.
-                        </span>
-                      </label>
-                    )}
+                    <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                      이 블록 1개가 해당 섹션 항목 1개로 계산됩니다. 같은 종류 블록을 여러 개 추가하면 스튜디오 추천 문항 수와 내보내기 표시 수도 그 개수에 맞춰집니다.
+                    </div>
                   </>
                 )}
 

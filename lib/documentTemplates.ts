@@ -238,7 +238,63 @@ function createImageItem(label: string, x: number, y: number, w: number, h: numb
   };
 }
 
+function createSectionSlots(
+  sectionKey: DocumentSectionKey,
+  label: string,
+  count: number,
+  x: number,
+  y: number,
+  columns: number,
+  itemW: number,
+  itemH: number,
+  gapX = 4,
+  gapY = 4
+): TemplateCanvasItem[] {
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    return createSectionItem(
+      sectionKey,
+      `${label} ${index + 1}`,
+      x + col * (itemW + gapX),
+      y + row * (itemH + gapY),
+      itemW,
+      itemH
+    );
+  });
+}
+
 function createDefaultPages(templateId: string): TemplateCanvasPage[] {
+  if (templateId === "classic-workbook") {
+    return [
+      {
+        id: `${templateId}-page-1`,
+        name: "1페이지",
+        items: [
+          createTextItem("문서 제목", "제목 영역", 8, 8, 70, 10),
+          createSectionItem("passage", "지문", 8, 22, 84, 86),
+        ],
+      },
+      {
+        id: `${templateId}-page-2`,
+        name: "2페이지",
+        items: [
+          ...createSectionSlots("reading", "독해", 4, 8, 8, 2, 40, 38),
+          ...createSectionSlots("vocabulary", "어휘", 8, 8, 92, 2, 40, 18),
+        ],
+      },
+      {
+        id: `${templateId}-page-3`,
+        name: "3페이지",
+        items: [
+          ...createSectionSlots("grammar", "문법", 4, 8, 8, 2, 40, 28),
+          ...createSectionSlots("writing", "쓰기", 3, 8, 76, 1, 84, 22),
+          ...createSectionSlots("assessment", "평가", 8, 8, 150, 2, 40, 18),
+        ],
+      },
+    ];
+  }
+
   return [
     {
       id: `${templateId}-page-1`,
@@ -583,7 +639,28 @@ export function resolveDocumentTemplate(
   );
 }
 
+export function getTemplateSectionBlockCounts(template: DocumentTemplate) {
+  const counts: Record<DocumentSectionKey, number> = {
+    passage: 0,
+    reading: 0,
+    vocabulary: 0,
+    grammar: 0,
+    writing: 0,
+    assessment: 0,
+  };
+
+  for (const page of template.pages) {
+    for (const item of page.items) {
+      if (item.type !== "section" || !item.sectionKey) continue;
+      counts[item.sectionKey] += 1;
+    }
+  }
+
+  return counts;
+}
+
 export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
+  const sectionBlockCounts = getTemplateSectionBlockCounts(template);
   const sectionLimits = {
     reading: [] as number[],
     vocabulary: [] as number[],
@@ -603,7 +680,7 @@ export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
 
   function resolveSuggestedCount(limits: number[], defaultCount: number) {
     if (limits.length === 0) return defaultCount;
-    if (limits.length === 1) return limits[0];
+    if (limits.length === 1) return Math.max(1, limits[0]);
 
     // If the same default-sized section block was duplicated for layout purposes,
     // keep the recommended generation count at the default instead of multiplying it.
@@ -614,9 +691,21 @@ export function getTemplateSuggestedContentCounts(template: DocumentTemplate) {
   }
 
   return {
-    reading: resolveSuggestedCount(sectionLimits.reading, DEFAULT_TEMPLATE_SECTION_COUNTS.reading),
-    vocabulary: resolveSuggestedCount(sectionLimits.vocabulary, DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary),
-    assessment: resolveSuggestedCount(sectionLimits.assessment, DEFAULT_TEMPLATE_SECTION_COUNTS.assessment),
-    grammarExercises: resolveSuggestedCount(sectionLimits.grammarExercises, DEFAULT_TEMPLATE_SECTION_COUNTS.grammar),
+    reading:
+      sectionBlockCounts.reading > 0
+        ? sectionBlockCounts.reading
+        : resolveSuggestedCount(sectionLimits.reading, DEFAULT_TEMPLATE_SECTION_COUNTS.reading),
+    vocabulary:
+      sectionBlockCounts.vocabulary > 0
+        ? sectionBlockCounts.vocabulary
+        : resolveSuggestedCount(sectionLimits.vocabulary, DEFAULT_TEMPLATE_SECTION_COUNTS.vocabulary),
+    assessment:
+      sectionBlockCounts.assessment > 0
+        ? sectionBlockCounts.assessment
+        : resolveSuggestedCount(sectionLimits.assessment, DEFAULT_TEMPLATE_SECTION_COUNTS.assessment),
+    grammarExercises:
+      sectionBlockCounts.grammar > 0
+        ? sectionBlockCounts.grammar
+        : resolveSuggestedCount(sectionLimits.grammarExercises, DEFAULT_TEMPLATE_SECTION_COUNTS.grammar),
   };
 }

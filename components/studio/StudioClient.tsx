@@ -6,9 +6,12 @@ import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
 import { ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
 import {
+  AUTO_DOCUMENT_TEMPLATE,
   AUTO_DOCUMENT_TEMPLATE_ID,
   DocumentTemplate,
+  getTemplateSectionBlockCounts,
   getTemplateSuggestedContentCounts,
+  normalizeDocumentTemplates,
   resolveDocumentTemplate,
 } from "@/lib/documentTemplates";
 import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
@@ -101,6 +104,10 @@ export default function StudioClient({
     () => getTemplateSuggestedContentCounts(activeTemplate),
     [activeTemplate]
   );
+  const templateSectionCounts = useMemo(
+    () => getTemplateSectionBlockCounts(activeTemplate),
+    [activeTemplate]
+  );
   const templateImageItems = useMemo(() => getTemplateImageItems(activeTemplate), [activeTemplate]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
@@ -118,6 +125,33 @@ export default function StudioClient({
     ) {
       setGenerationTarget(savedGenerationTarget);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/system-settings/document-templates", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !Array.isArray(data.templates)) return;
+        const nextTemplates = [
+          AUTO_DOCUMENT_TEMPLATE,
+          ...normalizeDocumentTemplates(data.templates).filter(
+            (template) => template.id !== AUTO_DOCUMENT_TEMPLATE_ID
+          ),
+        ];
+        setDocumentTemplates(nextTemplates);
+        setSelectedTemplateId((current) =>
+          nextTemplates.some((template) => template.id === current)
+            ? current
+            : AUTO_DOCUMENT_TEMPLATE_ID
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -610,6 +644,9 @@ export default function StudioClient({
           <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.4 }}>
             {activeTemplate.name} 기준 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises}
           </div>
+          <div style={{ marginTop: "2px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.4 }}>
+            템플릿 슬롯 지문 {templateSectionCounts.passage} · 독해 {templateSectionCounts.reading} · 어휘 {templateSectionCounts.vocabulary} · 문법 {templateSectionCounts.grammar} · 쓰기 {templateSectionCounts.writing} · 평가 {templateSectionCounts.assessment}
+          </div>
 
           {showCounts && (
             <>
@@ -633,6 +670,9 @@ export default function StudioClient({
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--color-text-muted)", marginBottom: "10px", lineHeight: "1.4" }}>
                   생성 시작 전에 각 영역의 문항 수를 지정할 수 있습니다. 현재 템플릿 기준 추천값은 {suggestedContentCounts.reading}·{suggestedContentCounts.vocabulary}·{suggestedContentCounts.assessment}·{suggestedContentCounts.grammarExercises} 입니다.
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--color-text-subtle)", marginBottom: "10px", lineHeight: "1.5" }}>
+                  템플릿 슬롯: 지문 {templateSectionCounts.passage} / 독해 {templateSectionCounts.reading} / 어휘 {templateSectionCounts.vocabulary} / 문법 {templateSectionCounts.grammar} / 쓰기 {templateSectionCounts.writing} / 평가 {templateSectionCounts.assessment}
                 </div>
 
                 {([
