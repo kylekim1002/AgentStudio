@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import mammoth from "mammoth";
+import { PDFParse } from "pdf-parse";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -66,6 +68,163 @@ JSON 스키마:
 }`;
 }
 
+type ParsedTransformResult = {
+  pageText?: string;
+  passages?: Array<{
+    title?: string;
+    body?: string;
+    lexileMin?: number;
+    lexileMax?: number;
+    metadata?: Record<string, unknown>;
+  }>;
+  questionSets?: Array<{
+    sectionType?: string;
+    questionStyle?: string;
+    styleSummary?: string;
+    passageIndex?: number;
+    questions?: Array<{
+      questionType?: string;
+      prompt?: string;
+      choices?: string[];
+      answer?: string;
+      explanation?: string;
+      metadata?: Record<string, unknown>;
+    }>;
+  }>;
+  metadata?: Record<string, unknown>;
+};
+
+async function parseStructuredJsonFromText(
+  client: OpenAI,
+  asset: {
+    title: string;
+    semester: string;
+    level_name: string;
+    subject: string;
+    content_type: string;
+    lexile_min: number | null;
+    lexile_max: number | null;
+  },
+  extractedText: string
+) {
+  const response = await client.chat.completions.create({
+    model: "gpt-4o",
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: buildTransformPrompt(asset),
+      },
+      {
+        role: "user",
+        content: `아래 추출 텍스트를 읽고 커리큘럼 구조 JSON으로 변환해 주세요.\n\n${extractedText.slice(0, 40000)}`,
+      },
+    ],
+  });
+
+  return JSON.parse(response.choices[0]?.message?.content ?? "{}") as ParsedTransformResult;
+}
+
+async function persistStructuredResult(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  assetId: string,
+  assetTitle: string,
+  assetFileUrl: string,
+  assetMetadata: Record<string, unknown> | null,
+  parsed: ParsedTransformResult
+) {
+  await supabase.from("curriculum_asset_pages").delete().eq("asset_id", assetId);
+  const existingSetIds =
+    (
+      await supabase
+        .from("curriculum_question_sets")
+        .select("id")
+        .eq("asset_id", assetId)
+    ).data?.map((row) => row.id) ?? [];
+  if (existingSetIds.length) {
+    await supabase.from("curriculum_questions").delete().in("question_set_id", existingSetIds);
+  }
+  await supabase.from("curriculum_question_sets").delete().eq("asset_id", assetId);
+  await supabase.from("curriculum_passages").delete().eq("asset_id", assetId);
+
+  await supabase.from("curriculum_asset_pages").insert({
+    asset_id: assetId,
+    page_number: 1,
+    extracted_text: parsed.pageText ?? null,
+    preview_image_url: assetFileUrl,
+  });
+
+  const insertedPassages: Array<{ id: string }> = [];
+  for (const passage of parsed.passages ?? []) {
+    if (!passage.body?.trim()) continue;
+    const { data: inserted } = await supabase
+      .from("curriculum_passages")
+      .insert({
+        asset_id: assetId,
+        title: passage.title?.trim() || assetTitle,
+        body: passage.body.trim(),
+        lexile_min: Number.isFinite(passage.lexileMin) ? passage.lexileMin : null,
+        lexile_max: Number.isFinite(passage.lexileMax) ? passage.lexileMax : null,
+        metadata: passage.metadata ?? {},
+      })
+      .select("id")
+      .single();
+    if (inserted) insertedPassages.push(inserted);
+  }
+
+  let totalQuestions = 0;
+  for (const set of parsed.questionSets ?? []) {
+    const questions = (set.questions ?? []).filter((item) => item.prompt?.trim());
+    const { data: insertedSet } = await supabase
+      .from("curriculum_question_sets")
+      .insert({
+        asset_id: assetId,
+        passage_id:
+          typeof set.passageIndex === "number" && insertedPassages[set.passageIndex]
+            ? insertedPassages[set.passageIndex].id
+            : null,
+        section_type: set.sectionType?.trim() || "other",
+        question_style: set.questionStyle?.trim() || null,
+        item_count: questions.length,
+        style_summary: set.styleSummary?.trim() || null,
+        metadata: {},
+      })
+      .select("id")
+      .single();
+
+    if (!insertedSet) continue;
+    for (const question of questions) {
+      await supabase.from("curriculum_questions").insert({
+        question_set_id: insertedSet.id,
+        question_type: question.questionType?.trim() || "other",
+        prompt: question.prompt!.trim(),
+        choices: Array.isArray(question.choices) ? question.choices : [],
+        answer: question.answer?.trim() || null,
+        explanation: question.explanation?.trim() || null,
+        metadata: question.metadata ?? {},
+      });
+      totalQuestions += 1;
+    }
+  }
+
+  await supabase
+    .from("curriculum_assets")
+    .update({
+      status: "review_needed",
+      metadata: {
+        ...(assetMetadata ?? {}),
+        transformMetadata: parsed.metadata ?? {},
+      },
+    })
+    .eq("id", assetId);
+
+  return {
+    passages: insertedPassages.length,
+    questionSets: (parsed.questionSets ?? []).length,
+    questions: totalQuestions,
+  };
+}
+
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = await createClient();
   const {
@@ -102,159 +261,63 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: jobError?.message ?? "변환 작업 생성 실패" }, { status: 500 });
   }
 
-  if (!asset.file_type.startsWith("image/")) {
-    await supabase
-      .from("curriculum_transform_jobs")
-      .update({
-        status: "failed",
-        error_message: "현재 1차 버전은 이미지 파일 자동 분석만 지원합니다. PDF/DOCX 자동 구조화는 다음 단계에서 추가됩니다.",
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", job.id);
-
-    return NextResponse.json({
-      ok: false,
-      message: "현재 1차 버전은 이미지 파일 자동 분석만 지원합니다.",
-    });
-  }
-
   try {
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await client.chat.completions.create({
-      model: "gpt-4o",
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: buildTransformPrompt(asset),
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "이 이미지를 읽고 커리큘럼 구조 JSON으로 변환해 주세요." },
-            { type: "image_url", image_url: { url: asset.file_url } },
-          ],
-        },
-      ],
-    });
+    let parsed: ParsedTransformResult;
+    if (asset.file_type.startsWith("image/")) {
+      const response = await client.chat.completions.create({
+        model: "gpt-4o",
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: buildTransformPrompt(asset),
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "이 이미지를 읽고 커리큘럼 구조 JSON으로 변환해 주세요." },
+              { type: "image_url", image_url: { url: asset.file_url } },
+            ],
+          },
+        ],
+      });
+      parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as ParsedTransformResult;
+    } else if (asset.file_type === "application/pdf") {
+      const fileRes = await fetch(asset.file_url);
+      const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+      const parser = new PDFParse({ data: fileBuffer });
+      const parsedPdf = await parser.getText();
+      await parser.destroy();
+      parsed = await parseStructuredJsonFromText(client, asset, parsedPdf.text || "");
+      parsed.pageText = parsed.pageText || parsedPdf.text || "";
+    } else if (
+      asset.file_type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      const fileRes = await fetch(asset.file_url);
+      const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      parsed = await parseStructuredJsonFromText(client, asset, result.value || "");
+      parsed.pageText = parsed.pageText || result.value || "";
+    } else {
+      throw new Error("현재는 이미지, PDF, DOCX 파일만 자동 구조화를 지원합니다.");
+    }
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(content) as {
-      pageText?: string;
-      passages?: Array<{
-        title?: string;
-        body?: string;
-        lexileMin?: number;
-        lexileMax?: number;
-        metadata?: Record<string, unknown>;
-      }>;
-      questionSets?: Array<{
-        sectionType?: string;
-        questionStyle?: string;
-        styleSummary?: string;
-        passageIndex?: number;
-        questions?: Array<{
-          questionType?: string;
-          prompt?: string;
-          choices?: string[];
-          answer?: string;
-          explanation?: string;
-          metadata?: Record<string, unknown>;
-        }>;
-      }>;
-      metadata?: Record<string, unknown>;
-    };
-
-    await supabase.from("curriculum_asset_pages").delete().eq("asset_id", assetId);
-    await supabase.from("curriculum_questions").delete().in(
-      "question_set_id",
-      (
-        await supabase.from("curriculum_question_sets").select("id").eq("asset_id", assetId)
-      ).data?.map((row) => row.id) ?? []
+    const resultSummary = await persistStructuredResult(
+      supabase,
+      assetId,
+      asset.title,
+      asset.file_url,
+      asset.metadata ?? {},
+      parsed
     );
-    await supabase.from("curriculum_question_sets").delete().eq("asset_id", assetId);
-    await supabase.from("curriculum_passages").delete().eq("asset_id", assetId);
-
-    await supabase.from("curriculum_asset_pages").insert({
-      asset_id: assetId,
-      page_number: 1,
-      extracted_text: parsed.pageText ?? null,
-      preview_image_url: asset.file_url,
-    });
-
-    const insertedPassages: Array<{ id: string }> = [];
-    for (const passage of parsed.passages ?? []) {
-      if (!passage.body?.trim()) continue;
-      const { data: inserted } = await supabase
-        .from("curriculum_passages")
-        .insert({
-          asset_id: assetId,
-          title: passage.title?.trim() || asset.title,
-          body: passage.body.trim(),
-          lexile_min: Number.isFinite(passage.lexileMin) ? passage.lexileMin : null,
-          lexile_max: Number.isFinite(passage.lexileMax) ? passage.lexileMax : null,
-          metadata: passage.metadata ?? {},
-        })
-        .select("id")
-        .single();
-      if (inserted) insertedPassages.push(inserted);
-    }
-
-    let totalQuestions = 0;
-    for (const set of parsed.questionSets ?? []) {
-      const questions = (set.questions ?? []).filter((item) => item.prompt?.trim());
-      const { data: insertedSet } = await supabase
-        .from("curriculum_question_sets")
-        .insert({
-          asset_id: assetId,
-          passage_id:
-            typeof set.passageIndex === "number" && insertedPassages[set.passageIndex]
-              ? insertedPassages[set.passageIndex].id
-              : null,
-          section_type: set.sectionType?.trim() || asset.content_type.toLowerCase(),
-          question_style: set.questionStyle?.trim() || null,
-          item_count: questions.length,
-          style_summary: set.styleSummary?.trim() || null,
-          metadata: {},
-        })
-        .select("id")
-        .single();
-
-      if (!insertedSet) continue;
-      for (const question of questions) {
-        await supabase.from("curriculum_questions").insert({
-          question_set_id: insertedSet.id,
-          question_type: question.questionType?.trim() || "other",
-          prompt: question.prompt!.trim(),
-          choices: Array.isArray(question.choices) ? question.choices : [],
-          answer: question.answer?.trim() || null,
-          explanation: question.explanation?.trim() || null,
-          metadata: question.metadata ?? {},
-        });
-        totalQuestions += 1;
-      }
-    }
-
-    await supabase
-      .from("curriculum_assets")
-      .update({
-        status: "review_needed",
-        metadata: {
-          ...(asset.metadata ?? {}),
-          transformMetadata: parsed.metadata ?? {},
-        },
-      })
-      .eq("id", assetId);
 
     await supabase
       .from("curriculum_transform_jobs")
       .update({
         status: "completed",
-        result_summary: {
-          passages: insertedPassages.length,
-          questionSets: (parsed.questionSets ?? []).length,
-          questions: totalQuestions,
-        },
+        result_summary: resultSummary,
         completed_at: new Date().toISOString(),
       })
       .eq("id", job.id);

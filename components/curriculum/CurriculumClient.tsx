@@ -5,14 +5,19 @@ import {
   CURRICULUM_SEMESTERS,
   CURRICULUM_SUBJECTS,
   CURRICULUM_TYPES,
+  CurriculumAssetDetail,
   CurriculumAssetSummary,
 } from "@/lib/curriculum";
 
 export default function CurriculumClient({ viewerId }: { viewerId: string }) {
   const [assets, setAssets] = useState<CurriculumAssetSummary[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetDetail, setAssetDetail] = useState<CurriculumAssetDetail | null>(null);
+  const [detailDraft, setDetailDraft] = useState<CurriculumAssetDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingDetail, setSavingDetail] = useState(false);
   const [transformingAssetId, setTransformingAssetId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [semester, setSemester] = useState("");
@@ -61,6 +66,39 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
     void loadAssets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [semester, levelName, subject, contentType, status]);
+
+  useEffect(() => {
+    if (!selectedAssetId) {
+      setAssetDetail(null);
+      setDetailDraft(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDetail() {
+      setLoadingDetail(true);
+      try {
+        const res = await fetch(`/api/curriculum/assets/${selectedAssetId}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "상세 자료를 불러오지 못했습니다.");
+        if (cancelled) return;
+        setAssetDetail(data.asset ?? null);
+        setDetailDraft(data.asset ?? null);
+      } catch (nextError) {
+        if (cancelled) return;
+        setError(nextError instanceof Error ? nextError.message : "상세 자료를 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setLoadingDetail(false);
+      }
+    }
+
+    void loadDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAssetId]);
 
   async function handleUpload() {
     if (!file) {
@@ -135,6 +173,49 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "승인에 실패했습니다.");
     }
+  }
+
+  async function handleSaveDetail() {
+    if (!detailDraft) return;
+    setSavingDetail(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/curriculum/assets/${detailDraft.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          notes: detailDraft.notes,
+          lexileMin: detailDraft.lexileMin,
+          lexileMax: detailDraft.lexileMax,
+          passages: detailDraft.passages,
+          questionSets: detailDraft.questionSets.map((set) => ({
+            ...set,
+            itemCount: detailDraft.questions.filter((question) => question.questionSetId === set.id).length,
+          })),
+          questions: detailDraft.questions,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "검토 저장에 실패했습니다.");
+      await loadAssets();
+      const refreshed = await fetch(`/api/curriculum/assets/${detailDraft.id}`, { cache: "no-store" });
+      const refreshedData = await refreshed.json();
+      if (!refreshed.ok) throw new Error(refreshedData.error ?? "저장 후 새로고침에 실패했습니다.");
+      setAssetDetail(refreshedData.asset ?? null);
+      setDetailDraft(refreshedData.asset ?? null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "검토 저장에 실패했습니다.");
+    } finally {
+      setSavingDetail(false);
+    }
+  }
+
+  function updateDraft(mutator: (current: CurriculumAssetDetail) => CurriculumAssetDetail) {
+    setDetailDraft((current) => (current ? mutator(current) : current));
+  }
+
+  function nextDraftId(prefix: string) {
+    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   return (
@@ -320,6 +401,9 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
                       {transformingAssetId === selectedAsset.id ? "변환 중..." : "구조로 변환"}
                     </button>
                     <button onClick={() => handleApprove(selectedAsset.id)} style={primaryButtonStyle}>승인</button>
+                    <button onClick={handleSaveDetail} disabled={!detailDraft || savingDetail || loadingDetail} style={secondaryButtonStyle}>
+                      {savingDetail ? "저장 중..." : "검토 저장"}
+                    </button>
                   </div>
                 </div>
 
@@ -342,17 +426,389 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gap: "10px" }}>
-                  <div style={{ fontSize: "14px", fontWeight: 800, color: "var(--color-text)" }}>현재 1차 자동 변환 범위</div>
-                  <div style={{ fontSize: "13px", color: "var(--color-text-muted)", lineHeight: 1.7 }}>
-                    이미지 파일은 `구조로 변환` 시 GPT-4o 비전으로 지문/문항 구조를 추출합니다. PDF/DOCX는 업로드와 분류까지 먼저 지원하고, 자동 구조화는 다음 단계에서 추가할 예정입니다.
-                  </div>
-                  {selectedAsset.notes && (
-                    <div style={{ padding: "12px", borderRadius: "12px", background: "var(--color-bg)", border: "1px solid var(--color-border)", fontSize: "13px", color: "var(--color-text-muted)" }}>
-                      {selectedAsset.notes}
+                {loadingDetail ? (
+                  <div style={{ fontSize: "13px", color: "var(--color-text-muted)" }}>상세 자료를 불러오는 중...</div>
+                ) : detailDraft ? (
+                  <div style={{ display: "grid", gap: "16px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "12px" }}>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={labelStyle}>Lexile 시작</span>
+                        <input
+                          value={detailDraft.lexileMin ?? ""}
+                          onChange={(e) =>
+                            updateDraft((current) => ({
+                              ...current,
+                              lexileMin: e.target.value.trim() ? Number(e.target.value) : null,
+                            }))
+                          }
+                          style={inputStyle}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={labelStyle}>Lexile 종료</span>
+                        <input
+                          value={detailDraft.lexileMax ?? ""}
+                          onChange={(e) =>
+                            updateDraft((current) => ({
+                              ...current,
+                              lexileMax: e.target.value.trim() ? Number(e.target.value) : null,
+                            }))
+                          }
+                          style={inputStyle}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={labelStyle}>메모</span>
+                        <input
+                          value={detailDraft.notes ?? ""}
+                          onChange={(e) =>
+                            updateDraft((current) => ({
+                              ...current,
+                              notes: e.target.value,
+                            }))
+                          }
+                          style={inputStyle}
+                        />
+                      </label>
                     </div>
-                  )}
-                </div>
+
+                    <section style={{ display: "grid", gap: "10px" }}>
+                      <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text)" }}>추출 텍스트</div>
+                      <div style={{ display: "grid", gap: "10px" }}>
+                        {detailDraft.pages.map((page) => (
+                          <div key={page.id} style={{ padding: "12px", borderRadius: "14px", border: "1px solid var(--color-border)", background: "var(--color-bg)", display: "grid", gap: "8px" }}>
+                            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text-subtle)" }}>페이지 {page.pageNumber}</div>
+                            <textarea readOnly value={page.extractedText ?? ""} style={{ ...textareaStyle, minHeight: "120px", background: "var(--color-surface)" }} />
+                          </div>
+                        ))}
+                        {detailDraft.pages.length === 0 && (
+                          <div style={emptyStateStyle}>아직 추출된 페이지 텍스트가 없습니다.</div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section style={{ display: "grid", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text)" }}>지문 검토</div>
+                        <button
+                          onClick={() =>
+                            updateDraft((current) => ({
+                              ...current,
+                              passages: [
+                                ...current.passages,
+                                {
+                                  id: nextDraftId("passage"),
+                                  title: "",
+                                  body: "",
+                                  lexileMin: current.lexileMin,
+                                  lexileMax: current.lexileMax,
+                                },
+                              ],
+                            }))
+                          }
+                          style={secondaryButtonStyle}
+                        >
+                          + 지문 추가
+                        </button>
+                      </div>
+                      <div style={{ display: "grid", gap: "10px" }}>
+                        {detailDraft.passages.map((passage, index) => (
+                          <div key={passage.id} style={editorCardStyle}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                              <div style={editorTitleStyle}>지문 {index + 1}</div>
+                              <button
+                                onClick={() =>
+                                  updateDraft((current) => {
+                                    const nextPassages = current.passages.filter((item) => item.id !== passage.id);
+                                    const removedPassageSetIds = new Set(
+                                      current.questionSets.filter((set) => set.passageId === passage.id).map((set) => set.id)
+                                    );
+                                    return {
+                                      ...current,
+                                      passages: nextPassages,
+                                      questionSets: current.questionSets.filter((set) => set.passageId !== passage.id),
+                                      questions: current.questions.filter((question) => !removedPassageSetIds.has(question.questionSetId)),
+                                    };
+                                  })
+                                }
+                                style={dangerButtonStyle}
+                              >
+                                삭제
+                              </button>
+                            </div>
+                            <input
+                              value={passage.title}
+                              onChange={(e) =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  passages: current.passages.map((item) =>
+                                    item.id === passage.id ? { ...item, title: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              style={inputStyle}
+                              placeholder="지문 제목"
+                            />
+                            <textarea
+                              value={passage.body}
+                              onChange={(e) =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  passages: current.passages.map((item) =>
+                                    item.id === passage.id ? { ...item, body: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              style={{ ...textareaStyle, minHeight: "160px" }}
+                              placeholder="지문 본문"
+                            />
+                          </div>
+                        ))}
+                        {detailDraft.passages.length === 0 && (
+                          <div style={emptyStateStyle}>아직 추출된 지문이 없습니다.</div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section style={{ display: "grid", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text)" }}>문제세트/문항 검토</div>
+                        <button
+                          onClick={() =>
+                            updateDraft((current) => ({
+                              ...current,
+                              questionSets: [
+                                ...current.questionSets,
+                                {
+                                  id: nextDraftId("set"),
+                                  passageId: current.passages[0]?.id ?? null,
+                                  sectionType: current.contentType.toLowerCase(),
+                                  questionStyle: "",
+                                  itemCount: 0,
+                                  styleSummary: "",
+                                },
+                              ],
+                            }))
+                          }
+                          style={secondaryButtonStyle}
+                        >
+                          + 문제세트 추가
+                        </button>
+                      </div>
+                      <div style={{ display: "grid", gap: "12px" }}>
+                        {detailDraft.questionSets.map((set, setIndex) => {
+                          const questions = detailDraft.questions.filter((question) => question.questionSetId === set.id);
+                          return (
+                            <div key={set.id} style={editorCardStyle}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                                <div style={editorTitleStyle}>문제세트 {setIndex + 1}</div>
+                                <button
+                                  onClick={() =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questionSets: current.questionSets.filter((item) => item.id !== set.id),
+                                      questions: current.questions.filter((question) => question.questionSetId !== set.id),
+                                    }))
+                                  }
+                                  style={dangerButtonStyle}
+                                >
+                                  삭제
+                                </button>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "10px" }}>
+                                <select
+                                  value={set.passageId ?? ""}
+                                  onChange={(e) =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questionSets: current.questionSets.map((item) =>
+                                        item.id === set.id ? { ...item, passageId: e.target.value || null } : item
+                                      ),
+                                    }))
+                                  }
+                                  style={inputStyle}
+                                >
+                                  <option value="">지문 연결 없음</option>
+                                  {detailDraft.passages.map((passage, index) => (
+                                    <option key={passage.id} value={passage.id}>
+                                      지문 {index + 1}: {passage.title || "제목 없음"}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  value={set.sectionType}
+                                  onChange={(e) =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questionSets: current.questionSets.map((item) =>
+                                        item.id === set.id ? { ...item, sectionType: e.target.value } : item
+                                      ),
+                                    }))
+                                  }
+                                  style={inputStyle}
+                                  placeholder="섹션 유형"
+                                />
+                                <input
+                                  value={set.questionStyle ?? ""}
+                                  onChange={(e) =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questionSets: current.questionSets.map((item) =>
+                                        item.id === set.id ? { ...item, questionStyle: e.target.value } : item
+                                      ),
+                                    }))
+                                  }
+                                  style={inputStyle}
+                                  placeholder="문항 스타일"
+                                />
+                                <input
+                                  value={set.styleSummary ?? ""}
+                                  onChange={(e) =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questionSets: current.questionSets.map((item) =>
+                                        item.id === set.id ? { ...item, styleSummary: e.target.value } : item
+                                      ),
+                                    }))
+                                  }
+                                  style={inputStyle}
+                                  placeholder="스타일 요약"
+                                />
+                              </div>
+                              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                <button
+                                  onClick={() =>
+                                    updateDraft((current) => ({
+                                      ...current,
+                                      questions: [
+                                        ...current.questions,
+                                        {
+                                          id: nextDraftId("question"),
+                                          questionSetId: set.id,
+                                          questionType: "multiple_choice",
+                                          prompt: "",
+                                          choices: [],
+                                          answer: "",
+                                          explanation: "",
+                                        },
+                                      ],
+                                    }))
+                                  }
+                                  style={secondaryButtonStyle}
+                                >
+                                  + 문항 추가
+                                </button>
+                              </div>
+                              <div style={{ display: "grid", gap: "8px" }}>
+                                {questions.map((question, questionIndex) => (
+                                  <div key={question.id} style={{ padding: "10px", borderRadius: "12px", border: "1px solid var(--color-border)", background: "var(--color-surface)", display: "grid", gap: "8px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text-subtle)" }}>문항 {questionIndex + 1}</div>
+                                      <button
+                                        onClick={() =>
+                                          updateDraft((current) => ({
+                                            ...current,
+                                            questions: current.questions.filter((item) => item.id !== question.id),
+                                          }))
+                                        }
+                                        style={dangerButtonStyle}
+                                      >
+                                        삭제
+                                      </button>
+                                    </div>
+                                    <input
+                                      value={question.prompt}
+                                      onChange={(e) =>
+                                        updateDraft((current) => ({
+                                          ...current,
+                                          questions: current.questions.map((item) =>
+                                            item.id === question.id ? { ...item, prompt: e.target.value } : item
+                                          ),
+                                        }))
+                                      }
+                                      style={inputStyle}
+                                      placeholder="문항 내용"
+                                    />
+                                    <input
+                                      value={question.choices.join(" | ")}
+                                      onChange={(e) =>
+                                        updateDraft((current) => ({
+                                          ...current,
+                                          questions: current.questions.map((item) =>
+                                            item.id === question.id
+                                              ? {
+                                                  ...item,
+                                                  choices: e.target.value
+                                                    .split("|")
+                                                    .map((choice) => choice.trim())
+                                                    .filter(Boolean),
+                                                }
+                                              : item
+                                          ),
+                                        }))
+                                      }
+                                      style={inputStyle}
+                                      placeholder="선택지: | 로 구분"
+                                    />
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: "8px" }}>
+                                      <input
+                                        value={question.answer ?? ""}
+                                        onChange={(e) =>
+                                          updateDraft((current) => ({
+                                            ...current,
+                                            questions: current.questions.map((item) =>
+                                              item.id === question.id ? { ...item, answer: e.target.value } : item
+                                            ),
+                                          }))
+                                        }
+                                        style={inputStyle}
+                                        placeholder="정답"
+                                      />
+                                      <input
+                                        value={question.questionType}
+                                        onChange={(e) =>
+                                          updateDraft((current) => ({
+                                            ...current,
+                                            questions: current.questions.map((item) =>
+                                              item.id === question.id ? { ...item, questionType: e.target.value } : item
+                                            ),
+                                          }))
+                                        }
+                                        style={inputStyle}
+                                        placeholder="문항 유형"
+                                      />
+                                    </div>
+                                    <textarea
+                                      value={question.explanation ?? ""}
+                                      onChange={(e) =>
+                                        updateDraft((current) => ({
+                                          ...current,
+                                          questions: current.questions.map((item) =>
+                                            item.id === question.id ? { ...item, explanation: e.target.value } : item
+                                          ),
+                                        }))
+                                      }
+                                      style={{ ...textareaStyle, minHeight: "88px" }}
+                                      placeholder="해설"
+                                    />
+                                  </div>
+                                ))}
+                                {questions.length === 0 && (
+                                  <div style={emptyStateStyle}>이 문제세트에는 아직 추출된 문항이 없습니다.</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {detailDraft.questionSets.length === 0 && (
+                          <div style={emptyStateStyle}>아직 추출된 문제세트가 없습니다.</div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "13px", color: "var(--color-text-muted)" }}>상세 자료가 아직 없습니다.</div>
+                )}
               </>
             ) : (
               <div style={{ fontSize: "14px", color: "var(--color-text-muted)" }}>자료를 선택하면 상세 정보가 표시됩니다.</div>
@@ -406,6 +862,17 @@ const secondaryButtonStyle: CSSProperties = {
   textDecoration: "none",
 };
 
+const dangerButtonStyle: CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "10px",
+  border: "1px solid rgba(239,68,68,0.22)",
+  background: "rgba(239,68,68,0.08)",
+  color: "#b91c1c",
+  fontSize: "12px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
 const labelStyle: CSSProperties = {
   fontSize: "12px",
   fontWeight: 700,
@@ -430,6 +897,44 @@ const metricValueStyle: CSSProperties = {
   fontSize: "24px",
   fontWeight: 800,
   color: "var(--color-text)",
+};
+
+const textareaStyle: CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: "12px",
+  border: "1px solid var(--color-border-strong)",
+  background: "var(--color-bg)",
+  fontSize: "13px",
+  fontFamily: "inherit",
+  color: "var(--color-text)",
+  outline: "none",
+  resize: "vertical",
+};
+
+const editorCardStyle: CSSProperties = {
+  padding: "14px",
+  borderRadius: "16px",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-bg)",
+  display: "grid",
+  gap: "10px",
+};
+
+const editorTitleStyle: CSSProperties = {
+  fontSize: "13px",
+  fontWeight: 800,
+  color: "var(--color-text)",
+};
+
+const emptyStateStyle: CSSProperties = {
+  padding: "16px",
+  borderRadius: "12px",
+  border: "1px dashed var(--color-border-strong)",
+  background: "var(--color-surface)",
+  fontSize: "13px",
+  color: "var(--color-text-muted)",
+  textAlign: "center",
 };
 
 function badgeStyle(status: string): CSSProperties {

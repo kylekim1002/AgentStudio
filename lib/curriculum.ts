@@ -74,6 +74,13 @@ export interface CurriculumPassageRecord {
   lexileMax: number | null;
 }
 
+export interface CurriculumAssetPageRecord {
+  id: string;
+  pageNumber: number;
+  extractedText: string | null;
+  previewImageUrl: string | null;
+}
+
 export interface CurriculumQuestionSetRecord {
   id: string;
   passageId: string | null;
@@ -94,6 +101,7 @@ export interface CurriculumQuestionRecord {
 }
 
 export interface CurriculumAssetDetail extends CurriculumAssetSummary {
+  pages: CurriculumAssetPageRecord[];
   passages: CurriculumPassageRecord[];
   questionSets: CurriculumQuestionSetRecord[];
   questions: CurriculumQuestionRecord[];
