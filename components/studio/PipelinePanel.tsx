@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AgentName, AgentStatus } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 
@@ -10,6 +10,19 @@ interface PipelinePanelProps {
   onRunAll: (userInput: string) => void;
   isRunning: boolean;
 }
+
+interface StoredThread {
+  id: string;
+  title: string;
+  provider: string | null;
+  created_at: string;
+  updated_at: string;
+  messageCount: number;
+  lastMessagePreview: string | null;
+  lastMessageAt: string | null;
+}
+
+const STUDIO_THREAD_STORAGE_KEY = "cyj-studio:selected-thread-id";
 
 const PARALLEL = new Set([
   AgentName.READING, AgentName.VOCABULARY, AgentName.GRAMMAR,
@@ -31,6 +44,11 @@ const STATUS_ICON: Record<AgentStatus, string> = {
 export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isRunning }: PipelinePanelProps) {
   const [userInput, setUserInput] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<AgentName | null>(null);
+  const [threads, setThreads] = useState<StoredThread[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
 
   const seqBefore = PIPELINE_ORDER.filter((a) =>
     PIPELINE_ORDER.indexOf(a) < PIPELINE_ORDER.indexOf(AgentName.READING)
@@ -40,10 +58,171 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
     PIPELINE_ORDER.indexOf(a) > PIPELINE_ORDER.indexOf(AgentName.ASSESSMENT)
   );
 
+  function isStudioChatStorageMissing(message?: string | null) {
+    if (!message) return false;
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("studio_chat_threads") ||
+      normalized.includes("studio_chat_messages") ||
+      normalized.includes("schema cache") ||
+      normalized.includes("could not find the table")
+    );
+  }
+
+  async function loadThreads(selectId?: string | null) {
+    setThreadError(null);
+    const res = await fetch("/api/studio-chat/threads", { cache: "no-store" });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errorMessage = payload.error ?? "프로젝트 목록을 불러오지 못했습니다.";
+      if (isStudioChatStorageMissing(errorMessage)) {
+        setStorageUnavailable(true);
+        setThreads([]);
+        setSelectedThreadId("local-thread");
+        setThreadError("대화 저장용 테이블이 아직 없어 임시 프로젝트 모드로 동작합니다. 화면을 이동하면 기록은 사라집니다.");
+        return null;
+      }
+      setThreadError(errorMessage);
+      return [];
+    }
+
+    setStorageUnavailable(false);
+    const nextThreads = (payload.threads ?? []) as StoredThread[];
+    setThreads(nextThreads);
+    const fallbackId =
+      selectId && nextThreads.some((thread) => thread.id === selectId)
+        ? selectId
+        : nextThreads[0]?.id ?? null;
+    setSelectedThreadId(fallbackId);
+    return nextThreads;
+  }
+
+  async function createThread() {
+    if (storageUnavailable) {
+      setSelectedThreadId("local-thread");
+      return "local-thread";
+    }
+    setThreadError(null);
+    const res = await fetch("/api/studio-chat/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "새 프로젝트" }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setThreadError(payload.error ?? "새 프로젝트를 만들지 못했습니다.");
+      return null;
+    }
+    const nextThread = payload.thread as StoredThread;
+    setThreads((prev) => [nextThread, ...prev]);
+    setSelectedThreadId(nextThread.id);
+    return nextThread.id;
+  }
+
+  async function deleteThread(threadId: string) {
+    if (storageUnavailable) {
+      if (!window.confirm("임시 프로젝트를 비울까요?")) return;
+      setSelectedThreadId(null);
+      return;
+    }
+    if (!window.confirm("이 프로젝트만 삭제할까요? 저장된 학습자료는 삭제되지 않습니다.")) return;
+    const res = await fetch(`/api/studio-chat/threads/${threadId}`, { method: "DELETE" });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setThreadError(payload.error ?? "프로젝트를 삭제하지 못했습니다.");
+      return;
+    }
+    const remaining = threads.filter((thread) => thread.id !== threadId);
+    setThreads(remaining);
+    setSelectedThreadId(remaining[0]?.id ?? null);
+  }
+
+  async function savePipelinePrompt(threadId: string, text: string) {
+    if (storageUnavailable || threadId === "local-thread") return;
+    const title = text.slice(0, 80);
+    const res = await fetch(`/api/studio-chat/threads/${threadId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: "user",
+        text,
+        title,
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(payload.error ?? "프로젝트에 입력 내용을 저장하지 못했습니다.");
+    }
+    setThreads((prev) =>
+      prev.map((thread) =>
+        thread.id === threadId
+          ? {
+              ...thread,
+              title: thread.messageCount > 0 ? thread.title : title,
+              messageCount: thread.messageCount + 1,
+              lastMessagePreview: text,
+              lastMessageAt: payload.message?.created_at ?? new Date().toISOString(),
+              updated_at: payload.message?.created_at ?? new Date().toISOString(),
+            }
+          : thread
+      )
+    );
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      setLoadingThreads(true);
+      const savedThreadId =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(STUDIO_THREAD_STORAGE_KEY)
+          : null;
+      await loadThreads(savedThreadId);
+      if (!cancelled) {
+        setLoadingThreads(false);
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedThreadId) {
+      window.localStorage.setItem(STUDIO_THREAD_STORAGE_KEY, selectedThreadId);
+    } else {
+      window.localStorage.removeItem(STUDIO_THREAD_STORAGE_KEY);
+    }
+  }, [selectedThreadId]);
+
   function handleNodeClick(agent: AgentName) {
     const status = agentStates.get(agent) ?? "pending";
     if (status === "pending" || status === "running") return;
     setSelectedAgent(selectedAgent === agent ? null : agent);
+  }
+
+  async function handleExecute() {
+    const nextInput = userInput.trim();
+    if (!nextInput || isRunning) return;
+
+    let threadId = selectedThreadId;
+    if (!threadId) {
+      threadId = await createThread();
+      if (!threadId) return;
+    }
+
+    try {
+      await savePipelinePrompt(threadId, nextInput);
+    } catch (error) {
+      setThreadError(error instanceof Error ? error.message : "프로젝트 저장 중 오류가 발생했습니다.");
+      return;
+    }
+
+    onRunAll(nextInput);
   }
 
   function Node({ agent }: { agent: AgentName }) {
@@ -116,6 +295,83 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
         padding: "12px 20px 14px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
         display: "flex", flexDirection: "column", gap: "10px",
       }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <select
+            value={selectedThreadId ?? ""}
+            onChange={(e) => setSelectedThreadId(e.target.value || null)}
+            disabled={loadingThreads}
+            style={{
+              minWidth: "220px",
+              maxWidth: "320px",
+              padding: "8px 10px",
+              borderRadius: "8px",
+              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-bg)",
+              fontSize: "12px",
+              fontFamily: "inherit",
+            }}
+          >
+            <option value="">{loadingThreads ? "프로젝트 불러오는 중..." : "프로젝트를 선택해 주세요"}</option>
+            {storageUnavailable ? <option value="local-thread">임시 프로젝트</option> : null}
+            {threads.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {thread.title}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void createThread()}
+            style={{
+              padding: "8px 12px",
+              borderRadius: "8px",
+              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-bg)",
+              fontSize: "12px",
+              fontWeight: "700",
+              cursor: "pointer",
+            }}
+          >
+            + 새 프로젝트
+          </button>
+          <button
+            type="button"
+            onClick={() => selectedThreadId && void deleteThread(selectedThreadId)}
+            disabled={!selectedThreadId}
+            style={{
+              padding: "8px 12px",
+              borderRadius: "8px",
+              border: "1px solid #FECACA",
+              background: selectedThreadId ? "#FEF2F2" : "#F8FAFC",
+              color: selectedThreadId ? "#B91C1C" : "var(--color-text-subtle)",
+              fontSize: "12px",
+              fontWeight: "700",
+              cursor: selectedThreadId ? "pointer" : "not-allowed",
+            }}
+          >
+            삭제
+          </button>
+          <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+            파이프라인 실행 기록도 현재 프로젝트 기준으로 이어집니다.
+          </div>
+        </div>
+
+        {threadError ? (
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: "8px",
+              border: "1px solid #FECACA",
+              background: "#FEF2F2",
+              color: "#B91C1C",
+              fontSize: "11px",
+              lineHeight: 1.6,
+            }}
+          >
+            {threadError}
+          </div>
+        ) : null}
+
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-text)" }}>파이프라인 실행</div>
           <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>완료된 노드를 클릭하면 결과를 확인할 수 있습니다</div>
@@ -135,14 +391,19 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                  return;
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (userInput.trim() && !isRunning) onRunAll(userInput.trim());
+                  if (userInput.trim() && !isRunning) {
+                    void handleExecute();
+                  }
                 }
               }}
               placeholder="예: 초등 5학년 intermediate 환경 보호 주제로 레슨 만들어줘"
               rows={1}
-              disabled={isRunning}
+              disabled={isRunning || (!selectedThreadId && !storageUnavailable)}
               style={{
                 flex: 1, resize: "none", border: "none", background: "transparent",
                 fontSize: "12px", color: "var(--color-text)", outline: "none",
@@ -151,15 +412,27 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
             />
           </div>
           <button
-            onClick={() => { if (userInput.trim()) onRunAll(userInput.trim()); }}
-            disabled={!userInput.trim() || isRunning}
+            onClick={() => {
+              void handleExecute();
+            }}
+            disabled={!userInput.trim() || isRunning || (!selectedThreadId && !storageUnavailable)}
             style={{
               display: "flex", alignItems: "center", gap: "6px",
               padding: "8px 16px", borderRadius: "7px", flexShrink: 0,
-              background: !userInput.trim() || isRunning ? "var(--color-border-strong)" : "var(--color-primary)",
-              color: !userInput.trim() || isRunning ? "var(--color-text-muted)" : "#fff",
+              background:
+                !userInput.trim() || isRunning || (!selectedThreadId && !storageUnavailable)
+                  ? "var(--color-border-strong)"
+                  : "var(--color-primary)",
+              color:
+                !userInput.trim() || isRunning || (!selectedThreadId && !storageUnavailable)
+                  ? "var(--color-text-muted)"
+                  : "#fff",
               fontSize: "12px", fontWeight: "600",
-              border: "none", cursor: !userInput.trim() || isRunning ? "not-allowed" : "pointer",
+              border: "none",
+              cursor:
+                !userInput.trim() || isRunning || (!selectedThreadId && !storageUnavailable)
+                  ? "not-allowed"
+                  : "pointer",
             }}
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l8 4-8 4V1.5z" fill="currentColor"/></svg>

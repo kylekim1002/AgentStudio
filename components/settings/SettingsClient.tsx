@@ -18,8 +18,17 @@ import {
   LevelSetting,
   OFFICIAL_DIFFICULTY_BANDS,
 } from "@/lib/levelSettings";
+import {
+  CODE_VALUE_CATEGORY_OPTIONS,
+  CodeValueCategory,
+  CodeValueStore,
+  createEmptyCodeValue,
+  DEFAULT_CODE_VALUES,
+  getCodeValueItems,
+  normalizeCodeValues,
+} from "@/lib/codeValues";
 
-type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "levels" | "notifications" | "users" | "folders";
+type SettingsTab = "ai" | "agents" | "tokens" | "review" | "image_prompts" | "code_values" | "levels" | "notifications" | "users" | "folders";
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "ai",      label: "AI 제공자",   icon: "🤖" },
@@ -27,6 +36,7 @@ const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: "tokens",  label: "토큰 관리",   icon: "🪙" },
   { key: "review",  label: "검토 기준",   icon: "📝" },
   { key: "image_prompts", label: "이미지 프롬프트", icon: "🖼️" },
+  { key: "code_values", label: "코드값 관리", icon: "🗂️" },
   { key: "levels", label: "레벨 설정", icon: "🎯" },
   { key: "notifications", label: "알림", icon: "🔔" },
   { key: "users",   label: "사용자 관리", icon: "👥" },
@@ -104,6 +114,8 @@ export default function SettingsClient({
     needs_revision: [],
   });
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
+  const [codeValues, setCodeValues] = useState<CodeValueStore>(DEFAULT_CODE_VALUES);
+  const [codeValueCategory, setCodeValueCategory] = useState<CodeValueCategory>("campus");
   const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(DEFAULT_LEVEL_SETTINGS);
   const [imagePromptUploadError, setImagePromptUploadError] = useState<string | null>(null);
   const [uploadingReferenceId, setUploadingReferenceId] = useState<string | null>(null);
@@ -139,6 +151,9 @@ export default function SettingsClient({
       gemini: { tokens: 0, requests: 0 },
     },
   });
+
+  const levelCodeValueOptions = useMemo(() => getCodeValueItems(codeValues, "level"), [codeValues]);
+  const difficultyCodeValueOptions = useMemo(() => getCodeValueItems(codeValues, "difficulty"), [codeValues]);
 
   // Load settings on mount
   useEffect(() => {
@@ -253,6 +268,13 @@ export default function SettingsClient({
         setLevelSettings(levels);
       })
       .catch(() => {});
+
+    fetch("/api/system-settings/code-values")
+      .then((r) => r.json())
+      .then(({ codeValues }) => {
+        setCodeValues(normalizeCodeValues(codeValues));
+      })
+      .catch(() => {});
   }, [canManageReviewTemplates]);
 
   useEffect(() => {
@@ -347,8 +369,17 @@ export default function SettingsClient({
         const levelData = await levelRes.json();
         if (!levelRes.ok) throw new Error(levelData.error ?? "레벨 설정 저장 실패");
 
+        const codeValueRes = await fetch("/api/system-settings/code-values", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ codeValues }),
+        });
+        const codeValueData = await codeValueRes.json();
+        if (!codeValueRes.ok) throw new Error(codeValueData.error ?? "코드값 저장 실패");
+
         setImagePrompts(normalizedImagePrompts);
         setLevelSettings(Array.isArray(levelData.levels) ? levelData.levels : levelSettings);
+        setCodeValues(normalizeCodeValues(codeValueData.codeValues));
 
         setReviewTemplateStats((prev) => ({
           approved: templates.approved.map((template) => ({
@@ -450,6 +481,17 @@ export default function SettingsClient({
     );
   }
 
+  const secondaryButtonStyle = {
+    padding: "8px 12px",
+    borderRadius: "8px",
+    border: "1px solid var(--color-border-strong)",
+    background: "var(--color-surface)",
+    color: "var(--color-text)",
+    fontSize: "12px",
+    fontWeight: "700",
+    cursor: "pointer",
+  } as const;
+
   function addImagePromptPreset() {
     setImagePrompts((prev) => [
       ...prev,
@@ -463,7 +505,13 @@ export default function SettingsClient({
   }
 
   function addLevelSetting() {
-    setLevelSettings((prev) => [...prev, createEmptyLevelSetting(prev.length)]);
+    setLevelSettings((prev) => [
+      ...prev,
+      {
+        ...createEmptyLevelSetting(prev.length),
+        name: levelCodeValueOptions[0]?.label ?? "",
+      },
+    ]);
   }
 
   function updateLevelSetting(id: string, patch: Partial<LevelSetting>) {
@@ -474,6 +522,68 @@ export default function SettingsClient({
 
   function removeLevelSetting(id: string) {
     setLevelSettings((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function addCodeValue(category: CodeValueCategory) {
+    setCodeValues((prev) => ({
+      ...prev,
+      [category]: [...prev[category], createEmptyCodeValue(category, prev[category].length)],
+    }));
+  }
+
+  function updateCodeValue(
+    category: CodeValueCategory,
+    id: string,
+    patch: Partial<(typeof codeValues)[CodeValueCategory][number]>
+  ) {
+    setCodeValues((prev) => ({
+      ...prev,
+      [category]: prev[category].map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function removeCodeValue(category: CodeValueCategory, id: string) {
+    setCodeValues((prev) => {
+      const next = prev[category].filter((item) => item.id !== id);
+      const normalized =
+        category === "semester"
+          ? next.map((item) => ({
+              ...item,
+              linkedLevelIds: (item.linkedLevelIds ?? []).filter((levelId) => levelId !== id),
+            }))
+          : next;
+
+      const cleanedSemesters =
+        category === "level"
+          ? prev.semester.map((item) => ({
+              ...item,
+              linkedLevelIds: (item.linkedLevelIds ?? []).filter((levelId) => levelId !== id),
+            }))
+          : prev.semester;
+
+      return {
+        ...prev,
+        [category]: normalized,
+        semester: cleanedSemesters,
+      };
+    });
+  }
+
+  function moveCodeValue(category: CodeValueCategory, id: string, direction: "up" | "down") {
+    setCodeValues((prev) => {
+      const list = prev[category];
+      const index = list.findIndex((item) => item.id === id);
+      if (index === -1) return prev;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= list.length) return prev;
+      const next = [...list];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return {
+        ...prev,
+        [category]: next,
+      };
+    });
   }
 
   function updateImagePromptPreset(id: string, patch: Partial<ImagePromptPreset>) {
@@ -1387,6 +1497,250 @@ export default function SettingsClient({
           </div>
         )}
 
+        {tab === "code_values" && canManageReviewTemplates && (
+          <div style={{ maxWidth: "980px" }}>
+            <SectionTitle>코드값 관리</SectionTitle>
+            <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px", lineHeight: 1.7 }}>
+              드롭다운과 분류 체계에 쓰이는 공통 코드값을 관리합니다. 순서를 위아래로 조정하면 화면에 보이는 순서도 그대로 따라갑니다.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: "16px" }}>
+              <Card>
+                <div style={{ display: "grid", gap: "6px" }}>
+                  {CODE_VALUE_CATEGORY_OPTIONS.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setCodeValueCategory(item.key)}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        border: `1px solid ${codeValueCategory === item.key ? "var(--color-primary)" : "var(--color-border)"}`,
+                        background: codeValueCategory === item.key ? "var(--color-primary-light)" : "var(--color-surface)",
+                        color: codeValueCategory === item.key ? "var(--color-primary)" : "var(--color-text)",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              <div style={{ display: "grid", gap: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: "16px", fontWeight: "800", color: "var(--color-text)" }}>
+                      {CODE_VALUE_CATEGORY_OPTIONS.find((item) => item.key === codeValueCategory)?.label}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", marginTop: "4px" }}>
+                      {codeValueCategory === "semester"
+                        ? "학기별로 어떤 레벨을 노출할지 체크박스로 연결할 수 있습니다."
+                        : "표시명과 코드값을 관리합니다."}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addCodeValue(codeValueCategory)}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px dashed var(--color-primary)",
+                      background: "var(--color-primary-light)",
+                      color: "var(--color-primary)",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + 값 추가
+                  </button>
+                </div>
+
+                <div style={{ display: "grid", gap: "12px" }}>
+                  {codeValues[codeValueCategory].length === 0 ? (
+                    <Card>
+                      <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                        아직 등록된 값이 없습니다. <strong style={{ color: "var(--color-text)" }}>+ 값 추가</strong>로 시작해 주세요.
+                      </div>
+                    </Card>
+                  ) : (
+                    codeValues[codeValueCategory].map((item, index) => (
+                      <Card key={item.id}>
+                        <div style={{ display: "grid", gap: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                            <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
+                              {item.label || `${CODE_VALUE_CATEGORY_OPTIONS.find((option) => option.key === codeValueCategory)?.label} ${index + 1}`}
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                onClick={() => moveCodeValue(codeValueCategory, item.id, "up")}
+                                disabled={index === 0}
+                                style={{
+                                  ...secondaryButtonStyle,
+                                  padding: "7px 10px",
+                                  fontSize: "11px",
+                                  opacity: index === 0 ? 0.5 : 1,
+                                  cursor: index === 0 ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                위로
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveCodeValue(codeValueCategory, item.id, "down")}
+                                disabled={index === codeValues[codeValueCategory].length - 1}
+                                style={{
+                                  ...secondaryButtonStyle,
+                                  padding: "7px 10px",
+                                  fontSize: "11px",
+                                  opacity: index === codeValues[codeValueCategory].length - 1 ? 0.5 : 1,
+                                  cursor: index === codeValues[codeValueCategory].length - 1 ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                아래로
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeCodeValue(codeValueCategory, item.id)}
+                                style={{
+                                  padding: "7px 10px",
+                                  borderRadius: "8px",
+                                  border: "1px solid #FECACA",
+                                  background: "#FEF2F2",
+                                  color: "#B91C1C",
+                                  fontSize: "11px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns:
+                                codeValueCategory === "semester"
+                                  ? "1fr 1fr"
+                                  : "1fr 1fr",
+                              gap: "10px",
+                            }}
+                          >
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                                코드값
+                              </label>
+                              <input
+                                type="text"
+                                value={item.code}
+                                onChange={(e) => updateCodeValue(codeValueCategory, item.id, { code: e.target.value })}
+                                placeholder="예: wind1"
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 10px",
+                                  borderRadius: "8px",
+                                  border: "1px solid var(--color-border-strong)",
+                                  fontSize: "12px",
+                                  fontFamily: "inherit",
+                                  background: "var(--color-bg)",
+                                  boxSizing: "border-box",
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
+                                표시명
+                              </label>
+                              <input
+                                type="text"
+                                value={item.label}
+                                onChange={(e) => updateCodeValue(codeValueCategory, item.id, { label: e.target.value })}
+                                placeholder="예: Wind1"
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 10px",
+                                  borderRadius: "8px",
+                                  border: "1px solid var(--color-border-strong)",
+                                  fontSize: "12px",
+                                  fontFamily: "inherit",
+                                  background: "var(--color-bg)",
+                                  boxSizing: "border-box",
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {codeValueCategory === "semester" && (
+                            <div style={{ display: "grid", gap: "8px" }}>
+                              <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)" }}>
+                                연결 레벨
+                              </div>
+                              <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+                                여기서 체크한 레벨만 다른 화면에서 이 학기를 선택했을 때 레벨 드롭다운에 노출됩니다.
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "8px" }}>
+                                {codeValues.level.length === 0 ? (
+                                  <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                                    먼저 `레벨 코드값`을 등록해 주세요.
+                                  </div>
+                                ) : (
+                                  codeValues.level.map((levelItem) => {
+                                    const checked = (item.linkedLevelIds ?? []).includes(levelItem.id);
+                                    return (
+                                      <label
+                                        key={levelItem.id}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "8px",
+                                          padding: "8px 10px",
+                                          borderRadius: "8px",
+                                          border: "1px solid var(--color-border)",
+                                          background: "var(--color-bg)",
+                                          fontSize: "12px",
+                                          color: "var(--color-text)",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(e) =>
+                                            updateCodeValue(codeValueCategory, item.id, {
+                                              linkedLevelIds: e.target.checked
+                                                ? [...(item.linkedLevelIds ?? []), levelItem.id]
+                                                : (item.linkedLevelIds ?? []).filter((levelId) => levelId !== levelItem.id),
+                                            })
+                                          }
+                                        />
+                                        {levelItem.label}
+                                      </label>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    ))
+                  )}
+                </div>
+
+                <SaveFooter />
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === "levels" && canManageReviewTemplates && (
           <div style={{ maxWidth: "760px" }}>
             <SectionTitle>레벨설정(난이도)</SectionTitle>
@@ -1460,11 +1814,9 @@ export default function SettingsClient({
                           <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
                             레벨명칭
                           </label>
-                          <input
-                            type="text"
+                          <select
                             value={level.name}
                             onChange={(e) => updateLevelSetting(level.id, { name: e.target.value })}
-                            placeholder="예: A"
                             style={{
                               width: "100%",
                               padding: "8px 10px",
@@ -1475,7 +1827,22 @@ export default function SettingsClient({
                               background: "var(--color-bg)",
                               boxSizing: "border-box",
                             }}
-                          />
+                          >
+                            {levelCodeValueOptions.length === 0 ? (
+                              <option value="">등록된 레벨 코드값이 없습니다</option>
+                            ) : null}
+                            {levelCodeValueOptions.length > 0 && !levelCodeValueOptions.some((item) => item.label === level.name) ? (
+                              <option value={level.name}>{level.name || "현재 값"}</option>
+                            ) : null}
+                            {levelCodeValueOptions.map((item) => (
+                              <option key={item.id} value={item.label}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
+                            코드값 관리의 <strong style={{ color: "var(--color-text)" }}>레벨 코드값</strong> 순서를 그대로 따릅니다.
+                          </div>
                         </div>
 
                         <div>
@@ -1499,14 +1866,20 @@ export default function SettingsClient({
                               background: "var(--color-bg)",
                             }}
                           >
-                            {OFFICIAL_DIFFICULTY_BANDS.map((item) => (
-                              <option key={item.id} value={item.id}>
+                            {difficultyCodeValueOptions.length > 0 &&
+                            !difficultyCodeValueOptions.some((item) => item.code === level.difficultyBandId) ? (
+                              <option value={level.difficultyBandId}>{band.label}</option>
+                            ) : null}
+                            {difficultyCodeValueOptions.map((item) => (
+                              <option key={item.id} value={item.code}>
                                 {item.label}
                               </option>
                             ))}
                           </select>
                           <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--color-text-subtle)", lineHeight: 1.5 }}>
                             {band.description}
+                            <br />
+                            코드값 관리의 <strong style={{ color: "var(--color-text)" }}>난이도 코드값</strong> 순서를 그대로 따릅니다.
                           </div>
                         </div>
 

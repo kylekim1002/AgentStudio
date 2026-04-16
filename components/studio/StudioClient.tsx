@@ -33,9 +33,6 @@ import {
   CurriculumAssetSummary,
   CurriculumReferencePayload,
   CURRICULUM_PARTIAL_SECTION_TYPES,
-  CURRICULUM_SEMESTERS,
-  CURRICULUM_SUBJECTS,
-  CURRICULUM_TYPES,
 } from "@/lib/curriculum";
 import {
   buildLevelContextText,
@@ -44,6 +41,13 @@ import {
   getLevelInternalDifficulty,
   LevelSetting,
 } from "@/lib/levelSettings";
+import {
+  CodeValueStore,
+  DEFAULT_CODE_VALUES,
+  getCodeValueItems,
+  getFilteredLevelCodeValues,
+  normalizeCodeValues,
+} from "@/lib/codeValues";
 import AgentPanel from "./AgentPanel";
 import ChatPanel from "./ChatPanel";
 import PipelinePanel from "./PipelinePanel";
@@ -51,9 +55,8 @@ import PreviewPanel from "./PreviewPanel";
 import SaveDialog from "./SaveDialog";
 import { dispatchInboxSync } from "@/lib/ui/inboxSync";
 
-type Mode = "chat" | "pipeline";
+type Mode = "chat" | "pipeline" | "curriculum";
 type GenerationTarget = "full" | "passage_review" | "content_review" | "passage_and_content_review";
-type StudioGenerationMode = "standard" | "curriculum";
 type CurriculumExecutionMode = "full" | "partial";
 interface StudioClientProps {
   canViewPipeline: boolean;
@@ -131,8 +134,8 @@ export default function StudioClient({
   const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
   const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(initialLevelSettings);
   const [selectedLevelId, setSelectedLevelId] = useState("");
-  const [studioGenerationMode, setStudioGenerationMode] = useState<StudioGenerationMode>("standard");
   const [curriculumExecutionMode, setCurriculumExecutionMode] = useState<CurriculumExecutionMode>("full");
+  const [codeValues, setCodeValues] = useState<CodeValueStore>(DEFAULT_CODE_VALUES);
   const [curriculumSemester, setCurriculumSemester] = useState("");
   const [curriculumLevel, setCurriculumLevel] = useState("");
   const [curriculumSubject, setCurriculumSubject] = useState("");
@@ -159,6 +162,8 @@ export default function StudioClient({
   const [generatedImages, setGeneratedImages] = useState<GeneratedPassageImage[]>([]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const isCurriculumMode = mode === "curriculum";
+  const curriculumMode = isCurriculumMode ? "curriculum" : "standard";
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
   const selectedLevel = useMemo(
     () => levelSettings.find((level) => level.id === selectedLevelId) ?? null,
@@ -182,7 +187,7 @@ export default function StudioClient({
     [imagePrompts, selectedImagePromptId]
   );
   const curriculumReference = useMemo<CurriculumReferencePayload | null>(() => {
-    if (studioGenerationMode !== "curriculum" || !selectedCurriculumAsset) return null;
+    if (!isCurriculumMode || !selectedCurriculumAsset) return null;
     return {
       assetId: selectedCurriculumAsset.id,
       title: selectedCurriculumAsset.title,
@@ -211,7 +216,7 @@ export default function StudioClient({
           })),
       })),
     };
-  }, [selectedCurriculumAsset, studioGenerationMode]);
+  }, [isCurriculumMode, selectedCurriculumAsset]);
   const curriculumPartialTargetCount = useMemo(() => {
     if (curriculumPartialSection === "reading") return contentCounts.reading;
     if (curriculumPartialSection === "vocabulary") return contentCounts.vocabulary;
@@ -219,6 +224,13 @@ export default function StudioClient({
     if (curriculumPartialSection === "writing") return contentCounts.writing;
     return contentCounts.assessment;
   }, [contentCounts, curriculumPartialSection]);
+  const curriculumSemesterOptions = useMemo(() => getCodeValueItems(codeValues, "semester"), [codeValues]);
+  const curriculumLevelOptions = useMemo(
+    () => getFilteredLevelCodeValues(codeValues, curriculumSemester),
+    [codeValues, curriculumSemester]
+  );
+  const curriculumSubjectOptions = useMemo(() => getCodeValueItems(codeValues, "subject"), [codeValues]);
+  const curriculumTypeOptions = useMemo(() => getCodeValueItems(codeValues, "content_type"), [codeValues]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
   const imageSourceTitle = useMemo(
@@ -238,6 +250,19 @@ export default function StudioClient({
     [reviewPassage, passageCheckpoint, lessonPackage]
   );
   const canOpenImageTools = imageSourcePassage.trim().length > 0;
+
+  useEffect(() => {
+    fetch("/api/system-settings/code-values")
+      .then((r) => r.json())
+      .then(({ codeValues }) => setCodeValues(normalizeCodeValues(codeValues)))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (curriculumLevel && !curriculumLevelOptions.some((item) => item.label === curriculumLevel)) {
+      setCurriculumLevel("");
+    }
+  }, [curriculumLevel, curriculumLevelOptions]);
   const prevPackage = useRef<typeof lessonPackage>(null);
   const prevCheckpoint = useRef<PassageCheckpoint | null>(null);
   const prevContentCheckpoint = useRef<ContentCheckpoint | null>(null);
@@ -368,7 +393,7 @@ export default function StudioClient({
   }, []);
 
   useEffect(() => {
-    if (studioGenerationMode !== "curriculum") {
+    if (!isCurriculumMode) {
       setCurriculumAssets([]);
       setSelectedCurriculumAssetId("");
       setSelectedCurriculumAsset(null);
@@ -408,7 +433,7 @@ export default function StudioClient({
     return () => {
       cancelled = true;
     };
-  }, [studioGenerationMode, curriculumSemester, curriculumLevel, curriculumSubject, curriculumType]);
+  }, [isCurriculumMode, curriculumSemester, curriculumLevel, curriculumSubject, curriculumType]);
 
   useEffect(() => {
     setCurriculumPartialResult(null);
@@ -416,7 +441,7 @@ export default function StudioClient({
   }, [selectedCurriculumAssetId, curriculumPartialSection]);
 
   useEffect(() => {
-    if (studioGenerationMode !== "curriculum" || !selectedCurriculumAssetId) {
+    if (!isCurriculumMode || !selectedCurriculumAssetId) {
       setSelectedCurriculumAsset(null);
       return;
     }
@@ -437,7 +462,7 @@ export default function StudioClient({
     return () => {
       cancelled = true;
     };
-  }, [studioGenerationMode, selectedCurriculumAssetId]);
+  }, [isCurriculumMode, selectedCurriculumAssetId]);
 
   useEffect(() => {
     if (!canOpenImageTools) {
@@ -506,7 +531,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget,
@@ -527,7 +552,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget,
@@ -677,7 +702,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget:
@@ -710,7 +735,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget:
@@ -730,7 +755,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget: "full",
@@ -748,7 +773,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget: "content_review",
@@ -768,7 +793,7 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
-      curriculumMode: studioGenerationMode,
+      curriculumMode,
       curriculumReference,
       contentCounts,
       generationTarget: "content_review",
@@ -916,8 +941,8 @@ export default function StudioClient({
           background: "var(--color-bg)", border: "1px solid var(--color-border)",
           borderRadius: "7px", padding: "3px",
         }}>
-          {(["chat", "pipeline"] as Mode[]).map((m) => (
-            (!canViewPipeline && m === "pipeline") ? null : (
+          {(["chat", "pipeline", "curriculum"] as Mode[]).map((m) => (
+            (!canViewPipeline && (m === "pipeline" || m === "curriculum")) ? null : (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -936,10 +961,18 @@ export default function StudioClient({
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1h10v7H7L4 11V8H1V1z" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinejoin="round"/></svg>
                   채팅 모드
                 </>
-              ) : (
+              ) : m === "pipeline" ? (
                 <>
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="2" cy="6" r="1.4" fill="currentColor"/><circle cx="6" cy="6" r="1.4" fill="currentColor"/><circle cx="10" cy="6" r="1.4" fill="currentColor"/><path d="M3.4 6h1.2M7.4 6h1.2" stroke="currentColor" strokeWidth="1.2"/></svg>
                   파이프라인 모드
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 2.5h8M2 6h8M2 9.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    <path d="M8.5 8.25l1 1 2-2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  커리큘럼 모드
                 </>
               )}
             </button>
@@ -1052,31 +1085,6 @@ export default function StudioClient({
                 {template.name}
               </option>
             ))}
-          </select>
-          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
-          </div>
-        </div>
-
-        <div style={{ position: "relative", minWidth: 0 }}>
-          <select
-            value={studioGenerationMode}
-            onChange={(e) => setStudioGenerationMode(e.target.value as StudioGenerationMode)}
-            disabled={isRunning}
-            style={{
-              appearance: "none",
-              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
-              borderRadius: "6px", border: "1px solid var(--color-border)",
-              fontSize: "12px", color: "var(--color-text-muted)",
-              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
-              cursor: isRunning ? "not-allowed" : "pointer",
-              opacity: isRunning ? 0.6 : 1,
-              minWidth: "116px",
-            }}
-            title="일반 생성과 커리큘럼 참고 생성 중 하나를 선택합니다"
-          >
-            <option value="standard">일반 생성</option>
-            <option value="curriculum">커리큘럼 모드</option>
           </select>
           <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -1433,7 +1441,7 @@ export default function StudioClient({
         </div>
       </div>
 
-      {studioGenerationMode === "curriculum" && (
+      {isCurriculumMode && (
         <div
           style={{
             flexShrink: 0,
@@ -1448,16 +1456,19 @@ export default function StudioClient({
         >
           <select value={curriculumSemester} onChange={(e) => setCurriculumSemester(e.target.value)} style={curriculumFilterStyle}>
             <option value="">학기 전체</option>
-            {CURRICULUM_SEMESTERS.map((item) => <option key={item} value={item}>{item}</option>)}
+            {curriculumSemesterOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
           </select>
-          <input value={curriculumLevel} onChange={(e) => setCurriculumLevel(e.target.value)} placeholder="레벨" style={curriculumFilterStyle} />
+          <select value={curriculumLevel} onChange={(e) => setCurriculumLevel(e.target.value)} style={curriculumFilterStyle}>
+            <option value="">레벨 전체</option>
+            {curriculumLevelOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
+          </select>
           <select value={curriculumSubject} onChange={(e) => setCurriculumSubject(e.target.value)} style={curriculumFilterStyle}>
             <option value="">과목 전체</option>
-            {CURRICULUM_SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
+            {curriculumSubjectOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
           </select>
           <select value={curriculumType} onChange={(e) => setCurriculumType(e.target.value)} style={curriculumFilterStyle}>
             <option value="">유형 전체</option>
-            {CURRICULUM_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+            {curriculumTypeOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
           </select>
           <div
             style={{
@@ -1541,7 +1552,7 @@ export default function StudioClient({
       )}
 
       {/* ── Body (3 panels) ── */}
-      {studioGenerationMode === "curriculum" && selectedCurriculumAsset && (
+      {isCurriculumMode && selectedCurriculumAsset && (
         <div
           style={{
             flexShrink: 0,
@@ -1566,7 +1577,7 @@ export default function StudioClient({
         </div>
       )}
 
-      {studioGenerationMode === "curriculum" && curriculumExecutionMode === "partial" && selectedCurriculumAsset && (
+      {isCurriculumMode && curriculumExecutionMode === "partial" && selectedCurriculumAsset && (
         <div
           style={{
             flexShrink: 0,
@@ -2585,8 +2596,6 @@ export default function StudioClient({
         {/* Left: Agent panel */}
         <AgentPanel
           agentStates={statusMap}
-          onRunAll={handleRunAll}
-          isRunning={isRunning}
         />
 
         {/* Center: Chat or Pipeline */}

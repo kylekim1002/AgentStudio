@@ -42,6 +42,9 @@ interface LessonSummary {
   project_id: string | null;
   tags: string[];
   isFavorite: boolean;
+  delete_request_pending?: boolean;
+  delete_request_requested_at?: string | null;
+  delete_request_requester_id?: string | null;
 }
 
 interface LessonDetailResponse {
@@ -53,6 +56,9 @@ interface LessonDetailResponse {
   reviewer_id?: string | null;
   assignment_mode?: "auto" | "manual" | null;
   assignment_note?: string | null;
+  delete_request_pending?: boolean;
+  delete_request_requested_at?: string | null;
+  delete_request_requester_id?: string | null;
 }
 
 interface ImagePromptPreset {
@@ -84,6 +90,8 @@ const DIFF_LABEL: Record<string, string> = {
   beginner: "초급", elementary: "기초", intermediate: "중급",
   "upper-intermediate": "중상급", advanced: "고급",
 };
+
+const LIBRARY_VIEW_MODE_KEY = "cyj-library:view-mode";
 
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
@@ -117,6 +125,7 @@ export default function LibraryClient({
   initialLessonId = null,
   initialPanel = null,
   initialReassignedFilter = "all",
+  initialDeleteRequestOnly = false,
 }: {
   viewerId: string;
   canExportTeacher?: boolean;
@@ -130,6 +139,7 @@ export default function LibraryClient({
   initialLessonId?: string | null;
   initialPanel?: "comments" | "activities" | null;
   initialReassignedFilter?: "all" | "to_me" | "from_me";
+  initialDeleteRequestOnly?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -146,6 +156,7 @@ export default function LibraryClient({
   const [scope, setScope] = useState<"all" | "mine" | "review">(initialScope);
   const [statusFilter, setStatusFilter] = useState<"all" | LessonStatus>(initialStatus);
   const [reassignedFilter, setReassignedFilter] = useState<"all" | "to_me" | "from_me">(initialReassignedFilter);
+  const [deleteRequestOnly, setDeleteRequestOnly] = useState(initialDeleteRequestOnly);
   const [copiedLinkType, setCopiedLinkType] = useState<"review" | "comments" | "activities" | null>(null);
   const [shareMenuLessonId, setShareMenuLessonId] = useState<string | null>(null);
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
@@ -161,6 +172,7 @@ export default function LibraryClient({
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailActionError, setDetailActionError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "card">("table");
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
   const [selectedImagePromptId, setSelectedImagePromptId] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.id ?? "");
   const [imagePromptText, setImagePromptText] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.prompt ?? "");
@@ -231,6 +243,9 @@ export default function LibraryClient({
       reviewer_id: data.lesson?.reviewer_id ?? null,
       assignment_mode: data.lesson?.assignment_mode ?? null,
       assignment_note: data.lesson?.assignment_note ?? null,
+      delete_request_pending: Boolean(data.lesson?.delete_request_pending),
+      delete_request_requested_at: data.lesson?.delete_request_requested_at ?? null,
+      delete_request_requester_id: data.lesson?.delete_request_requester_id ?? null,
     });
     setComments(data.comments ?? []);
     setActivities(data.activities ?? []);
@@ -333,6 +348,17 @@ export default function LibraryClient({
       .catch(() => {});
   }, []);
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(LIBRARY_VIEW_MODE_KEY);
+    if (saved === "table" || saved === "card") {
+      setViewMode(saved);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LIBRARY_VIEW_MODE_KEY, viewMode);
+  }, [viewMode]);
+  useEffect(() => {
     const params = new URLSearchParams();
 
     if (canManageReview && scope !== "all") params.set("scope", scope);
@@ -341,12 +367,13 @@ export default function LibraryClient({
     if (favOnly) params.set("favorite", "true");
     if (search.trim()) params.set("search", search.trim());
     if (selectedProject) params.set("project_id", selectedProject);
+    if (deleteRequestOnly) params.set("delete_requests", "true");
     if (selectedLesson?.id) params.set("lesson_id", selectedLesson.id);
     if (selectedLesson?.id && activePanel) params.set("panel", activePanel);
 
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
-  }, [activePanel, canManageReview, favOnly, pathname, reassignedFilter, router, scope, search, selectedLesson?.id, selectedProject, statusFilter]);
+  }, [activePanel, canManageReview, deleteRequestOnly, favOnly, pathname, reassignedFilter, router, scope, search, selectedLesson?.id, selectedProject, statusFilter]);
 
   useEffect(() => {
     if (!pendingLessonId) return;
@@ -834,14 +861,155 @@ export default function LibraryClient({
     }
   }
 
-  const filteredLessons = lessons; // server-side filtering already applied
+  async function requestDelete(lesson: LessonSummary) {
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lesson.id}/delete-request`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "삭제 요청 중 오류가 발생했습니다."));
+        return;
+      }
+
+      const data = await res.json();
+      dispatchInboxSync("lesson_delete_requested");
+      setLessons((prev) =>
+        prev.map((item) =>
+          item.id === lesson.id
+            ? {
+                ...item,
+                delete_request_pending: Boolean(data.delete_request_pending),
+                delete_request_requested_at: data.delete_request_requested_at ?? null,
+                delete_request_requester_id: data.delete_request_requester_id ?? null,
+              }
+            : item
+        )
+      );
+
+      if (selectedLesson?.id === lesson.id) {
+        setSelectedLesson((prev) =>
+          prev
+            ? {
+                ...prev,
+                delete_request_pending: Boolean(data.delete_request_pending),
+                delete_request_requested_at: data.delete_request_requested_at ?? null,
+                delete_request_requester_id: data.delete_request_requester_id ?? null,
+              }
+            : prev
+        );
+        setLessonDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                delete_request_pending: Boolean(data.delete_request_pending),
+                delete_request_requested_at: data.delete_request_requested_at ?? null,
+                delete_request_requester_id: data.delete_request_requester_id ?? null,
+              }
+            : prev
+        );
+      }
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "삭제 요청 중 오류가 발생했습니다.");
+    }
+  }
+
+  async function cancelDeleteRequest(lesson: LessonSummary) {
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lesson.id}/delete-request`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "삭제 요청 취소 중 오류가 발생했습니다."));
+        return;
+      }
+
+      dispatchInboxSync("lesson_delete_request_cancelled");
+      setLessons((prev) =>
+        prev.map((item) =>
+          item.id === lesson.id
+            ? {
+                ...item,
+                delete_request_pending: false,
+                delete_request_requested_at: null,
+                delete_request_requester_id: null,
+              }
+            : item
+        )
+      );
+
+      if (selectedLesson?.id === lesson.id) {
+        setSelectedLesson((prev) =>
+          prev
+            ? {
+                ...prev,
+                delete_request_pending: false,
+                delete_request_requested_at: null,
+                delete_request_requester_id: null,
+              }
+            : prev
+        );
+        setLessonDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                delete_request_pending: false,
+                delete_request_requested_at: null,
+                delete_request_requester_id: null,
+              }
+            : prev
+        );
+      }
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "삭제 요청 취소 중 오류가 발생했습니다.");
+    }
+  }
+
+  async function deleteLesson(lesson: LessonSummary) {
+    if (!window.confirm(`"${lesson.title}" 레슨을 정말 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) {
+      return;
+    }
+
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lesson.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "레슨 삭제 중 오류가 발생했습니다."));
+        return;
+      }
+
+      dispatchInboxSync("lesson_deleted");
+      setLessons((prev) => prev.filter((item) => item.id !== lesson.id));
+      if (selectedLesson?.id === lesson.id) {
+        setSelectedLesson(null);
+        setLessonDetail(null);
+        setComments([]);
+        setActivities([]);
+        setActivePanel(null);
+      }
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "레슨 삭제 중 오류가 발생했습니다.");
+    }
+  }
+
+  const filteredLessons = deleteRequestOnly
+    ? lessons.filter((lesson) => lesson.delete_request_pending)
+    : lessons; // server-side filtering already applied
   const canShowReviewActions = canManageReview && (viewerRole === "admin" || viewerRole === "lead_teacher" || viewerRole === "reviewer");
   const isOwner = selectedLesson?.user_id === viewerId;
+  const isAdmin = viewerRole === "admin";
   const canEditLessonPackage = Boolean(isOwner || canManageReview);
   const canReviewCurrentLesson =
     canShowReviewActions &&
     !!selectedLesson &&
     (viewerRole === "admin" || viewerRole === "lead_teacher" || selectedLesson.reviewer_id === viewerId);
+  const canRequestDeleteCurrentLesson = Boolean(selectedLesson && !isAdmin && selectedLesson.user_id === viewerId);
+  const canCancelDeleteCurrentLesson =
+    Boolean(
+      selectedLesson?.delete_request_pending &&
+        (isAdmin || selectedLesson?.delete_request_requester_id === viewerId)
+    );
   const recommendedLinkType: "review" | "comments" | "activities" =
     lessonDetail?.status === "in_review"
       ? "review"
@@ -851,6 +1019,7 @@ export default function LibraryClient({
   const draftCount = lessons.filter((lesson) => lesson.status === "draft" || lesson.status === "needs_revision").length;
   const reviewCount = lessons.filter((lesson) => lesson.status === "in_review").length;
   const approvedCount = lessons.filter((lesson) => lesson.status === "approved" || lesson.status === "published").length;
+  const deleteRequestCount = lessons.filter((lesson) => lesson.delete_request_pending).length;
   const reviewSelectableLessons = lessons.filter((lesson) =>
     lesson.status === "in_review" &&
     (viewerRole === "admin" || viewerRole === "lead_teacher" || lesson.reviewer_id === viewerId)
@@ -918,15 +1087,33 @@ export default function LibraryClient({
             active={selectedProject === null}
             label="전체 레슨"
             count={lessons.length}
-            onClick={() => setSelectedProject(null)}
+            onClick={() => {
+              setSelectedProject(null);
+              setDeleteRequestOnly(false);
+            }}
             icon="📂"
           />
           <ProjectItem
             active={favOnly}
             label="즐겨찾기"
             count={lessons.filter((l) => l.isFavorite).length}
-            onClick={() => { setFavOnly((v) => !v); setSelectedProject(null); }}
+            onClick={() => {
+              setFavOnly((v) => !v);
+              setSelectedProject(null);
+              setDeleteRequestOnly(false);
+            }}
             icon="⭐"
+          />
+          <ProjectItem
+            active={deleteRequestOnly}
+            label="삭제 요청"
+            count={deleteRequestCount}
+            onClick={() => {
+              setDeleteRequestOnly((v) => !v);
+              setFavOnly(false);
+              setSelectedProject(null);
+            }}
+            icon="🗑️"
           />
 
           {projects.length > 0 && (
@@ -942,7 +1129,7 @@ export default function LibraryClient({
               label={p.name}
               code={p.code ?? undefined}
               count={lessons.filter((l) => l.project_id === p.id).length}
-              onClick={() => { setSelectedProject(p.id); setFavOnly(false); }}
+              onClick={() => { setSelectedProject(p.id); setFavOnly(false); setDeleteRequestOnly(false); }}
               icon="📁"
             />
           ))}
@@ -1012,6 +1199,52 @@ export default function LibraryClient({
           <span style={{ fontSize: "12px", color: "var(--color-text-muted)", whiteSpace: "nowrap" }}>
             {filteredLessons.length}개
           </span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "3px",
+              borderRadius: "999px",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "999px",
+                border: "none",
+                background: viewMode === "table" ? "var(--color-primary-light)" : "transparent",
+                color: viewMode === "table" ? "var(--color-primary)" : "var(--color-text-muted)",
+                fontSize: "11px",
+                fontWeight: "700",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              테이블형
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("card")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "999px",
+                border: "none",
+                background: viewMode === "card" ? "var(--color-primary-light)" : "transparent",
+                color: viewMode === "card" ? "var(--color-primary)" : "var(--color-text-muted)",
+                fontSize: "11px",
+                fontWeight: "700",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              카드형
+            </button>
+          </div>
         </div>
 
         <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface)", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
@@ -1046,6 +1279,21 @@ export default function LibraryClient({
               {item.label}
             </button>
           ))}
+          <button
+            onClick={() => setDeleteRequestOnly((v) => !v)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: "999px",
+              border: `1px solid ${deleteRequestOnly ? "#DC2626" : "var(--color-border)"}`,
+              background: deleteRequestOnly ? "#FEF2F2" : "var(--color-surface)",
+              color: deleteRequestOnly ? "#B91C1C" : "var(--color-text-muted)",
+              fontSize: "11px",
+              fontWeight: "700",
+              cursor: "pointer",
+            }}
+          >
+            삭제 요청 {deleteRequestCount}
+          </button>
         </div>
 
         {canManageReview && (
@@ -1092,6 +1340,39 @@ export default function LibraryClient({
             </span>
             <button
               onClick={() => setReassignedFilter("all")}
+              style={{
+                padding: "5px 8px",
+                borderRadius: "999px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text-muted)",
+                fontSize: "11px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              필터 해제
+            </button>
+          </div>
+        )}
+
+        {deleteRequestOnly && (
+          <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface)", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>삭제 요청 필터</span>
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: "700",
+                color: "#B91C1C",
+                background: "#FEF2F2",
+                padding: "4px 8px",
+                borderRadius: "999px",
+              }}
+            >
+              삭제 요청 {deleteRequestCount}건
+            </span>
+            <button
+              onClick={() => setDeleteRequestOnly(false)}
               style={{
                 padding: "5px 8px",
                 borderRadius: "999px",
@@ -1231,6 +1512,151 @@ export default function LibraryClient({
               <div style={{ fontSize: "13px" }}>레슨이 없습니다</div>
               <div style={{ fontSize: "12px" }}>스튜디오에서 레슨을 만들고 저장하면 여기 표시됩니다</div>
             </div>
+          ) : viewMode === "table" ? (
+            <div
+              style={{
+                border: "1px solid var(--color-border)",
+                borderRadius: "10px",
+                overflow: "hidden",
+                background: "var(--color-surface)",
+              }}
+            >
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "980px" }}>
+                  <thead>
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      {["제목", "난이도", "상태", "작성자", "검토자", "생성일", "표시", "액션"].map((label) => (
+                        <th
+                          key={label}
+                          style={{
+                            padding: "11px 12px",
+                            borderBottom: "1px solid var(--color-border)",
+                            textAlign: "left",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            color: "var(--color-text-subtle)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLessons.map((lesson) => {
+                      const dc = DIFF_COLOR[lesson.difficulty] ?? DIFF_COLOR.intermediate;
+                      const isActive = selectedLesson?.id === lesson.id;
+                      return (
+                        <tr
+                          key={`table-${lesson.id}`}
+                          onClick={() => selectLesson(lesson)}
+                          style={{
+                            background: isActive ? "rgba(79,70,229,.05)" : "transparent",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)" }}>
+                            <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)", lineHeight: 1.45 }}>
+                              {lesson.title}
+                            </div>
+                            {lesson.tags?.length ? (
+                              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
+                                {lesson.tags.slice(0, 3).map((tag) => (
+                                  <span
+                                    key={`${lesson.id}-${tag}`}
+                                    style={{
+                                      fontSize: "10px",
+                                      padding: "1px 6px",
+                                      borderRadius: "999px",
+                                      background: "var(--color-primary-light)",
+                                      color: "var(--color-primary)",
+                                    }}
+                                  >
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", whiteSpace: "nowrap" }}>
+                            <span style={{ fontSize: "10px", padding: "3px 7px", borderRadius: "999px", background: dc.bg, color: dc.text, fontWeight: "700" }}>
+                              {DIFF_LABEL[lesson.difficulty] ?? lesson.difficulty}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "10px", padding: "3px 7px", borderRadius: "999px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "700" }}>
+                                {LESSON_STATUS_LABELS[lesson.status]}
+                              </span>
+                              {lesson.delete_request_pending && (
+                                <span style={{ fontSize: "10px", padding: "3px 7px", borderRadius: "999px", background: "#FEF2F2", color: "#B91C1C", fontWeight: "700" }}>
+                                  삭제 요청
+                                </span>
+                              )}
+                              {lesson.reassigned_badge && (
+                                <span style={{ fontSize: "10px", padding: "3px 7px", borderRadius: "999px", background: lesson.reassigned_badge === "to_me" ? "#DBEAFE" : "#FEF3C7", color: lesson.reassigned_badge === "to_me" ? "#1D4ED8" : "#92400E", fontWeight: "700" }}>
+                                  {lesson.reassigned_badge === "to_me" ? "재배정됨" : "이동됨"}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.owner_name ? "var(--color-text)" : "var(--color-text-subtle)" }}>
+                            {lesson.owner_name ?? "미지정"}
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.reviewer_name ? "var(--color-text)" : "var(--color-text-subtle)" }}>
+                            {lesson.reviewer_name ?? "미배정"}
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: "var(--color-text-muted)", whiteSpace: "nowrap" }}>
+                            {fmtDate(lesson.created_at)}
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                            {lesson.provider}
+                          </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-start" }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void copyLessonLinkFromCard(lesson);
+                                }}
+                                style={{
+                                  padding: "5px 8px",
+                                  borderRadius: "999px",
+                                  border: "1px solid var(--color-border)",
+                                  background: "var(--color-surface)",
+                                  color: "var(--color-text-muted)",
+                                  fontSize: "10px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                공유
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFav(lesson.id, lesson.isFavorite);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "15px",
+                                  opacity: lesson.isFavorite ? 1 : 0.3,
+                                }}
+                              >
+                                ⭐
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px" }}>
               {filteredLessons.map((lesson) => {
@@ -1251,6 +1677,9 @@ export default function LibraryClient({
                   canShowReviewActions &&
                   lesson.status === "in_review" &&
                   (viewerRole === "admin" || viewerRole === "lead_teacher" || lesson.reviewer_id === viewerId);
+                const canRequestDeleteCard = !isAdmin && lesson.user_id === viewerId;
+                const canCancelDeleteCard =
+                  Boolean(lesson.delete_request_pending && (isAdmin || lesson.delete_request_requester_id === viewerId));
                 const isReviewSelected = selectedReviewIds.includes(lesson.id);
                 return (
                   <div
@@ -1400,6 +1829,20 @@ export default function LibraryClient({
                       <span style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "4px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "600" }}>
                         {LESSON_STATUS_LABELS[lesson.status]}
                       </span>
+                      {lesson.delete_request_pending && (
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            padding: "2px 7px",
+                            borderRadius: "4px",
+                            background: "#FEF2F2",
+                            color: "#B91C1C",
+                            fontWeight: "700",
+                          }}
+                        >
+                          삭제 요청
+                        </span>
+                      )}
                       {lesson.reassigned_badge && (
                         <button
                           onClick={(e) => {
@@ -1467,6 +1910,78 @@ export default function LibraryClient({
                     <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
                       {fmtDate(lesson.created_at)}
                     </div>
+
+                    {(isAdmin || canRequestDeleteCard || canCancelDeleteCard) && (
+                      <div style={{ display: "grid", gap: "6px", marginTop: "10px" }}>
+                        {lesson.delete_request_pending && lesson.delete_request_requested_at && (
+                          <div style={{ fontSize: "10px", color: "#B91C1C", fontWeight: "700" }}>
+                            삭제 요청 접수 · {fmtDate(lesson.delete_request_requested_at)}
+                          </div>
+                        )}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                          {!isAdmin && canRequestDeleteCard && !lesson.delete_request_pending && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void requestDelete(lesson);
+                              }}
+                              style={{
+                                padding: "7px 8px",
+                                borderRadius: "7px",
+                                border: "1px solid #FECACA",
+                                background: "#FEF2F2",
+                                color: "#B91C1C",
+                                fontSize: "11px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                              }}
+                            >
+                              삭제 요청
+                            </button>
+                          )}
+                          {lesson.delete_request_pending && canCancelDeleteCard && !isAdmin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void cancelDeleteRequest(lesson);
+                              }}
+                              style={{
+                                padding: "7px 8px",
+                                borderRadius: "7px",
+                                border: "1px solid var(--color-border)",
+                                background: "var(--color-surface)",
+                                color: "var(--color-text-muted)",
+                                fontSize: "11px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                              }}
+                            >
+                              삭제 요청 취소
+                            </button>
+                          )}
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void deleteLesson(lesson);
+                              }}
+                              style={{
+                                padding: "7px 8px",
+                                borderRadius: "7px",
+                                border: "1px solid #FCA5A5",
+                                background: "#FEE2E2",
+                                color: "#B91C1C",
+                                fontSize: "11px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                              }}
+                            >
+                              즉시 삭제
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {canReviewLessonCard && (
                       <div style={{ display: "grid", gap: "6px", marginTop: "10px" }}>
@@ -1627,6 +2142,20 @@ export default function LibraryClient({
                         {lessonDetail.assignment_mode === "auto" ? "자동 배정" : "수동 지정"}
                       </span>
                     )}
+                    {lessonDetail.delete_request_pending && (
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          padding: "4px 8px",
+                          borderRadius: "999px",
+                          background: "#FEF2F2",
+                          color: "#B91C1C",
+                          fontWeight: "700",
+                        }}
+                      >
+                        삭제 요청 접수
+                      </span>
+                    )}
                     {lessonDetail.assignment_note && (
                       <span style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
                         배정 메모: {lessonDetail.assignment_note}
@@ -1649,6 +2178,88 @@ export default function LibraryClient({
                       {lessonDetail.status === "published" && "발행까지 완료된 레슨입니다. 필요하면 코멘트로 후속 의견을 남길 수 있습니다."}
                     </div>
                   </div>
+
+                  {(isAdmin || canRequestDeleteCurrentLesson || canCancelDeleteCurrentLesson) && (
+                    <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                      <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
+                        삭제 관리
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: "8px" }}>
+                        {isAdmin
+                          ? "관리자는 레슨을 즉시 삭제할 수 있습니다."
+                          : lessonDetail.delete_request_pending
+                            ? "삭제 요청이 접수된 상태입니다. 필요하면 요청을 취소할 수 있습니다."
+                            : "일반 사용자는 즉시 삭제 대신 최고관리자에게 삭제 요청을 보냅니다."}
+                      </div>
+                      {lessonDetail.delete_request_pending && lessonDetail.delete_request_requested_at && (
+                        <div style={{ fontSize: "11px", color: "#B91C1C", fontWeight: "700", marginBottom: "8px" }}>
+                          요청 일시: {fmtDate(lessonDetail.delete_request_requested_at)}
+                        </div>
+                      )}
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              if (selectedLesson) void deleteLesson(selectedLesson);
+                            }}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid #FCA5A5",
+                              background: "#FEE2E2",
+                              color: "#B91C1C",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            레슨 즉시 삭제
+                          </button>
+                        )}
+                        {!isAdmin && canRequestDeleteCurrentLesson && !lessonDetail.delete_request_pending && (
+                          <button
+                            onClick={() => {
+                              if (selectedLesson) void requestDelete(selectedLesson);
+                            }}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid #FECACA",
+                              background: "#FEF2F2",
+                              color: "#B91C1C",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            최고관리자에게 삭제 요청
+                          </button>
+                        )}
+                        {!isAdmin && lessonDetail.delete_request_pending && canCancelDeleteCurrentLesson && (
+                          <button
+                            onClick={() => {
+                              if (selectedLesson) void cancelDeleteRequest(selectedLesson);
+                            }}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid var(--color-border)",
+                              background: "var(--color-surface)",
+                              color: "var(--color-text-muted)",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            삭제 요청 취소
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                     <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "4px" }}>공유 링크</div>

@@ -8,6 +8,47 @@ import { DEFAULT_REVIEW_SLA_HOURS, normalizeReviewSlaHours } from "@/lib/reviewS
 
 const REVIEWER_ROLES = ["admin", "lead_teacher", "reviewer"];
 
+function buildDeleteRequestMap(
+  activities: Array<{
+    lesson_id?: string | null;
+    action?: string | null;
+    actor_id?: string | null;
+    created_at?: string | null;
+  }>
+) {
+  const map = new Map<
+    string,
+    {
+      pending: boolean;
+      requested_at: string | null;
+      requester_id: string | null;
+    }
+  >();
+
+  for (const activity of activities) {
+    if (!activity.lesson_id || !activity.action) continue;
+
+    if (activity.action === "delete_requested") {
+      map.set(activity.lesson_id, {
+        pending: true,
+        requested_at: activity.created_at ?? null,
+        requester_id: activity.actor_id ?? null,
+      });
+      continue;
+    }
+
+    if (activity.action === "delete_request_cancelled" || activity.action === "deleted") {
+      map.set(activity.lesson_id, {
+        pending: false,
+        requested_at: null,
+        requester_id: null,
+      });
+    }
+  }
+
+  return map;
+}
+
 function getHoursDiff(from: string, to: Date) {
   return Math.max(
     0,
@@ -172,6 +213,15 @@ export async function GET(req: NextRequest) {
         .gte("created_at", reassignmentSince)
     : { data: [] };
 
+  const { data: deleteActivities } = lessonIds.length
+    ? await (supabase as any)
+        .from("lesson_activities")
+        .select("lesson_id, actor_id, action, created_at")
+        .in("lesson_id", lessonIds)
+        .in("action", ["delete_requested", "delete_request_cancelled", "deleted"])
+        .order("created_at", { ascending: false })
+    : { data: [] };
+
   const reassignmentBadgeMap = new Map<string, "to_me" | "from_me">();
   for (const activity of (reassignmentActivities ?? []) as Array<{
     lesson_id?: string | null;
@@ -190,9 +240,21 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const deleteRequestMap = buildDeleteRequestMap(
+    (deleteActivities ?? []) as Array<{
+      lesson_id?: string | null;
+      action?: string | null;
+      actor_id?: string | null;
+      created_at?: string | null;
+    }>
+  );
+
   lessons = lessons.map((lesson) => ({
     ...lesson,
     reassigned_badge: reassignmentBadgeMap.get(lesson.id) ?? null,
+    delete_request_pending: deleteRequestMap.get(lesson.id)?.pending ?? false,
+    delete_request_requested_at: deleteRequestMap.get(lesson.id)?.requested_at ?? null,
+    delete_request_requester_id: deleteRequestMap.get(lesson.id)?.requester_id ?? null,
   }));
 
   if (reassigned === "to_me" || reassigned === "from_me") {

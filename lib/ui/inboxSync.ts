@@ -6,7 +6,10 @@ export type InboxSyncReason =
   | "lesson_reviewed"
   | "lesson_reassigned"
   | "lesson_favorited"
-  | "lesson_commented";
+  | "lesson_commented"
+  | "lesson_delete_requested"
+  | "lesson_delete_request_cancelled"
+  | "lesson_deleted";
 
 export function dispatchInboxSync(reason: InboxSyncReason) {
   if (typeof window === "undefined") return;

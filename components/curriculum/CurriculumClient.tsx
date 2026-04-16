@@ -2,15 +2,20 @@
 
 import { CSSProperties, useEffect, useMemo, useState } from "react";
 import {
-  CURRICULUM_SEMESTERS,
-  CURRICULUM_SUBJECTS,
-  CURRICULUM_TYPES,
   CurriculumAssetDetail,
   CurriculumAssetSummary,
 } from "@/lib/curriculum";
+import {
+  DEFAULT_CODE_VALUES,
+  getCodeValueItems,
+  getFilteredLevelCodeValues,
+  normalizeCodeValues,
+  CodeValueStore,
+} from "@/lib/codeValues";
 
 export default function CurriculumClient({ viewerId }: { viewerId: string }) {
   const [assets, setAssets] = useState<CurriculumAssetSummary[]>([]);
+  const [codeValues, setCodeValues] = useState<CodeValueStore>(DEFAULT_CODE_VALUES);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetDetail, setAssetDetail] = useState<CurriculumAssetDetail | null>(null);
   const [detailDraft, setDetailDraft] = useState<CurriculumAssetDetail | null>(null);
@@ -35,6 +40,10 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
     () => assets.find((asset) => asset.id === selectedAssetId) ?? assets[0] ?? null,
     [assets, selectedAssetId]
   );
+  const semesterOptions = useMemo(() => getCodeValueItems(codeValues, "semester"), [codeValues]);
+  const levelOptions = useMemo(() => getFilteredLevelCodeValues(codeValues, semester), [codeValues, semester]);
+  const subjectOptions = useMemo(() => getCodeValueItems(codeValues, "subject"), [codeValues]);
+  const contentTypeOptions = useMemo(() => getCodeValueItems(codeValues, "content_type"), [codeValues]);
 
   async function loadAssets() {
     setLoading(true);
@@ -66,6 +75,19 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
     void loadAssets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [semester, levelName, subject, contentType, status]);
+
+  useEffect(() => {
+    fetch("/api/system-settings/code-values")
+      .then((r) => r.json())
+      .then(({ codeValues }) => setCodeValues(normalizeCodeValues(codeValues)))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (levelName && !levelOptions.some((item) => item.label === levelName)) {
+      setLevelName("");
+    }
+  }, [levelName, levelOptions]);
 
   useEffect(() => {
     if (!selectedAssetId) {
@@ -235,25 +257,28 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text)" }}>학기</span>
             <select value={semester} onChange={(e) => setSemester(e.target.value)} style={inputStyle}>
               <option value="">전체</option>
-              {CURRICULUM_SEMESTERS.map((item) => <option key={item} value={item}>{item}</option>)}
+              {semesterOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
             </select>
           </label>
           <label style={{ display: "grid", gap: "6px" }}>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text)" }}>레벨</span>
-            <input value={levelName} onChange={(e) => setLevelName(e.target.value)} placeholder="예: Wind1" style={inputStyle} />
+            <select value={levelName} onChange={(e) => setLevelName(e.target.value)} style={inputStyle}>
+              <option value="">전체</option>
+              {levelOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
+            </select>
           </label>
           <label style={{ display: "grid", gap: "6px" }}>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text)" }}>과목</span>
             <select value={subject} onChange={(e) => setSubject(e.target.value)} style={inputStyle}>
               <option value="">전체</option>
-              {CURRICULUM_SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
+              {subjectOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
             </select>
           </label>
           <label style={{ display: "grid", gap: "6px" }}>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text)" }}>유형</span>
             <select value={contentType} onChange={(e) => setContentType(e.target.value)} style={inputStyle}>
               <option value="">전체</option>
-              {CURRICULUM_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+              {contentTypeOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
             </select>
           </label>
           <label style={{ display: "grid", gap: "6px" }}>
@@ -286,25 +311,28 @@ export default function CurriculumClient({ viewerId }: { viewerId: string }) {
               <span style={labelStyle}>학기</span>
               <select value={semester} onChange={(e) => setSemester(e.target.value)} style={inputStyle}>
                 <option value="">선택</option>
-                {CURRICULUM_SEMESTERS.map((item) => <option key={item} value={item}>{item}</option>)}
+                {semesterOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
               </select>
             </label>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={labelStyle}>레벨</span>
-              <input value={levelName} onChange={(e) => setLevelName(e.target.value)} placeholder="Wind1" style={inputStyle} />
+              <select value={levelName} onChange={(e) => setLevelName(e.target.value)} style={inputStyle}>
+                <option value="">선택</option>
+                {levelOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
+              </select>
             </label>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={labelStyle}>과목</span>
               <select value={subject} onChange={(e) => setSubject(e.target.value)} style={inputStyle}>
                 <option value="">선택</option>
-                {CURRICULUM_SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
+                {subjectOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
               </select>
             </label>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={labelStyle}>유형</span>
               <select value={contentType} onChange={(e) => setContentType(e.target.value)} style={inputStyle}>
                 <option value="">선택</option>
-                {CURRICULUM_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                {contentTypeOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
               </select>
             </label>
             <label style={{ display: "grid", gap: "6px" }}>

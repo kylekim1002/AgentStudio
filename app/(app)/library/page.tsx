@@ -15,6 +15,7 @@ export default async function LibraryPage({
     lesson_id?: string;
     panel?: string;
     reassigned?: string;
+    delete_requests?: string;
   }>;
 }) {
   const supabase = await createClient();
@@ -50,6 +51,7 @@ export default async function LibraryPage({
     resolvedSearchParams.reassigned === "to_me" || resolvedSearchParams.reassigned === "from_me"
       ? resolvedSearchParams.reassigned
       : "all";
+  const initialDeleteRequestOnly = resolvedSearchParams.delete_requests === "true";
 
   return (
     <LibraryClient
@@ -65,6 +67,7 @@ export default async function LibraryPage({
       initialLessonId={initialLessonId}
       initialPanel={initialPanel}
       initialReassignedFilter={initialReassignedFilter}
+      initialDeleteRequestOnly={initialDeleteRequestOnly}
     />
   );
 }

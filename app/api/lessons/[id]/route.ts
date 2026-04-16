@@ -7,6 +7,38 @@ import { logLessonActivity } from "@/lib/collab/activity";
 
 const REVIEWER_ROLES = ["admin", "lead_teacher", "reviewer"];
 
+function resolveDeleteRequestState(
+  activities: Array<{
+    action?: string | null;
+    actor_id?: string | null;
+    created_at?: string | null;
+  }>
+) {
+  for (const activity of activities) {
+    if (activity.action === "delete_requested") {
+      return {
+        pending: true,
+        requested_at: activity.created_at ?? null,
+        requester_id: activity.actor_id ?? null,
+      };
+    }
+
+    if (activity.action === "delete_request_cancelled" || activity.action === "deleted") {
+      return {
+        pending: false,
+        requested_at: null,
+        requester_id: null,
+      };
+    }
+  }
+
+  return {
+    pending: false,
+    requested_at: null,
+    requester_id: null,
+  };
+}
+
 async function resolveRecommendedReviewerId(
   supabase: Awaited<ReturnType<typeof createClient>>
 ) {
@@ -150,7 +182,24 @@ export async function GET(
       : null,
   }));
 
-  return NextResponse.json({ lesson, comments: enrichedComments, activities: enrichedActivities });
+  const deleteRequestState = resolveDeleteRequestState(
+    (activities ?? []) as Array<{
+      action?: string | null;
+      actor_id?: string | null;
+      created_at?: string | null;
+    }>
+  );
+
+  return NextResponse.json({
+    lesson: {
+      ...lesson,
+      delete_request_pending: deleteRequestState.pending,
+      delete_request_requested_at: deleteRequestState.requested_at,
+      delete_request_requester_id: deleteRequestState.requester_id,
+    },
+    comments: enrichedComments,
+    activities: enrichedActivities,
+  });
 }
 
 // DELETE /api/lessons/[id] — 레슨 삭제
@@ -173,9 +222,18 @@ export async function DELETE(
     .eq("id", id)
     .single();
 
-  if (!lesson || !canDeleteLesson(access, lesson)) {
+  if (!lesson || access.role !== "admin" || !canDeleteLesson(access, lesson)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  await logLessonActivity(supabase as any, {
+    lessonId: id,
+    actorId: user.id,
+    action: "deleted",
+    metadata: {
+      delete_request_pending: false,
+    },
+  });
 
   const { error } = await supabase
     .from("lessons")

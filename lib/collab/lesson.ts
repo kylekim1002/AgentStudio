@@ -43,6 +43,9 @@ export interface LessonActivity {
     template_used?: boolean | null;
     template_kind?: "approved" | "needs_revision" | null;
     template_text?: string | null;
+    delete_request_pending?: boolean | null;
+    requester_id?: string | null;
+    requester_name?: string | null;
   } | null;
   actor_name?: string | null;
   actor_role?: string | null;
@@ -56,6 +59,9 @@ export const LESSON_ACTIVITY_LABELS: Record<string, string> = {
   revision_requested: "수정 요청",
   commented: "코멘트 작성",
   reviewer_assigned: "검토자 지정",
+  delete_requested: "삭제 요청",
+  delete_request_cancelled: "삭제 요청 취소",
+  deleted: "레슨 삭제",
 };
 
 export const LESSON_STATUS_LABELS: Record<LessonStatus, string> = {

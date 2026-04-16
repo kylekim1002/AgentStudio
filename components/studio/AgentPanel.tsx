@@ -6,8 +6,6 @@ import { AGENT_META, PIPELINE_ORDER, AGENT_GROUPS } from "@/lib/agentMeta";
 
 interface AgentPanelProps {
   agentStates: Map<AgentName, AgentStatus>;
-  onRunAll: () => void;
-  isRunning: boolean;
 }
 
 interface TooltipState {
@@ -33,7 +31,7 @@ const DOT_COLOR: Record<AgentStatus, string> = {
   error:    "#EF4444",
 };
 
-export default function AgentPanel({ agentStates, onRunAll, isRunning }: AgentPanelProps) {
+export default function AgentPanel({ agentStates }: AgentPanelProps) {
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, x: 0, y: 0, agent: null });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -170,38 +168,6 @@ export default function AgentPanel({ agentStates, onRunAll, isRunning }: AgentPa
             </div>
           ))}
         </div>
-
-        {/* Footer: Run button */}
-        <div style={{ padding: "11px 12px", borderTop: "1px solid var(--color-border)" }}>
-          <button
-            onClick={onRunAll}
-            disabled={isRunning}
-            style={{
-              width: "100%", padding: "8px",
-              borderRadius: "7px",
-              background: isRunning ? "var(--color-border-strong)" : "var(--color-primary)",
-              color: isRunning ? "var(--color-text-muted)" : "#fff",
-              fontSize: "12px", fontWeight: "600",
-              border: "none", cursor: isRunning ? "not-allowed" : "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-              transition: "background .15s",
-            }}
-          >
-            {isRunning ? (
-              <>
-                <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⚙</span>
-                실행 중...
-              </>
-            ) : (
-              <>
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M2 1.5l8 4-8 4V1.5z" fill="currentColor"/>
-                </svg>
-                전체 파이프라인 실행
-              </>
-            )}
-          </button>
-        </div>
       </aside>
 
       {/* Tooltip portal */}
@@ -247,9 +213,6 @@ export default function AgentPanel({ agentStates, onRunAll, isRunning }: AgentPa
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.35; }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
         }
       `}</style>
     </>

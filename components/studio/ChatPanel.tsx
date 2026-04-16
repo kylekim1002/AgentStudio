@@ -64,6 +64,9 @@ const QUICK = [
   { icon: "📄", text: "직접 지문을 제공해서 문제만 만들어줘" },
 ];
 
+const STUDIO_THREAD_STORAGE_KEY = "cyj-studio:selected-thread-id";
+const STUDIO_THREAD_PANEL_COLLAPSED_KEY = "cyj-studio:thread-panel-collapsed";
+
 function fmt(d: Date) {
   return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
@@ -120,6 +123,7 @@ export default function ChatPanel({
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [isThreadPanelCollapsed, setIsThreadPanelCollapsed] = useState(false);
   const [input, setInput] = useState("");
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -284,11 +288,12 @@ export default function ChatPanel({
 
     async function bootstrap() {
       setLoadingThreads(true);
-      const nextThreads = await loadThreads();
+      const savedThreadId =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(STUDIO_THREAD_STORAGE_KEY)
+          : null;
+      const nextThreads = await loadThreads(savedThreadId);
       if (cancelled) return;
-      if (nextThreads && !nextThreads.length && !storageUnavailable) {
-        await createThread();
-      }
       setLoadingThreads(false);
     }
 
@@ -298,6 +303,29 @@ export default function ChatPanel({
       cancelled = true;
     };
   }, [storageUnavailable]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedThreadId) {
+      window.localStorage.setItem(STUDIO_THREAD_STORAGE_KEY, selectedThreadId);
+    } else {
+      window.localStorage.removeItem(STUDIO_THREAD_STORAGE_KEY);
+    }
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(STUDIO_THREAD_PANEL_COLLAPSED_KEY);
+    setIsThreadPanelCollapsed(saved === "true");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      STUDIO_THREAD_PANEL_COLLAPSED_KEY,
+      isThreadPanelCollapsed ? "true" : "false"
+    );
+  }, [isThreadPanelCollapsed]);
 
   useEffect(() => {
     if (!selectedThreadId || storageUnavailable) return;
@@ -688,14 +716,101 @@ export default function ChatPanel({
     <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)" }}>
       <aside
         style={{
-          width: "280px",
+          width: isThreadPanelCollapsed ? "52px" : "280px",
           borderRight: "1px solid var(--color-border)",
           background: "var(--color-surface)",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
+          transition: "width .18s ease",
+          overflow: "hidden",
         }}
       >
+        <div
+          style={{
+            padding: isThreadPanelCollapsed ? "12px 8px" : "12px 14px 8px",
+            borderBottom: "1px solid var(--color-border)",
+            display: "flex",
+            justifyContent: isThreadPanelCollapsed ? "center" : "space-between",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          {!isThreadPanelCollapsed ? (
+            <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>
+              프로젝트
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setIsThreadPanelCollapsed((prev) => !prev)}
+            title={isThreadPanelCollapsed ? "프로젝트 창 펼치기" : "프로젝트 창 숨기기"}
+            style={{
+              width: "28px",
+              height: "28px",
+              borderRadius: "8px",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-bg)",
+              color: "var(--color-text)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              {isThreadPanelCollapsed ? (
+                <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M9 3L5 7l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+          </button>
+        </div>
+
+        {isThreadPanelCollapsed ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 8px",
+            }}
+          >
+            <button
+              onClick={() => void createThread(true)}
+              title="새 프로젝트"
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "10px",
+                border: "1px solid var(--color-border-strong)",
+                background: "var(--color-bg)",
+                color: "var(--color-text)",
+                fontSize: "18px",
+                fontWeight: "700",
+                cursor: "pointer",
+              }}
+            >
+              +
+            </button>
+            <div
+              style={{
+                writingMode: "vertical-rl",
+                transform: "rotate(180deg)",
+                fontSize: "11px",
+                color: "var(--color-text-subtle)",
+                letterSpacing: "1px",
+              }}
+            >
+              프로젝트
+            </div>
+          </div>
+        ) : (
+          <>
         <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--color-border)" }}>
           <button
             onClick={() => void createThread(true)}
@@ -855,6 +970,8 @@ export default function ChatPanel({
             })
           )}
         </div>
+          </>
+        )}
       </aside>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
