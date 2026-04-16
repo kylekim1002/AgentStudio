@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
     passage?: string;
     title?: string;
     presetId?: string | null;
+    previousImageUrl?: string | null;
     references?: Array<{
       id?: string;
       name?: string;
@@ -116,19 +117,19 @@ export async function POST(req: NextRequest) {
     references,
   });
 
-  async function loadReferenceFiles() {
+  async function loadImageFiles(urls: string[], prefix: string) {
     const files: File[] = [];
-    for (let index = 0; index < references.length; index += 1) {
-      const reference = references[index];
+    for (let index = 0; index < urls.length; index += 1) {
+      const url = urls[index];
       try {
-        const response = await fetch(reference.url);
+        const response = await fetch(url);
         if (!response.ok) continue;
         const contentType = response.headers.get("content-type") || "image/png";
         if (!contentType.startsWith("image/")) continue;
         const arrayBuffer = await response.arrayBuffer();
         const extension = contentType.split("/")[1] || "png";
         files.push(
-          new File([arrayBuffer], `reference-${index + 1}.${extension}`, {
+          new File([arrayBuffer], `${prefix}-${index + 1}.${extension}`, {
             type: contentType,
           })
         );
@@ -140,15 +141,22 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const referenceFiles = await loadReferenceFiles();
+    const referenceFiles = await loadImageFiles(
+      references.map((reference) => reference.url),
+      "reference"
+    );
+    const baseImageFiles =
+      typeof body.previousImageUrl === "string" && body.previousImageUrl.trim()
+        ? await loadImageFiles([body.previousImageUrl.trim()], "base-image")
+        : [];
     const service = await createServiceClient();
     let result;
-    if (referenceFiles.length > 0) {
+    if (baseImageFiles.length > 0 || referenceFiles.length > 0) {
       try {
         result = await client.images.edit({
           model: "gpt-image-1",
           prompt: finalPrompt,
-          image: referenceFiles,
+          image: [...baseImageFiles, ...referenceFiles],
           size: "1536x1024",
         });
       } catch {

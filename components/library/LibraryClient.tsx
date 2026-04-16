@@ -11,7 +11,7 @@ import { DEFAULT_REVIEW_SLA_HOURS, getReviewWarningHours } from "@/lib/reviewSet
 import { dispatchInboxSync, subscribeInboxSync } from "@/lib/ui/inboxSync";
 import { AUTO_DOCUMENT_TEMPLATE_ID, DEFAULT_DOCUMENT_TEMPLATES, resolveDocumentTemplate } from "@/lib/documentTemplates";
 import { applyTemplateContentLimits, getTemplateImageItems } from "@/lib/documentTemplateRender";
-import { DEFAULT_IMAGE_PROMPT_PRESETS } from "@/lib/imagePrompts";
+import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
 import { getWritingTasks } from "@/lib/workflows/lesson/types";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -60,12 +60,6 @@ interface LessonDetailResponse {
   delete_request_pending?: boolean;
   delete_request_requested_at?: string | null;
   delete_request_requester_id?: string | null;
-}
-
-interface ImagePromptPreset {
-  id: string;
-  name: string;
-  prompt: string;
 }
 
 interface GeneratedPassageImage {
@@ -552,7 +546,13 @@ export default function LibraryClient({
 
     setIsGeneratingImage(true);
     setImageError(null);
+    setDetailActionError(null);
     try {
+      const selectedPreset = imagePrompts.find((item) => item.id === selectedImagePromptId) ?? null;
+      const previousImage =
+        mode === "revise" && imageId
+          ? (lessonDetail.package.generatedImages ?? []).find((image) => image.id === imageId) ?? null
+          : null;
       const res = await fetch("/api/images/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -562,7 +562,9 @@ export default function LibraryClient({
           prompt,
           revision: mode === "revise" ? imageRevisionText : undefined,
           presetId: selectedImagePromptId || null,
+          references: selectedPreset?.references ?? [],
           previousImageId: imageId,
+          previousImageUrl: previousImage?.url ?? null,
         }),
       });
       const data = await res.json();
@@ -579,9 +581,11 @@ export default function LibraryClient({
       await saveGeneratedImages(nextImages);
       setImageRevisionText("");
     } catch (error) {
-      setImageError(
-        normalizeLibraryImageError(error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다.")
+      const message = normalizeLibraryImageError(
+        error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다."
       );
+      setImageError(message);
+      setDetailActionError(message);
     } finally {
       setIsGeneratingImage(false);
     }
@@ -3146,7 +3150,7 @@ export default function LibraryClient({
                         이미지 재생성
                       </div>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: "8px" }}>
-                        저장된 지문을 기준으로 이미지를 다시 만들 수 있습니다. 프리셋을 불러온 뒤 수정해서 새로 생성하거나, 현재 이미지에 수정 지시를 붙여 다시 만들 수 있습니다.
+                        저장된 지문 본문과 레슨 제목을 기준으로 대표 이미지를 다시 만듭니다. 선택한 프리셋 프롬프트와 참조 이미지가 있으면 함께 참고하고, 기존 이미지가 있으면 수정 지시를 붙여 변형 생성도 시도합니다.
                       </div>
                       <div style={{ display: "grid", gap: "8px" }}>
                         <select
