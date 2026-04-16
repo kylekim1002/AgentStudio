@@ -607,12 +607,18 @@ export default function LibraryClient({
     }
   ) {
     if (!selectedLesson) return;
+    const confirmMessage =
+      status === "approved"
+        ? "이 레슨을 승인할까요?"
+        : status === "published"
+          ? "이 레슨을 발행 완료로 처리할까요?"
+          : "검토 상태를 변경할까요?";
     const shouldPrompt = options?.promptForNotes ?? status !== "approved";
     const reviewNotes = shouldPrompt
       ? window.prompt(options?.promptMessage ?? "검토 메모를 남겨주세요.", lessonDetail?.review_notes ?? "")
       : lessonDetail?.review_notes ?? null;
     if (shouldPrompt && reviewNotes === null) return;
-    if (!shouldPrompt && !window.confirm(status === "approved" ? "이 레슨을 승인할까요?" : "검토 상태를 변경할까요?")) return;
+    if (!shouldPrompt && !window.confirm(confirmMessage)) return;
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
@@ -1109,6 +1115,11 @@ export default function LibraryClient({
     canShowReviewActions &&
     !!selectedLesson &&
     (viewerRole === "admin" || viewerRole === "lead_teacher" || selectedLesson.reviewer_id === viewerId);
+  const canPublishCurrentLesson = Boolean(
+    selectedLesson &&
+      selectedLesson.status === "approved" &&
+      (selectedLesson.user_id === viewerId || canManageReview)
+  );
   const canRequestDeleteCurrentLesson = Boolean(selectedLesson && !isAdmin && selectedLesson.user_id === viewerId);
   const canCancelDeleteCurrentLesson =
     Boolean(
@@ -2561,10 +2572,16 @@ export default function LibraryClient({
                     </div>
                   </div>
 
-                  {(isOwner || canReviewCurrentLesson) && (
+                  {(isOwner || canReviewCurrentLesson || canPublishCurrentLesson) && (
                     <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                       <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "8px" }}>
-                        {isOwner && !canReviewCurrentLesson ? "내 레슨 액션" : canReviewCurrentLesson && !isOwner ? "검토 액션" : "협업 액션"}
+                        {canPublishCurrentLesson
+                          ? "완료 액션"
+                          : isOwner && !canReviewCurrentLesson
+                            ? "내 레슨 액션"
+                            : canReviewCurrentLesson && !isOwner
+                              ? "검토 액션"
+                              : "협업 액션"}
                       </div>
                       <div style={{ display: "grid", gap: "6px" }}>
                         {isOwner && (lessonDetail.status === "draft" || lessonDetail.status === "needs_revision") && (
@@ -2649,6 +2666,25 @@ export default function LibraryClient({
                               ))}
                             </div>
                           </div>
+                        )}
+
+                        {canPublishCurrentLesson && lessonDetail.status === "approved" && (
+                          <button
+                            onClick={() => updateReview("published", { promptForNotes: false })}
+                            style={{
+                              padding: "9px 10px",
+                              borderRadius: "8px",
+                              border: "none",
+                              background: "#DCFCE7",
+                              color: "#166534",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            발행 완료 처리
+                          </button>
                         )}
                       </div>
                     </div>

@@ -303,6 +303,7 @@ export async function PATCH(
 
   const isOwner = access.user.id === lesson.user_id;
   const isReviewAction = body.status === "approved" || body.status === "needs_revision";
+  const isPublishAction = body.status === "published";
 
   if (isReviewAction && !canReviewLesson(access, lesson)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -310,6 +311,10 @@ export async function PATCH(
 
   if (body.status === "in_review" && !isOwner) {
     return NextResponse.json({ error: "Only owner can request review" }, { status: 403 });
+  }
+
+  if (isPublishAction && !isOwner && !access.features.includes("approval.manage")) {
+    return NextResponse.json({ error: "Only owner or manager can publish lesson" }, { status: 403 });
   }
 
   if (body.reviewer_id && !isOwner && !access.features.includes("approval.manage")) {
@@ -353,6 +358,10 @@ export async function PATCH(
 
   if (body.status === "needs_revision") {
     patch.reviewed_at = new Date().toISOString();
+  }
+
+  if (body.status === "published" && lesson.status !== "approved") {
+    return NextResponse.json({ error: "승인된 레슨만 발행 완료로 변경할 수 있습니다." }, { status: 400 });
   }
 
   if (body.package) {
@@ -412,6 +421,8 @@ export async function PATCH(
           ? "approved"
           : body.status === "needs_revision"
             ? "revision_requested"
+            : body.status === "published"
+              ? "published"
             : "status_changed";
 
     await logLessonActivity(supabase, {
