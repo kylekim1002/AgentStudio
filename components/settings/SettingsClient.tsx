@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { DragEvent, useEffect, useMemo, useState } from "react";
 import { AgentName, AIProvider } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
 import { AppRole } from "@/lib/authz/roles";
@@ -116,6 +116,7 @@ export default function SettingsClient({
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
   const [codeValues, setCodeValues] = useState<CodeValueStore>(DEFAULT_CODE_VALUES);
   const [codeValueCategory, setCodeValueCategory] = useState<CodeValueCategory>("campus");
+  const [draggingCodeValueId, setDraggingCodeValueId] = useState<string | null>(null);
   const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(DEFAULT_LEVEL_SETTINGS);
   const [imagePromptUploadError, setImagePromptUploadError] = useState<string | null>(null);
   const [uploadingReferenceId, setUploadingReferenceId] = useState<string | null>(null);
@@ -584,6 +585,44 @@ export default function SettingsClient({
         [category]: next,
       };
     });
+  }
+
+  function updateCodeValueName(category: CodeValueCategory, id: string, label: string) {
+    updateCodeValue(category, id, {
+      label,
+      ...(category !== "difficulty" ? { code: label } : {}),
+    });
+  }
+
+  function reorderCodeValues(category: CodeValueCategory, draggedId: string, targetId: string) {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+    setCodeValues((prev) => {
+      const list = prev[category];
+      const fromIndex = list.findIndex((item) => item.id === draggedId);
+      const toIndex = list.findIndex((item) => item.id === targetId);
+      if (fromIndex === -1 || toIndex === -1) return prev;
+      const next = [...list];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return {
+        ...prev,
+        [category]: next,
+      };
+    });
+  }
+
+  function handleCodeValueDragStart(id: string) {
+    setDraggingCodeValueId(id);
+  }
+
+  function handleCodeValueDrop(category: CodeValueCategory, targetId: string) {
+    if (!draggingCodeValueId) return;
+    reorderCodeValues(category, draggingCodeValueId, targetId);
+    setDraggingCodeValueId(null);
+  }
+
+  function handleCodeValueDragEnd() {
+    setDraggingCodeValueId(null);
   }
 
   function updateImagePromptPreset(id: string, patch: Partial<ImagePromptPreset>) {
@@ -1501,7 +1540,7 @@ export default function SettingsClient({
           <div style={{ maxWidth: "980px" }}>
             <SectionTitle>코드값 관리</SectionTitle>
             <p style={{ fontSize: "13px", color: "var(--color-text-muted)", marginBottom: "20px", lineHeight: 1.7 }}>
-              드롭다운과 분류 체계에 쓰이는 공통 코드값을 관리합니다. 순서를 위아래로 조정하면 화면에 보이는 순서도 그대로 따라갑니다.
+              드롭다운과 분류 체계에 쓰이는 공통 항목을 관리합니다. 항목은 마우스로 드래그해서 순서를 바꿀 수 있고, 그 순서가 화면 표시 순서에 그대로 반영됩니다.
             </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: "16px" }}>
@@ -1539,7 +1578,7 @@ export default function SettingsClient({
                     <div style={{ fontSize: "12px", color: "var(--color-text-subtle)", marginTop: "4px" }}>
                       {codeValueCategory === "semester"
                         ? "학기별로 어떤 레벨을 노출할지 체크박스로 연결할 수 있습니다."
-                        : "표시명과 코드값을 관리합니다."}
+                        : "항목명 하나만 관리하면 됩니다. 드래그해서 순서를 정렬해 주세요."}
                     </div>
                   </div>
                   <button
@@ -1569,41 +1608,39 @@ export default function SettingsClient({
                     </Card>
                   ) : (
                     codeValues[codeValueCategory].map((item, index) => (
-                      <Card key={item.id}>
+                      <div
+                        key={item.id}
+                        draggable
+                        onDragStart={() => handleCodeValueDragStart(item.id)}
+                        onDragEnd={handleCodeValueDragEnd}
+                        onDragOver={(event: DragEvent<HTMLDivElement>) => event.preventDefault()}
+                        onDrop={() => handleCodeValueDrop(codeValueCategory, item.id)}
+                      >
+                      <Card style={{ opacity: draggingCodeValueId === item.id ? 0.72 : 1 }}>
                         <div style={{ display: "grid", gap: "12px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                            <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
-                              {item.label || `${CODE_VALUE_CATEGORY_OPTIONS.find((option) => option.key === codeValueCategory)?.label} ${index + 1}`}
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <div
+                                title="드래그해서 순서 변경"
+                                style={{
+                                  display: "grid",
+                                  gap: "2px",
+                                  color: "var(--color-text-subtle)",
+                                  cursor: "grab",
+                                  lineHeight: 0.8,
+                                  userSelect: "none",
+                                  fontSize: "11px",
+                                }}
+                              >
+                                <span>••</span>
+                                <span>••</span>
+                                <span>••</span>
+                              </div>
+                              <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
+                                {item.label || `${CODE_VALUE_CATEGORY_OPTIONS.find((option) => option.key === codeValueCategory)?.label} ${index + 1}`}
+                              </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <button
-                                type="button"
-                                onClick={() => moveCodeValue(codeValueCategory, item.id, "up")}
-                                disabled={index === 0}
-                                style={{
-                                  ...secondaryButtonStyle,
-                                  padding: "7px 10px",
-                                  fontSize: "11px",
-                                  opacity: index === 0 ? 0.5 : 1,
-                                  cursor: index === 0 ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                위로
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveCodeValue(codeValueCategory, item.id, "down")}
-                                disabled={index === codeValues[codeValueCategory].length - 1}
-                                style={{
-                                  ...secondaryButtonStyle,
-                                  padding: "7px 10px",
-                                  fontSize: "11px",
-                                  opacity: index === codeValues[codeValueCategory].length - 1 ? 0.5 : 1,
-                                  cursor: index === codeValues[codeValueCategory].length - 1 ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                아래로
-                              </button>
                               <button
                                 type="button"
                                 onClick={() => removeCodeValue(codeValueCategory, item.id)}
@@ -1626,44 +1663,19 @@ export default function SettingsClient({
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns:
-                                codeValueCategory === "semester"
-                                  ? "1fr 1fr"
-                                  : "1fr 1fr",
+                              gridTemplateColumns: "1fr",
                               gap: "10px",
                             }}
                           >
                             <div>
                               <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
-                                코드값
-                              </label>
-                              <input
-                                type="text"
-                                value={item.code}
-                                onChange={(e) => updateCodeValue(codeValueCategory, item.id, { code: e.target.value })}
-                                placeholder="예: wind1"
-                                style={{
-                                  width: "100%",
-                                  padding: "8px 10px",
-                                  borderRadius: "8px",
-                                  border: "1px solid var(--color-border-strong)",
-                                  fontSize: "12px",
-                                  fontFamily: "inherit",
-                                  background: "var(--color-bg)",
-                                  boxSizing: "border-box",
-                                }}
-                              />
-                            </div>
-
-                            <div>
-                              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "6px" }}>
-                                표시명
+                                명칭
                               </label>
                               <input
                                 type="text"
                                 value={item.label}
-                                onChange={(e) => updateCodeValue(codeValueCategory, item.id, { label: e.target.value })}
-                                placeholder="예: Wind1"
+                                onChange={(e) => updateCodeValueName(codeValueCategory, item.id, e.target.value)}
+                                placeholder={codeValueCategory === "semester" ? "예: A학기" : "예: Wind1"}
                                 style={{
                                   width: "100%",
                                   padding: "8px 10px",
@@ -1731,6 +1743,7 @@ export default function SettingsClient({
                           )}
                         </div>
                       </Card>
+                      </div>
                     ))
                   )}
                 </div>

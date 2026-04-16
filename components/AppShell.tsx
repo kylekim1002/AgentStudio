@@ -94,6 +94,7 @@ export default function AppShell({
   userFeatures,
   children,
 }: AppShellProps) {
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const pathname = usePathname();
   const router = useRouter();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -270,6 +271,14 @@ export default function AppShell({
     .slice(0, 2)
     .map((s) => s[0].toUpperCase())
     .join("");
+  const isCompactHeader = viewportWidth < 900;
+
+  useEffect(() => {
+    const syncViewport = () => setViewportWidth(window.innerWidth);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -281,10 +290,11 @@ export default function AppShell({
           borderBottom: "1px solid var(--color-border)",
           display: "flex",
           alignItems: "center",
-          padding: "0 20px",
+          padding: isCompactHeader ? "0 12px" : "0 20px",
           gap: "0",
           flexShrink: 0,
           zIndex: 100,
+          overflow: "hidden",
         }}
       >
         {/* Logo */}
@@ -293,7 +303,7 @@ export default function AppShell({
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            marginRight: "32px",
+            marginRight: isCompactHeader ? "14px" : "32px",
             flexShrink: 0,
           }}
         >
@@ -326,7 +336,18 @@ export default function AppShell({
         </div>
 
         {/* Tabs */}
-        <nav style={{ display: "flex", alignItems: "stretch", height: "100%", flex: 1 }}>
+        <nav
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            height: "100%",
+            flex: 1,
+            overflowX: "auto",
+            overflowY: "hidden",
+            scrollbarWidth: "none",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
           {navTabs.map((tab) => {
             const isActive = pathname.startsWith(tab.href);
             return (
@@ -337,7 +358,7 @@ export default function AppShell({
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
-                  padding: "0 16px",
+                  padding: isCompactHeader ? "0 12px" : "0 16px",
                   fontSize: "14px",
                   fontWeight: isActive ? "600" : "500",
                   color: isActive ? "var(--color-primary)" : "var(--color-text-muted)",

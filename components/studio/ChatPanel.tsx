@@ -115,6 +115,7 @@ export default function ChatPanel({
   approvalMode,
   selectedLevel,
 }: ChatPanelProps) {
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const [threads, setThreads] = useState<StoredThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [storedMessages, setStoredMessages] = useState<StoredMessage[]>([]);
@@ -151,6 +152,7 @@ export default function ChatPanel({
     [threads, selectedThreadId]
   );
   const levelContextText = useMemo(() => buildLevelContextText(selectedLevel), [selectedLevel]);
+  const isMobileViewport = viewportWidth < 900;
 
   function updateThreadMetaLocally(threadId: string, patch: Partial<StoredThread>) {
     setThreads((prev) =>
@@ -314,18 +316,32 @@ export default function ChatPanel({
   }, [selectedThreadId]);
 
   useEffect(() => {
+    const syncViewport = () => setViewportWidth(window.innerWidth);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(STUDIO_THREAD_PANEL_COLLAPSED_KEY);
     setIsThreadPanelCollapsed(saved === "true");
   }, []);
 
   useEffect(() => {
+    if (isMobileViewport) return;
     if (typeof window === "undefined") return;
     window.localStorage.setItem(
       STUDIO_THREAD_PANEL_COLLAPSED_KEY,
       isThreadPanelCollapsed ? "true" : "false"
     );
-  }, [isThreadPanelCollapsed]);
+  }, [isMobileViewport, isThreadPanelCollapsed]);
+
+  useEffect(() => {
+    if (isMobileViewport) {
+      setIsThreadPanelCollapsed(true);
+    }
+  }, [isMobileViewport]);
 
   useEffect(() => {
     if (!selectedThreadId || storageUnavailable) return;
@@ -713,17 +729,47 @@ export default function ChatPanel({
   const isBusy = isAiThinking || isRunning;
 
   return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)" }}>
+    <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)", position: "relative" }}>
+      {isMobileViewport && isThreadPanelCollapsed && (
+        <button
+          type="button"
+          onClick={() => setIsThreadPanelCollapsed(false)}
+          style={{
+            position: "absolute",
+            top: "10px",
+            left: "10px",
+            zIndex: 15,
+            padding: "8px 10px",
+            borderRadius: "10px",
+            border: "1px solid var(--color-border)",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+            fontSize: "12px",
+            fontWeight: "700",
+            boxShadow: "0 8px 18px rgba(15,23,42,0.12)",
+          }}
+        >
+          프로젝트
+        </button>
+      )}
       <aside
         style={{
-          width: isThreadPanelCollapsed ? "52px" : "280px",
-          borderRight: "1px solid var(--color-border)",
+          width: isMobileViewport
+            ? (isThreadPanelCollapsed ? "0px" : "280px")
+            : (isThreadPanelCollapsed ? "52px" : "280px"),
+          borderRight: isThreadPanelCollapsed && isMobileViewport ? "none" : "1px solid var(--color-border)",
           background: "var(--color-surface)",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
           transition: "width .18s ease",
           overflow: "hidden",
+          position: isMobileViewport ? "absolute" : "relative",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: isMobileViewport ? 20 : "auto",
+          boxShadow: isMobileViewport && !isThreadPanelCollapsed ? "0 14px 32px rgba(15,23,42,0.16)" : "none",
         }}
       >
         <div
@@ -1057,7 +1103,7 @@ export default function ChatPanel({
                             borderRadius: "12px 4px 12px 12px",
                             fontSize: "13px",
                             lineHeight: "1.6",
-                            maxWidth: "420px",
+                            maxWidth: isMobileViewport ? "100%" : "420px",
                             whiteSpace: "pre-wrap",
                           }}
                         >
@@ -1110,7 +1156,7 @@ export default function ChatPanel({
                             borderRadius: "4px 12px 12px 12px",
                             fontSize: "13px",
                             lineHeight: "1.6",
-                            maxWidth: "440px",
+                            maxWidth: isMobileViewport ? "100%" : "440px",
                             whiteSpace: "pre-wrap",
                           }}
                         >
@@ -1215,7 +1261,7 @@ export default function ChatPanel({
                       borderRadius: "4px 12px 12px 12px",
                       fontSize: "13px",
                       lineHeight: "1.6",
-                      maxWidth: "440px",
+                      maxWidth: isMobileViewport ? "100%" : "440px",
                       whiteSpace: "pre-wrap",
                     }}
                   >

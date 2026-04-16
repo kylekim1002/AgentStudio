@@ -862,6 +862,9 @@ export default function LibraryClient({
   }
 
   async function requestDelete(lesson: LessonSummary) {
+    if (!window.confirm(`"${lesson.title}" 레슨의 삭제를 요청할까요? 최고관리자에게 삭제 요청이 전달됩니다.`)) {
+      return;
+    }
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${lesson.id}/delete-request`, {
@@ -915,6 +918,9 @@ export default function LibraryClient({
   }
 
   async function cancelDeleteRequest(lesson: LessonSummary) {
+    if (!window.confirm(`"${lesson.title}" 레슨의 삭제 요청을 취소할까요?`)) {
+      return;
+    }
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${lesson.id}/delete-request`, {
@@ -1648,6 +1654,51 @@ export default function LibraryClient({
                               >
                                 ⭐
                               </button>
+                              {(isAdmin ||
+                                (!isAdmin && lesson.user_id === viewerId) ||
+                                (lesson.delete_request_pending &&
+                                  (isAdmin || lesson.delete_request_requester_id === viewerId))) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isAdmin) {
+                                      void deleteLesson(lesson);
+                                      return;
+                                    }
+                                    if (lesson.delete_request_pending && lesson.delete_request_requester_id === viewerId) {
+                                      void cancelDeleteRequest(lesson);
+                                      return;
+                                    }
+                                    if (lesson.user_id === viewerId) {
+                                      void requestDelete(lesson);
+                                    }
+                                  }}
+                                  title={
+                                    isAdmin
+                                      ? "레슨 삭제"
+                                      : lesson.delete_request_pending && lesson.delete_request_requester_id === viewerId
+                                        ? "삭제 요청 취소"
+                                        : "삭제 요청"
+                                  }
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    borderRadius: "999px",
+                                    border: "1px solid #FECACA",
+                                    background: "#FEF2F2",
+                                    color: "#B91C1C",
+                                    cursor: "pointer",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                                    <path d="M2.5 3.2h8M5 1.8h3M4 3.2v6.3m2.5-6.3v6.3m2.5-6.3v6.3M3.4 3.2l.4 7.2c.03.52.46.93.98.93h3.84c.52 0 .95-.41.98-.93l.4-7.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1689,6 +1740,8 @@ export default function LibraryClient({
                       background: "var(--color-surface)",
                       border: `1.5px solid ${isActive ? "var(--color-primary)" : "var(--color-border)"}`,
                       borderRadius: "9px", padding: "14px",
+                      display: "flex",
+                      flexDirection: "column",
                       cursor: "pointer", transition: "all .15s",
                       boxShadow: isActive ? "0 0 0 3px rgba(79,70,229,.1)" : undefined,
                     }}
@@ -1911,75 +1964,9 @@ export default function LibraryClient({
                       {fmtDate(lesson.created_at)}
                     </div>
 
-                    {(isAdmin || canRequestDeleteCard || canCancelDeleteCard) && (
-                      <div style={{ display: "grid", gap: "6px", marginTop: "10px" }}>
-                        {lesson.delete_request_pending && lesson.delete_request_requested_at && (
-                          <div style={{ fontSize: "10px", color: "#B91C1C", fontWeight: "700" }}>
-                            삭제 요청 접수 · {fmtDate(lesson.delete_request_requested_at)}
-                          </div>
-                        )}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                          {!isAdmin && canRequestDeleteCard && !lesson.delete_request_pending && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void requestDelete(lesson);
-                              }}
-                              style={{
-                                padding: "7px 8px",
-                                borderRadius: "7px",
-                                border: "1px solid #FECACA",
-                                background: "#FEF2F2",
-                                color: "#B91C1C",
-                                fontSize: "11px",
-                                fontWeight: "700",
-                                cursor: "pointer",
-                              }}
-                            >
-                              삭제 요청
-                            </button>
-                          )}
-                          {lesson.delete_request_pending && canCancelDeleteCard && !isAdmin && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void cancelDeleteRequest(lesson);
-                              }}
-                              style={{
-                                padding: "7px 8px",
-                                borderRadius: "7px",
-                                border: "1px solid var(--color-border)",
-                                background: "var(--color-surface)",
-                                color: "var(--color-text-muted)",
-                                fontSize: "11px",
-                                fontWeight: "600",
-                                cursor: "pointer",
-                              }}
-                            >
-                              삭제 요청 취소
-                            </button>
-                          )}
-                          {isAdmin && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void deleteLesson(lesson);
-                              }}
-                              style={{
-                                padding: "7px 8px",
-                                borderRadius: "7px",
-                                border: "1px solid #FCA5A5",
-                                background: "#FEE2E2",
-                                color: "#B91C1C",
-                                fontSize: "11px",
-                                fontWeight: "700",
-                                cursor: "pointer",
-                              }}
-                            >
-                              즉시 삭제
-                            </button>
-                          )}
-                        </div>
+                    {lesson.delete_request_pending && lesson.delete_request_requested_at && (
+                      <div style={{ fontSize: "10px", color: "#B91C1C", fontWeight: "700", marginTop: "10px" }}>
+                        삭제 요청 접수 · {fmtDate(lesson.delete_request_requested_at)}
                       </div>
                     )}
 
@@ -2069,6 +2056,50 @@ export default function LibraryClient({
                             </button>
                           ))}
                         </div>
+                      </div>
+                    )}
+
+                    {(isAdmin || canRequestDeleteCard || canCancelDeleteCard) && (
+                      <div style={{ marginTop: "auto", paddingTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isAdmin) {
+                              void deleteLesson(lesson);
+                              return;
+                            }
+                            if (lesson.delete_request_pending && canCancelDeleteCard) {
+                              void cancelDeleteRequest(lesson);
+                              return;
+                            }
+                            if (canRequestDeleteCard) {
+                              void requestDelete(lesson);
+                            }
+                          }}
+                          title={
+                            isAdmin
+                              ? "레슨 삭제"
+                              : lesson.delete_request_pending && canCancelDeleteCard
+                                ? "삭제 요청 취소"
+                                : "삭제 요청"
+                          }
+                          style={{
+                            width: "34px",
+                            height: "34px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "999px",
+                            border: "1px solid #FECACA",
+                            background: "#FEF2F2",
+                            color: "#B91C1C",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                            <path d="M3 3.7h9M5.5 2.2h4M4.6 3.7l.45 8.1c.03.58.51 1.03 1.08 1.03h4.22c.57 0 1.05-.45 1.08-1.03l.45-8.1M6 5.3v5.3m3-5.3v5.3m3-5.3v5.3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
                       </div>
                     )}
                   </div>

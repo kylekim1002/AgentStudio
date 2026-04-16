@@ -71,10 +71,11 @@ export const DEFAULT_CODE_VALUES: CodeValueStore = {
 };
 
 export function createEmptyCodeValue(category: CodeValueCategory, index: number): CodeValueItem {
+  const baseLabel = `${CODE_VALUE_CATEGORY_OPTIONS.find((item) => item.key === category)?.label.replace(" 코드값", "") ?? "코드값"} ${index + 1}`;
   return {
     id: createCodeValueId(category),
-    code: `${category}-${index + 1}`,
-    label: `${CODE_VALUE_CATEGORY_OPTIONS.find((item) => item.key === category)?.label.replace(" 코드값", "") ?? "코드값"} ${index + 1}`,
+    code: baseLabel,
+    label: baseLabel,
     ...(category === "semester" ? { linkedLevelIds: [] } : {}),
   };
 }
@@ -86,14 +87,16 @@ function normalizeCodeValueItem(
 ): CodeValueItem | null {
   if (!item || typeof item !== "object") return null;
   const source = item as Record<string, unknown>;
-  const code =
-    typeof source.code === "string" && source.code.trim()
-      ? source.code.trim()
-      : `${category}-${index + 1}`;
   const label =
     typeof source.label === "string" && source.label.trim()
       ? source.label.trim()
-      : code;
+      : typeof source.code === "string" && source.code.trim()
+        ? source.code.trim()
+        : `${CODE_VALUE_CATEGORY_OPTIONS.find((option) => option.key === category)?.label.replace(" 코드값", "") ?? "코드값"} ${index + 1}`;
+  const code =
+    typeof source.code === "string" && source.code.trim()
+      ? source.code.trim()
+      : label;
 
   return {
     id:

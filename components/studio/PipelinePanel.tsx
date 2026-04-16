@@ -42,6 +42,7 @@ const STATUS_ICON: Record<AgentStatus, string> = {
 };
 
 export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isRunning }: PipelinePanelProps) {
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const [userInput, setUserInput] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<AgentName | null>(null);
   const [threads, setThreads] = useState<StoredThread[]>([]);
@@ -49,6 +50,7 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const isMobileViewport = viewportWidth < 900;
 
   const seqBefore = PIPELINE_ORDER.filter((a) =>
     PIPELINE_ORDER.indexOf(a) < PIPELINE_ORDER.indexOf(AgentName.READING)
@@ -168,6 +170,13 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
       )
     );
   }
+
+  useEffect(() => {
+    const syncViewport = () => setViewportWidth(window.innerWidth);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,7 +301,7 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
 
       {/* Header with input */}
       <div style={{
-        padding: "12px 20px 14px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
+        padding: isMobileViewport ? "12px" : "12px 20px 14px", background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)",
         display: "flex", flexDirection: "column", gap: "10px",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
@@ -372,7 +381,7 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
           </div>
         ) : null}
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
           <div style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-text)" }}>파이프라인 실행</div>
           <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>완료된 노드를 클릭하면 결과를 확인할 수 있습니다</div>
         </div>
@@ -521,8 +530,8 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
       )}
 
       {/* Config area */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: isMobileViewport ? "12px" : "16px 20px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobileViewport ? "1fr" : "1fr 1fr", gap: "12px" }}>
 
           <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "14px" }}>
             <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-text)", marginBottom: "10px" }}>

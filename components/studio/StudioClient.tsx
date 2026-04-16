@@ -124,6 +124,7 @@ export default function StudioClient({
   initialLevelSettings,
 }: StudioClientProps) {
   const [mode, setMode] = useState<Mode>("chat");
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const [provider, setProvider] = useState<AIProvider>(defaultProvider ?? AIProvider.CLAUDE);
   const [approvalMode, setApprovalMode] = useState<"auto" | "require_review">("auto");
   const [showSave, setShowSave] = useState(false);
@@ -164,6 +165,8 @@ export default function StudioClient({
   const [imageError, setImageError] = useState<string | null>(null);
   const isCurriculumMode = mode === "curriculum";
   const curriculumMode = isCurriculumMode ? "curriculum" : "standard";
+  const isTabletViewport = viewportWidth < 1280;
+  const isMobileViewport = viewportWidth < 900;
   const activeTemplate = resolveDocumentTemplate(documentTemplates, selectedTemplateId);
   const selectedLevel = useMemo(
     () => levelSettings.find((level) => level.id === selectedLevelId) ?? null,
@@ -217,6 +220,25 @@ export default function StudioClient({
       })),
     };
   }, [isCurriculumMode, selectedCurriculumAsset]);
+
+  useEffect(() => {
+    const syncViewport = () => setViewportWidth(window.innerWidth);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (isCurriculumMode) {
+      setShowCounts(false);
+    }
+  }, [isCurriculumMode]);
+
+  useEffect(() => {
+    if (isTabletViewport && showPreview) {
+      setShowPreview(false);
+    }
+  }, [isTabletViewport, showPreview]);
   const curriculumPartialTargetCount = useMemo(() => {
     if (curriculumPartialSection === "reading") return contentCounts.reading;
     if (curriculumPartialSection === "vocabulary") return contentCounts.vocabulary;
@@ -928,11 +950,12 @@ export default function StudioClient({
 
       {/* ── Toolbar ── */}
       <div style={{
-        height: "44px", flexShrink: 0,
+        minHeight: "44px", flexShrink: 0,
         background: "var(--color-surface)",
         borderBottom: "1px solid var(--color-border)",
         display: "flex", alignItems: "center",
-        padding: "0 16px", gap: "8px",
+        padding: isMobileViewport ? "8px 10px" : "0 16px", gap: "8px",
+        flexWrap: "wrap",
       }}>
 
         {/* Mode toggle */}
@@ -1063,33 +1086,35 @@ export default function StudioClient({
           </>
         )}
 
-              <div style={{ position: "relative" }}>
-          <select
-            value={selectedTemplateId}
-            onChange={(e) => setSelectedTemplateId(e.target.value)}
-            disabled={isRunning}
-            style={{
-              appearance: "none",
-              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
-              borderRadius: "6px", border: "1px solid var(--color-border)",
-              fontSize: "12px", color: "var(--color-text-muted)",
-              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
-              cursor: isRunning ? "not-allowed" : "pointer",
-              opacity: isRunning ? 0.6 : 1,
-              maxWidth: "180px",
-            }}
-            title="문서 템플릿을 선택합니다"
-          >
-            {documentTemplates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </select>
-          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+        {!isCurriculumMode && (
+          <div style={{ position: "relative" }}>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+              disabled={isRunning}
+              style={{
+                appearance: "none",
+                paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+                borderRadius: "6px", border: "1px solid var(--color-border)",
+                fontSize: "12px", color: "var(--color-text-muted)",
+                background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                opacity: isRunning ? 0.6 : 1,
+                maxWidth: "180px",
+              }}
+              title="문서 템플릿을 선택합니다"
+            >
+              {documentTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            </div>
           </div>
-        </div>
+        )}
 
         <div style={{ position: "relative", minWidth: 0 }}>
           <select
@@ -1123,7 +1148,7 @@ export default function StudioClient({
           </div>
         </div>
 
-        {/* 문항 수 설정 */}
+        {!isCurriculumMode && (
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: "1 1 360px", justifyContent: "flex-end" }}>
           <button
             onClick={() => setShowCounts((v) => !v)}
@@ -1311,36 +1336,40 @@ export default function StudioClient({
             </>
           )}
         </div>
+        )}
 
-        <div style={{ position: "relative" }}>
-          <select
-            value={generationTarget}
-            onChange={(e) => setGenerationTarget(e.target.value as GenerationTarget)}
-            disabled={isRunning}
-            style={{
-              appearance: "none",
-              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
-              borderRadius: "6px", border: "1px solid var(--color-border)",
-              fontSize: "12px", color: "var(--color-text-muted)",
-              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
-              cursor: isRunning ? "not-allowed" : "pointer",
-              opacity: isRunning ? 0.6 : 1,
-            }}
-            title="생성 범위를 선택합니다"
-          >
-            <option value="full">01~16 전체 생성</option>
-            <option value="passage_review">09 지문 확정까지 생성 후 검토</option>
-            <option value="content_review">14 콘텐츠 생성까지 완료 후 검토</option>
-            <option value="passage_and_content_review">지문 검토 후 콘텐츠도 검토</option>
-          </select>
-          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+        {!isCurriculumMode && (
+          <div style={{ position: "relative" }}>
+            <select
+              value={generationTarget}
+              onChange={(e) => setGenerationTarget(e.target.value as GenerationTarget)}
+              disabled={isRunning}
+              style={{
+                appearance: "none",
+                paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+                borderRadius: "6px", border: "1px solid var(--color-border)",
+                fontSize: "12px", color: "var(--color-text-muted)",
+                background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                opacity: isRunning ? 0.6 : 1,
+              }}
+              title="생성 범위를 선택합니다"
+            >
+              <option value="full">01~16 전체 생성</option>
+              <option value="passage_review">09 지문 확정까지 생성 후 검토</option>
+              <option value="content_review">14 콘텐츠 생성까지 완료 후 검토</option>
+              <option value="passage_and_content_review">지문 검토 후 콘텐츠도 검토</option>
+            </select>
+            <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Toolbar right */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "7px" }}>
+        <div style={{ marginLeft: isMobileViewport ? 0 : "auto", display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
           {/* Preview toggle */}
+          {!isTabletViewport && (
           <button
             onClick={() => setShowPreview((v) => !v)}
             style={{
@@ -1355,6 +1384,7 @@ export default function StudioClient({
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 2h8l2 2v6H1V2z" stroke="currentColor" strokeWidth="1.2" fill="none"/><path d="M3 5h6M3 7h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/></svg>
             미리보기
           </button>
+          )}
 
           <button
             onClick={() => {
@@ -1447,9 +1477,13 @@ export default function StudioClient({
             flexShrink: 0,
             borderBottom: "1px solid var(--color-border)",
             background: "var(--color-surface)",
-            padding: "10px 16px",
+            padding: isMobileViewport ? "10px" : "10px 16px",
             display: "grid",
-            gridTemplateColumns: "repeat(8, minmax(0, 1fr)) minmax(220px, 1.4fr)",
+            gridTemplateColumns: isMobileViewport
+              ? "1fr"
+              : isTabletViewport
+                ? "repeat(2, minmax(0, 1fr))"
+                : "repeat(8, minmax(0, 1fr)) minmax(220px, 1.4fr)",
             gap: "8px",
             alignItems: "center",
           }}
@@ -1717,7 +1751,11 @@ export default function StudioClient({
                   background: curriculumPartialResult.validation.passed ? "#ECFDF5" : "#FFFBEB",
                   borderBottom: `1px solid ${curriculumPartialResult.validation.passed ? "#A7F3D0" : "#FDE68A"}`,
                   display: "grid",
-                  gridTemplateColumns: "minmax(0, 1.4fr) repeat(3, minmax(0, 0.7fr))",
+                  gridTemplateColumns: isMobileViewport
+                    ? "1fr"
+                    : isTabletViewport
+                      ? "repeat(2, minmax(0, 1fr))"
+                      : "minmax(0, 1.4fr) repeat(3, minmax(0, 0.7fr))",
                   gap: "12px",
                   alignItems: "start",
                 }}
@@ -2591,15 +2629,31 @@ export default function StudioClient({
         </div>
       )}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          overflow: "hidden",
+          flexDirection: isMobileViewport ? "column" : "row",
+        }}
+      >
 
         {/* Left: Agent panel */}
-        <AgentPanel
-          agentStates={statusMap}
-        />
+        {!isMobileViewport && (
+          <AgentPanel
+            agentStates={statusMap}
+          />
+        )}
 
         {/* Center: Chat or Pipeline */}
-        {mode === "chat" ? (
+        {mode === "pipeline" ? (
+          <PipelinePanel
+            agentStates={statusMap}
+            agentOutputs={outputMap}
+            onRunAll={(input) => handleRunAll(input)}
+            isRunning={isRunning}
+          />
+        ) : (
           <ChatPanel
             agentStates={statusMap}
             isRunning={isRunning}
@@ -2610,17 +2664,10 @@ export default function StudioClient({
             approvalMode={approvalMode}
             selectedLevel={selectedLevel}
           />
-        ) : (
-          <PipelinePanel
-            agentStates={statusMap}
-            agentOutputs={outputMap}
-            onRunAll={(input) => handleRunAll(input)}
-            isRunning={isRunning}
-          />
         )}
 
         {/* Right: Preview panel */}
-        {showPreview && (
+        {showPreview && !isTabletViewport && (
           <PreviewPanel
             lessonPackage={lessonPackage}
             onClose={() => setShowPreview(false)}
