@@ -25,6 +25,7 @@ export interface LevelSetting {
   difficultyBandId: OfficialDifficultyBandId;
   lexileMin: number;
   lexileMax: number;
+  active?: boolean;
 }
 
 export const OFFICIAL_DIFFICULTY_BANDS: OfficialDifficultyBand[] = [
@@ -59,13 +60,12 @@ function normalizeDifficultyBandId(value: unknown): OfficialDifficultyBandId {
 
 export function normalizeLevelSettings(input: unknown): LevelSetting[] {
   if (!Array.isArray(input)) return DEFAULT_LEVEL_SETTINGS;
-  return input
-    .map((item, index) => {
-      if (!item || typeof item !== "object") return null;
+  return input.reduce<LevelSetting[]>((acc, item, index) => {
+      if (!item || typeof item !== "object") return acc;
       const source = item as Record<string, unknown>;
       const lexileMin = normalizeLexileValue(source.lexileMin, 0);
       const lexileMax = normalizeLexileValue(source.lexileMax, Math.max(lexileMin, 100));
-      return {
+      acc.push({
         id: typeof source.id === "string" && source.id ? source.id : createLevelId(),
         name:
           typeof source.name === "string" && source.name.trim()
@@ -74,9 +74,10 @@ export function normalizeLevelSettings(input: unknown): LevelSetting[] {
         difficultyBandId: normalizeDifficultyBandId(source.difficultyBandId),
         lexileMin: Math.min(lexileMin, lexileMax),
         lexileMax: Math.max(lexileMin, lexileMax),
-      };
-    })
-    .filter((item): item is LevelSetting => Boolean(item));
+        active: typeof source.active === "boolean" ? source.active : true,
+      });
+      return acc;
+    }, []);
 }
 
 export function createEmptyLevelSetting(index: number): LevelSetting {
@@ -86,6 +87,7 @@ export function createEmptyLevelSetting(index: number): LevelSetting {
     difficultyBandId: "a1",
     lexileMin: 200,
     lexileMax: 300,
+    active: true,
   };
 }
 

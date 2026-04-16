@@ -172,6 +172,10 @@ export default function StudioClient({
     () => levelSettings.find((level) => level.id === selectedLevelId) ?? null,
     [levelSettings, selectedLevelId]
   );
+  const activeLevelSettings = useMemo(
+    () => levelSettings.filter((level) => level.active !== false),
+    [levelSettings]
+  );
   const suggestedContentCounts = useMemo(
     () => getTemplateSuggestedContentCounts(activeTemplate),
     [activeTemplate]
@@ -1134,7 +1138,12 @@ export default function StudioClient({
             title="레벨설정(난이도 + Lexile 기본값)을 선택합니다"
           >
             <option value="">레벨설정(난이도)</option>
-            {levelSettings.map((level) => {
+            {activeLevelSettings.length > 0 && !activeLevelSettings.some((level) => level.id === selectedLevelId) && selectedLevel ? (
+              <option value={selectedLevel.id}>
+                {selectedLevel.name} · {getOfficialDifficultyBand(selectedLevel.difficultyBandId).label} · {selectedLevel.lexileMin}-{selectedLevel.lexileMax}L
+              </option>
+            ) : null}
+            {activeLevelSettings.map((level) => {
               const band = getOfficialDifficultyBand(level.difficultyBandId);
               return (
                 <option key={level.id} value={level.id}>

@@ -1610,18 +1610,18 @@ export default function SettingsClient({
                     codeValues[codeValueCategory].map((item, index) => (
                       <div
                         key={item.id}
-                        draggable
-                        onDragStart={() => handleCodeValueDragStart(item.id)}
                         onDragEnd={handleCodeValueDragEnd}
                         onDragOver={(event: DragEvent<HTMLDivElement>) => event.preventDefault()}
                         onDrop={() => handleCodeValueDrop(codeValueCategory, item.id)}
                       >
-                      <Card style={{ opacity: draggingCodeValueId === item.id ? 0.72 : 1 }}>
+                      <Card style={{ opacity: draggingCodeValueId === item.id ? 0.72 : item.active === false ? 0.62 : 1 }}>
                         <div style={{ display: "grid", gap: "12px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               <div
                                 title="드래그해서 순서 변경"
+                                draggable
+                                onDragStart={() => handleCodeValueDragStart(item.id)}
                                 style={{
                                   display: "grid",
                                   gap: "2px",
@@ -1641,9 +1641,39 @@ export default function SettingsClient({
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  padding: "6px 10px",
+                                  borderRadius: "999px",
+                                  border: "1px solid var(--color-border)",
+                                  background: "var(--color-bg)",
+                                  cursor: "pointer",
+                                  userSelect: "none",
+                                }}
+                              >
+                                <span style={{ fontSize: "11px", color: "var(--color-text-subtle)", fontWeight: "600" }}>
+                                  {item.active === false ? "OFF" : "ON"}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={item.active !== false}
+                                  onChange={(event) =>
+                                    updateCodeValue(codeValueCategory, item.id, {
+                                      active: event.target.checked,
+                                    })
+                                  }
+                                />
+                              </label>
                               <button
                                 type="button"
-                                onClick={() => removeCodeValue(codeValueCategory, item.id)}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  removeCodeValue(codeValueCategory, item.id);
+                                }}
                                 style={{
                                   padding: "7px 10px",
                                   borderRadius: "8px",
@@ -1794,7 +1824,7 @@ export default function SettingsClient({
                 levelSettings.map((level, index) => {
                   const band = getOfficialDifficultyBand(level.difficultyBandId);
                   return (
-                    <Card key={level.id}>
+                    <Card key={level.id} style={{ opacity: level.active === false ? 0.62 : 1 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
                         <div>
                           <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--color-text)" }}>
@@ -1804,22 +1834,50 @@ export default function SettingsClient({
                             {band.label} · Lexile {level.lexileMin}L ~ {level.lexileMax}L
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeLevelSetting(level.id)}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: "8px",
-                            border: "1px solid #FECACA",
-                            background: "#FEF2F2",
-                            color: "#B91C1C",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            cursor: "pointer",
-                          }}
-                        >
-                          삭제
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "6px 10px",
+                              borderRadius: "999px",
+                              border: "1px solid var(--color-border)",
+                              background: "var(--color-bg)",
+                              cursor: "pointer",
+                              userSelect: "none",
+                            }}
+                          >
+                            <span style={{ fontSize: "11px", color: "var(--color-text-subtle)", fontWeight: "600" }}>
+                              {level.active === false ? "OFF" : "ON"}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={level.active !== false}
+                              onChange={(event) =>
+                                updateLevelSetting(level.id, {
+                                  active: event.target.checked,
+                                })
+                              }
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeLevelSetting(level.id)}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid #FECACA",
+                              background: "#FEF2F2",
+                              color: "#B91C1C",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                            }}
+                          >
+                            삭제
+                          </button>
+                        </div>
                       </div>
 
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 120px 120px", gap: "10px" }}>

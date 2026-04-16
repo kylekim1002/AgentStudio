@@ -14,6 +14,7 @@ export interface CodeValueItem {
   id: string;
   code: string;
   label: string;
+  active?: boolean;
   linkedLevelIds?: string[];
 }
 
@@ -42,31 +43,32 @@ export const DEFAULT_CODE_VALUES: CodeValueStore = {
   position: [],
   grade: [],
   semester: [
-    { id: createCodeValueId("semester"), code: "semester-1", label: "1학기", linkedLevelIds: [] },
-    { id: createCodeValueId("semester"), code: "semester-2", label: "2학기", linkedLevelIds: [] },
-    { id: createCodeValueId("semester"), code: "summer", label: "여름특강", linkedLevelIds: [] },
-    { id: createCodeValueId("semester"), code: "winter", label: "겨울특강", linkedLevelIds: [] },
+    { id: createCodeValueId("semester"), code: "semester-1", label: "1학기", active: true, linkedLevelIds: [] },
+    { id: createCodeValueId("semester"), code: "semester-2", label: "2학기", active: true, linkedLevelIds: [] },
+    { id: createCodeValueId("semester"), code: "summer", label: "여름특강", active: true, linkedLevelIds: [] },
+    { id: createCodeValueId("semester"), code: "winter", label: "겨울특강", active: true, linkedLevelIds: [] },
   ],
   level: [],
   subject: [
-    { id: createCodeValueId("subject"), code: "reading", label: "Reading" },
-    { id: createCodeValueId("subject"), code: "vocabulary", label: "Vocabulary" },
-    { id: createCodeValueId("subject"), code: "grammar", label: "Grammar" },
-    { id: createCodeValueId("subject"), code: "writing", label: "Writing" },
-    { id: createCodeValueId("subject"), code: "assessment", label: "Assessment" },
+    { id: createCodeValueId("subject"), code: "reading", label: "Reading", active: true },
+    { id: createCodeValueId("subject"), code: "vocabulary", label: "Vocabulary", active: true },
+    { id: createCodeValueId("subject"), code: "grammar", label: "Grammar", active: true },
+    { id: createCodeValueId("subject"), code: "writing", label: "Writing", active: true },
+    { id: createCodeValueId("subject"), code: "assessment", label: "Assessment", active: true },
   ],
   content_type: [
-    { id: createCodeValueId("type"), code: "passage", label: "지문" },
-    { id: createCodeValueId("type"), code: "reading", label: "독해" },
-    { id: createCodeValueId("type"), code: "vocabulary", label: "어휘" },
-    { id: createCodeValueId("type"), code: "grammar", label: "문법" },
-    { id: createCodeValueId("type"), code: "writing", label: "쓰기" },
-    { id: createCodeValueId("type"), code: "assessment", label: "평가" },
+    { id: createCodeValueId("type"), code: "passage", label: "지문", active: true },
+    { id: createCodeValueId("type"), code: "reading", label: "독해", active: true },
+    { id: createCodeValueId("type"), code: "vocabulary", label: "어휘", active: true },
+    { id: createCodeValueId("type"), code: "grammar", label: "문법", active: true },
+    { id: createCodeValueId("type"), code: "writing", label: "쓰기", active: true },
+    { id: createCodeValueId("type"), code: "assessment", label: "평가", active: true },
   ],
   difficulty: OFFICIAL_DIFFICULTY_BANDS.map((band) => ({
     id: createCodeValueId("difficulty"),
     code: band.id,
     label: band.label,
+    active: true,
   })),
 };
 
@@ -76,6 +78,7 @@ export function createEmptyCodeValue(category: CodeValueCategory, index: number)
     id: createCodeValueId(category),
     code: baseLabel,
     label: baseLabel,
+    active: true,
     ...(category === "semester" ? { linkedLevelIds: [] } : {}),
   };
 }
@@ -105,6 +108,7 @@ function normalizeCodeValueItem(
         : createCodeValueId(category),
     code,
     label,
+    active: typeof source.active === "boolean" ? source.active : true,
     ...(category === "semester"
       ? {
           linkedLevelIds: Array.isArray(source.linkedLevelIds)
@@ -136,7 +140,7 @@ export function getCodeValueItems(
   store: CodeValueStore | null | undefined,
   category: CodeValueCategory
 ) {
-  return store?.[category] ?? DEFAULT_CODE_VALUES[category];
+  return (store?.[category] ?? DEFAULT_CODE_VALUES[category]).filter((item) => item.active !== false);
 }
 
 export function getFilteredLevelCodeValues(
