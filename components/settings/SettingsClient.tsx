@@ -67,6 +67,85 @@ function createPromptReferenceId() {
   return `ref-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function OnOffToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "10px",
+        cursor: "pointer",
+        userSelect: "none",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "11px",
+          fontWeight: "700",
+          color: checked ? "var(--color-text-subtle)" : "#94A3B8",
+          minWidth: "24px",
+          textAlign: "right",
+        }}
+      >
+        OFF
+      </span>
+      <span
+        style={{
+          position: "relative",
+          width: "46px",
+          height: "24px",
+          borderRadius: "999px",
+          background: checked ? "#0F172A" : "#CBD5E1",
+          transition: "background .18s ease",
+          boxShadow: "inset 0 0 0 1px rgba(15,23,42,.08)",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: 0,
+            cursor: "pointer",
+            margin: 0,
+          }}
+        />
+        <span
+          style={{
+            position: "absolute",
+            top: "2px",
+            left: checked ? "24px" : "2px",
+            width: "20px",
+            height: "20px",
+            borderRadius: "999px",
+            background: "#FFFFFF",
+            boxShadow: "0 1px 2px rgba(15,23,42,.2)",
+            transition: "left .18s ease",
+          }}
+        />
+      </span>
+      <span
+        style={{
+          fontSize: "11px",
+          fontWeight: "700",
+          color: checked ? "#15803D" : "var(--color-text-subtle)",
+          minWidth: "18px",
+        }}
+      >
+        ON
+      </span>
+    </label>
+  );
+}
+
 export default function SettingsClient({
   viewerRole,
   initialTab,
@@ -1641,32 +1720,14 @@ export default function SettingsClient({
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <label
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                  padding: "6px 10px",
-                                  borderRadius: "999px",
-                                  border: "1px solid var(--color-border)",
-                                  background: "var(--color-bg)",
-                                  cursor: "pointer",
-                                  userSelect: "none",
-                                }}
-                              >
-                                <span style={{ fontSize: "11px", color: "var(--color-text-subtle)", fontWeight: "600" }}>
-                                  {item.active === false ? "OFF" : "ON"}
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  checked={item.active !== false}
-                                  onChange={(event) =>
-                                    updateCodeValue(codeValueCategory, item.id, {
-                                      active: event.target.checked,
-                                    })
-                                  }
-                                />
-                              </label>
+                              <OnOffToggle
+                                checked={item.active !== false}
+                                onChange={(next) =>
+                                  updateCodeValue(codeValueCategory, item.id, {
+                                    active: next,
+                                  })
+                                }
+                              />
                               <button
                                 type="button"
                                 onClick={(event) => {
@@ -1835,32 +1896,14 @@ export default function SettingsClient({
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <label
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              padding: "6px 10px",
-                              borderRadius: "999px",
-                              border: "1px solid var(--color-border)",
-                              background: "var(--color-bg)",
-                              cursor: "pointer",
-                              userSelect: "none",
-                            }}
-                          >
-                            <span style={{ fontSize: "11px", color: "var(--color-text-subtle)", fontWeight: "600" }}>
-                              {level.active === false ? "OFF" : "ON"}
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={level.active !== false}
-                              onChange={(event) =>
-                                updateLevelSetting(level.id, {
-                                  active: event.target.checked,
-                                })
-                              }
-                            />
-                          </label>
+                          <OnOffToggle
+                            checked={level.active !== false}
+                            onChange={(next) =>
+                              updateLevelSetting(level.id, {
+                                active: next,
+                              })
+                            }
+                          />
                           <button
                             type="button"
                             onClick={() => removeLevelSetting(level.id)}

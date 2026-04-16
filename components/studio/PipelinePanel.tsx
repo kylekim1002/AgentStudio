@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AgentName, AgentStatus } from "@/lib/agents/types";
 import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
+import { normalizeCodeValues, getCodeValueItems } from "@/lib/codeValues";
 
 interface PipelinePanelProps {
   agentStates: Map<AgentName, AgentStatus>;
@@ -45,6 +46,7 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
   const [viewportWidth, setViewportWidth] = useState(1440);
   const [userInput, setUserInput] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<AgentName | null>(null);
+  const [difficultyOptions, setDifficultyOptions] = useState<string[]>([]);
   const [threads, setThreads] = useState<StoredThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(true);
@@ -194,6 +196,32 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
     }
 
     void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDifficultyOptions() {
+      try {
+        const res = await fetch("/api/system-settings/code-values", { cache: "no-store" });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        const store = normalizeCodeValues(payload.codeValues);
+        const options = getCodeValueItems(store, "difficulty").map((item) => item.label).filter(Boolean);
+        if (!cancelled) {
+          setDifficultyOptions(options);
+        }
+      } catch {
+        if (!cancelled) {
+          setDifficultyOptions([]);
+        }
+      }
+    }
+
+    void loadDifficultyOptions();
     return () => {
       cancelled = true;
     };
@@ -564,7 +592,7 @@ export default function PipelinePanel({ agentStates, agentOutputs, onRunAll, isR
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
               {[
-                { label: "난이도", opts: ["intermediate", "beginner", "elementary", "upper-intermediate", "advanced"] },
+                { label: "난이도", opts: difficultyOptions.length > 0 ? difficultyOptions : ["등록된 난이도 코드값이 없습니다"] },
                 { label: "시작 에이전트", opts: ["1. intent_router (처음부터)", "7. passage_generation (지문부터)", "10. reading (콘텐츠부터)"] },
                 { label: "종료 에이전트", opts: ["16. publisher (전체)", "9. approved_passage_lock (지문까지)", "14. assessment (콘텐츠까지)"] },
               ].map(({ label, opts }) => (
