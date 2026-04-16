@@ -302,36 +302,33 @@ export default function AppShell({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "8px",
+            gap: "10px",
             marginRight: isCompactHeader ? "14px" : "32px",
             flexShrink: 0,
           }}
         >
-          <div
+          <img
+            src="/branding/cyj-jr-logo.png"
+            alt="CYJ JR 로고"
             style={{
-              width: "28px",
+              width: isCompactHeader ? "54px" : "68px",
               height: "28px",
-              borderRadius: "7px",
-              background: "var(--color-primary)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontSize: "13px",
-              fontWeight: "700",
+              objectFit: "contain",
+              objectPosition: "left center",
+              display: "block",
+              flexShrink: 0,
             }}
-          >
-            C
-          </div>
+          />
           <span
             style={{
               fontWeight: "700",
               fontSize: "15px",
               color: "var(--color-text)",
               letterSpacing: "-0.3px",
+              whiteSpace: "nowrap",
             }}
           >
-            CYJ Jr <span style={{ color: "var(--color-primary)" }}>Studio</span>
+            <span style={{ color: "var(--color-primary)" }}>AI Agent</span>
           </span>
         </div>
 

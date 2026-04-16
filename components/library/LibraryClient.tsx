@@ -54,6 +54,7 @@ interface LessonDetailResponse {
   owner_name?: string | null;
   reviewer_name?: string | null;
   reviewer_id?: string | null;
+  project_id?: string | null;
   assignment_mode?: "auto" | "manual" | null;
   assignment_note?: string | null;
   delete_request_pending?: boolean;
@@ -108,6 +109,14 @@ function getReviewAgeHours(submittedAt?: string | null) {
 async function getApiErrorMessage(res: Response, fallback: string) {
   const data = await res.json().catch(() => null);
   return data?.error ?? fallback;
+}
+
+function getOwnerDisplayName(name?: string | null) {
+  return name?.trim() ? name : "이름 미등록";
+}
+
+function getReviewerDisplayName(name?: string | null) {
+  return name?.trim() ? name : "자동 배정 대기";
 }
 
 // ─── Component ───────────────────────────────────────────────
@@ -241,6 +250,7 @@ export default function LibraryClient({
       owner_name: data.lesson?.owner_name ?? null,
       reviewer_name: data.lesson?.reviewer_name ?? null,
       reviewer_id: data.lesson?.reviewer_id ?? null,
+      project_id: data.lesson?.project_id ?? nextSummary?.project_id ?? null,
       assignment_mode: data.lesson?.assignment_mode ?? null,
       assignment_note: data.lesson?.assignment_note ?? null,
       delete_request_pending: Boolean(data.lesson?.delete_request_pending),
@@ -597,11 +607,12 @@ export default function LibraryClient({
     }
   ) {
     if (!selectedLesson) return;
-    const shouldPrompt = options?.promptForNotes ?? true;
+    const shouldPrompt = options?.promptForNotes ?? status !== "approved";
     const reviewNotes = shouldPrompt
       ? window.prompt(options?.promptMessage ?? "검토 메모를 남겨주세요.", lessonDetail?.review_notes ?? "")
       : lessonDetail?.review_notes ?? null;
     if (shouldPrompt && reviewNotes === null) return;
+    if (!shouldPrompt && !window.confirm(status === "approved" ? "이 레슨을 승인할까요?" : "검토 상태를 변경할까요?")) return;
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
@@ -633,6 +644,7 @@ export default function LibraryClient({
         status: lesson.status,
         review_notes: lesson.review_notes,
       });
+      await loadLessons({ silent: true });
     } catch (error) {
       setDetailActionError(error instanceof Error ? error.message : "검토 상태 변경 중 오류가 발생했습니다.");
     }
@@ -647,8 +659,10 @@ export default function LibraryClient({
       text: string;
     }
   ) {
-    const reviewNotes = window.prompt(promptMessage, lesson.review_notes ?? "");
-    if (reviewNotes === null) return;
+    const shouldPrompt = status !== "approved";
+    const reviewNotes = shouldPrompt ? window.prompt(promptMessage, lesson.review_notes ?? "") : lesson.review_notes ?? null;
+    if (shouldPrompt && reviewNotes === null) return;
+    if (!shouldPrompt && !window.confirm(`"${lesson.title}" 레슨을 승인할까요?`)) return;
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${lesson.id}`, {
@@ -688,9 +702,92 @@ export default function LibraryClient({
           review_notes: updatedLesson.review_notes,
         });
       }
+      await loadLessons({ silent: true });
     } catch (error) {
       setDetailActionError(error instanceof Error ? error.message : "카드 검토 상태 변경 중 오류가 발생했습니다.");
     }
+  }
+
+  async function updateLessonMetadata(
+    lesson: LessonSummary,
+    updates: { title?: string; project_id?: string | null }
+  ) {
+    setDetailActionError(null);
+    try {
+      const res = await fetch(`/api/lessons/${lesson.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) {
+        setDetailActionError(await getApiErrorMessage(res, "레슨 정보 저장 중 오류가 발생했습니다."));
+        return null;
+      }
+      const { lesson: updatedLesson } = await res.json();
+      dispatchInboxSync("lesson_saved");
+      setLessons((prev) =>
+        prev.map((item) =>
+          item.id === updatedLesson.id
+            ? {
+                ...item,
+                title: updatedLesson.title,
+                project_id: updatedLesson.project_id ?? null,
+              }
+            : item
+        )
+      );
+      if (selectedLesson?.id === lesson.id) {
+        setSelectedLesson((prev) =>
+          prev
+            ? {
+                ...prev,
+                title: updatedLesson.title,
+                project_id: updatedLesson.project_id ?? null,
+              }
+            : prev
+        );
+        setLessonDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                project_id: updatedLesson.project_id ?? null,
+                package: {
+                  ...prev.package,
+                  title: updatedLesson.title,
+                },
+              }
+            : prev
+        );
+      }
+      await loadLessons({ silent: true });
+      return updatedLesson;
+    } catch (error) {
+      setDetailActionError(error instanceof Error ? error.message : "레슨 정보 저장 중 오류가 발생했습니다.");
+      return null;
+    }
+  }
+
+  async function renameLesson(lesson: LessonSummary) {
+    const nextTitle = window.prompt("레슨 이름을 수정해 주세요.", lesson.title);
+    if (nextTitle === null) return;
+    const trimmed = nextTitle.trim();
+    if (!trimmed || trimmed === lesson.title) return;
+    await updateLessonMetadata(lesson, { title: trimmed });
+  }
+
+  async function assignLessonProject(lesson: LessonSummary) {
+    const projectGuide = projects.map((project) => `${project.id}: ${project.name}`).join("\n");
+    const nextProjectId = window.prompt(
+      `프로젝트를 배정해 주세요.\n비워 두면 미배정으로 변경됩니다.\n\n사용 가능한 프로젝트 ID:\n${projectGuide || "(등록된 프로젝트 없음)"}`,
+      lesson.project_id ?? ""
+    );
+    if (nextProjectId === null) return;
+    const trimmed = nextProjectId.trim();
+    if (trimmed && !projects.some((project) => project.id === trimmed)) {
+      setDetailActionError("유효한 프로젝트 ID를 입력해 주세요.");
+      return;
+    }
+    await updateLessonMetadata(lesson, { project_id: trimmed || null });
   }
 
   async function batchUpdateReview(
@@ -1531,7 +1628,7 @@ export default function LibraryClient({
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "980px" }}>
                   <thead>
                     <tr style={{ background: "var(--color-bg)" }}>
-                      {["제목", "난이도", "상태", "작성자", "검토자", "생성일", "표시", "액션"].map((label) => (
+                      {["제목", "난이도", "상태", "저장자", "검토 담당", "생성일", "AI", "액션"].map((label) => (
                         <th
                           key={label}
                           style={{
@@ -1608,10 +1705,10 @@ export default function LibraryClient({
                             </div>
                           </td>
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.owner_name ? "var(--color-text)" : "var(--color-text-subtle)" }}>
-                            {lesson.owner_name ?? "미지정"}
+                            {getOwnerDisplayName(lesson.owner_name)}
                           </td>
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.reviewer_name ? "var(--color-text)" : "var(--color-text-subtle)" }}>
-                            {lesson.reviewer_name ?? "미배정"}
+                            {getReviewerDisplayName(lesson.reviewer_name)}
                           </td>
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: "var(--color-text-muted)", whiteSpace: "nowrap" }}>
                             {fmtDate(lesson.created_at)}
@@ -1638,6 +1735,42 @@ export default function LibraryClient({
                                 }}
                               >
                                 공유
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void renameLesson(lesson);
+                                }}
+                                style={{
+                                  padding: "5px 8px",
+                                  borderRadius: "999px",
+                                  border: "1px solid var(--color-border)",
+                                  background: "var(--color-surface)",
+                                  color: "var(--color-text-muted)",
+                                  fontSize: "10px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                이름 수정
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void assignLessonProject(lesson);
+                                }}
+                                style={{
+                                  padding: "5px 8px",
+                                  borderRadius: "999px",
+                                  border: "1px solid var(--color-border)",
+                                  background: "var(--color-surface)",
+                                  color: "var(--color-text-muted)",
+                                  fontSize: "10px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                프로젝트
                               </button>
                               <button
                                 onClick={(e) => {
@@ -1836,9 +1969,9 @@ export default function LibraryClient({
                             }}
                           >
                             {([
-                              { value: "review", label: "검토 링크" },
-                              { value: "comments", label: "코멘트 링크" },
-                              { value: "activities", label: "이력 링크" },
+                              { value: "review", label: "검토 열기 링크" },
+                              { value: "comments", label: "피드백 보기 링크" },
+                              { value: "activities", label: "활동 이력 링크" },
                             ] as const).map((item) => (
                               <button
                                 key={item.value}
@@ -1859,7 +1992,7 @@ export default function LibraryClient({
                                   textAlign: "left",
                                 }}
                               >
-                                {recommendedCardLinkType === item.value ? `${item.label} 추천` : item.label}
+                                {item.label}
                               </button>
                             ))}
                           </div>
@@ -1932,8 +2065,8 @@ export default function LibraryClient({
                     </div>
 
                     <div style={{ display: "grid", gap: "4px", marginBottom: "8px" }}>
-                      <MetaRow label="작성자" value={lesson.owner_name ?? "미지정"} />
-                      <MetaRow label="검토자" value={lesson.reviewer_name ?? "미배정"} muted={!lesson.reviewer_name} />
+                      <MetaRow label="저장자" value={getOwnerDisplayName(lesson.owner_name)} muted={!lesson.owner_name} />
+                      <MetaRow label="검토 담당" value={getReviewerDisplayName(lesson.reviewer_name)} muted={!lesson.reviewer_name} />
                       {reviewAgeHours !== null && reviewAgeTone && (
                         <div
                           style={{
@@ -2146,13 +2279,14 @@ export default function LibraryClient({
                     <span style={{ fontSize: "11px", padding: "4px 8px", borderRadius: "999px", background: "var(--color-primary-light)", color: "var(--color-primary)", fontWeight: "600" }}>
                       {LESSON_STATUS_LABELS[lessonDetail.status]}
                     </span>
-                    {lessonDetail.owner_name && (
-                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
-                        작성자: {lessonDetail.owner_name}
-                      </span>
-                    )}
+                    <span style={{ fontSize: "11px", color: lessonDetail.owner_name ? "var(--color-text-muted)" : "var(--color-text-subtle)" }}>
+                      저장자: {getOwnerDisplayName(lessonDetail.owner_name)}
+                    </span>
                     <span style={{ fontSize: "11px", color: lessonDetail.reviewer_name ? "var(--color-text-muted)" : "var(--color-text-subtle)" }}>
-                      검토자: {lessonDetail.reviewer_name ?? "미배정"}
+                      검토 담당: {getReviewerDisplayName(lessonDetail.reviewer_name)}
+                    </span>
+                    <span style={{ fontSize: "11px", color: lessonDetail.project_id ? "var(--color-text-muted)" : "var(--color-text-subtle)" }}>
+                      프로젝트: {lessonDetail.project_id ? projects.find((project) => project.id === lessonDetail.project_id)?.name ?? "알 수 없음" : "미배정"}
                     </span>
                     {lessonDetail.package.documentTemplate?.name && (
                       <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
@@ -2203,7 +2337,7 @@ export default function LibraryClient({
                     <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "4px" }}>다음 액션</div>
                     <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
                       {lessonDetail.status === "draft" && "초안 상태입니다. 검토 요청으로 넘기거나 내용을 보완해 주세요."}
-                      {lessonDetail.status === "in_review" && (canReviewCurrentLesson ? "검토 메모를 남기고 승인 또는 수정 요청을 진행해 주세요." : "검토중입니다. 검토자의 피드백을 기다려 주세요.")}
+                      {lessonDetail.status === "in_review" && (canReviewCurrentLesson ? "검토 메모 없이도 바로 승인할 수 있고, 필요하면 수정 요청 메모를 남길 수 있습니다." : "검토중입니다. 검토 담당의 피드백을 기다려 주세요.")}
                       {lessonDetail.status === "needs_revision" && "수정 요청이 들어왔습니다. 코멘트와 검토 메모를 반영한 뒤 다시 검토 요청하세요."}
                       {lessonDetail.status === "approved" && "승인된 레슨입니다. 필요한 형식으로 내보내거나 발행 완료로 관리할 수 있습니다."}
                       {lessonDetail.status === "published" && "발행까지 완료된 레슨입니다. 필요하면 코멘트로 후속 의견을 남길 수 있습니다."}
@@ -2293,11 +2427,65 @@ export default function LibraryClient({
                   )}
 
                   <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                    <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--color-text)", marginBottom: "6px" }}>
+                      레슨 관리
+                    </div>
+                    <div style={{ display: "grid", gap: "6px", marginBottom: "10px" }}>
+                      <button
+                        onClick={() => selectedLesson && void renameLesson(selectedLesson)}
+                        style={{
+                          padding: "9px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          background: "var(--color-surface)",
+                          color: "var(--color-text-muted)",
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        레슨 이름 수정
+                      </button>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text-muted)" }}>
+                          프로젝트 폴더 배정
+                        </span>
+                        <select
+                          value={selectedLesson?.project_id ?? ""}
+                          onChange={(event) => {
+                            if (!selectedLesson) return;
+                            void updateLessonMetadata(selectedLesson, {
+                              project_id: event.target.value || null,
+                            });
+                          }}
+                          style={{
+                            padding: "9px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text)",
+                            fontSize: "12px",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          <option value="">미배정</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: "10px", padding: "10px 11px", borderRadius: "8px", background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                     <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-text)", marginBottom: "4px" }}>공유 링크</div>
                     <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
-                      {recommendedLinkType === "review" && "지금은 검토 링크를 보내는 게 가장 자연스럽습니다."}
-                      {recommendedLinkType === "comments" && "지금은 코멘트 링크를 보내 피드백 반영 지점을 바로 보여주는 게 좋습니다."}
-                      {recommendedLinkType === "activities" && "지금은 활동 이력 링크로 전체 진행 맥락을 공유하는 편이 좋습니다."}
+                      {recommendedLinkType === "review" && "검토 담당이 바로 열어 승인/수정 요청을 볼 링크입니다."}
+                      {recommendedLinkType === "comments" && "피드백과 코멘트만 바로 확인할 링크입니다."}
+                      {recommendedLinkType === "activities" && "활동 이력 전체를 확인하는 링크입니다."}
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
                       <button
@@ -2313,7 +2501,7 @@ export default function LibraryClient({
                           cursor: "pointer",
                         }}
                       >
-                        {copiedLinkType === "review" ? "복사됨" : recommendedLinkType === "review" ? "검토 링크 추천" : "검토 링크"}
+                        {copiedLinkType === "review" ? "복사됨" : "검토 열기 링크"}
                       </button>
                       <button
                         onClick={() => copyLessonLink("comments")}
@@ -2328,7 +2516,7 @@ export default function LibraryClient({
                           cursor: "pointer",
                         }}
                       >
-                        {copiedLinkType === "comments" ? "복사됨" : recommendedLinkType === "comments" ? "코멘트 링크 추천" : "코멘트 링크"}
+                        {copiedLinkType === "comments" ? "복사됨" : "피드백 보기 링크"}
                       </button>
                       <button
                         onClick={() => copyLessonLink("activities")}
@@ -2343,7 +2531,7 @@ export default function LibraryClient({
                           cursor: "pointer",
                         }}
                       >
-                        {copiedLinkType === "activities" ? "복사됨" : recommendedLinkType === "activities" ? "이력 링크 추천" : "이력 링크"}
+                        {copiedLinkType === "activities" ? "복사됨" : "활동 이력 링크"}
                       </button>
                     </div>
                   </div>

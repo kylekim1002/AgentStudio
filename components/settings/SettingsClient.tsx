@@ -601,6 +601,10 @@ export default function SettingsClient({
   }
 
   function removeLevelSetting(id: string) {
+    const level = levelSettings.find((item) => item.id === id);
+    if (!window.confirm(`"${level?.name || "이 레벨"}"을(를) 삭제하시겠습니까?`)) {
+      return;
+    }
     setLevelSettings((prev) => prev.filter((item) => item.id !== id));
   }
 
@@ -623,6 +627,11 @@ export default function SettingsClient({
   }
 
   function removeCodeValue(category: CodeValueCategory, id: string) {
+    const target = codeValues[category].find((item) => item.id === id);
+    if (!window.confirm(`"${target?.label || "이 코드값"}"을(를) 삭제하시겠습니까?`)) {
+      return;
+    }
+    setDraggingCodeValueId((prev) => (prev === id ? null : prev));
     setCodeValues((prev) => {
       const next = prev[category].filter((item) => item.id !== id);
       const normalized =
@@ -711,6 +720,10 @@ export default function SettingsClient({
   }
 
   function removeImagePromptPreset(id: string) {
+    const preset = imagePrompts.find((item) => item.id === id);
+    if (!window.confirm(`"${preset?.name || "이 프리셋"}"을(를) 삭제하시겠습니까?`)) {
+      return;
+    }
     setImagePrompts((prev) => prev.filter((item) => item.id !== id));
   }
 
@@ -768,6 +781,11 @@ export default function SettingsClient({
   }
 
   function removeImagePromptReference(presetId: string, referenceId: string) {
+    const preset = imagePrompts.find((item) => item.id === presetId);
+    const reference = preset?.references?.find((item) => item.id === referenceId);
+    if (!window.confirm(`"${reference?.name || "이 참조 이미지"}"를 삭제하시겠습니까?`)) {
+      return;
+    }
     setImagePrompts((prev) =>
       prev.map((item) =>
         item.id === presetId

@@ -267,6 +267,8 @@ export async function PATCH(
     reviewer_id?: string | null;
     reviewer_reason?: string | null;
     package?: Record<string, unknown>;
+    title?: string;
+    project_id?: string | null;
     review_template?: {
       used?: boolean;
       kind?: "approved" | "needs_revision" | null;
@@ -283,13 +285,15 @@ export async function PATCH(
     status: body.status,
     review_notes: body.review_notes,
     reviewer_id: body.reviewer_id,
+    title: body.title,
+    project_id: body.project_id,
     reviewed_at: undefined,
     submitted_at: body.status === "in_review" ? new Date().toISOString() : undefined,
   } as Record<string, unknown>;
 
   const { data: lesson } = await (supabase as any)
     .from("lessons")
-    .select("id, user_id, reviewer_id, status")
+    .select("id, user_id, reviewer_id, status, project_id, title")
     .eq("id", id)
     .single();
 
@@ -314,6 +318,10 @@ export async function PATCH(
 
   if (body.package && !isOwner && !access.features.includes("approval.manage")) {
     return NextResponse.json({ error: "Only owner can update lesson package" }, { status: 403 });
+  }
+
+  if ((body.title !== undefined || body.project_id !== undefined) && !isOwner && !access.features.includes("approval.manage")) {
+    return NextResponse.json({ error: "Only owner can update lesson metadata" }, { status: 403 });
   }
 
   if (body.reviewer_id) {
@@ -349,6 +357,18 @@ export async function PATCH(
 
   if (body.package) {
     patch.package = body.package;
+  }
+
+  if (body.title !== undefined) {
+    const nextTitle = body.title.trim();
+    if (!nextTitle) {
+      return NextResponse.json({ error: "레슨 제목은 비워둘 수 없습니다." }, { status: 400 });
+    }
+    patch.title = nextTitle;
+  }
+
+  if (body.project_id !== undefined) {
+    patch.project_id = body.project_id ?? null;
   }
 
   const { data, error } = await (supabase as any)
@@ -417,6 +437,30 @@ export async function PATCH(
       action: "package_updated",
       metadata: {
         note: "레슨 패키지 내용이 업데이트되었습니다.",
+      },
+    });
+  }
+
+  if (body.title !== undefined && body.title.trim() !== lesson.title) {
+    await logLessonActivity(supabase, {
+      lessonId: id,
+      actorId: user.id,
+      action: "title_renamed",
+      metadata: {
+        previous_title: lesson.title,
+        next_title: body.title.trim(),
+      },
+    });
+  }
+
+  if (body.project_id !== undefined && body.project_id !== lesson.project_id) {
+    await logLessonActivity(supabase, {
+      lessonId: id,
+      actorId: user.id,
+      action: body.project_id ? "project_assigned" : "project_unassigned",
+      metadata: {
+        previous_project_id: lesson.project_id ?? null,
+        next_project_id: body.project_id ?? null,
       },
     });
   }
