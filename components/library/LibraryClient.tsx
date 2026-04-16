@@ -119,6 +119,14 @@ function getReviewerDisplayName(name?: string | null) {
   return name?.trim() ? name : "자동 배정 대기";
 }
 
+function getSuccessMessageForStatus(status: LessonStatus) {
+  if (status === "approved") return "승인 처리했습니다.";
+  if (status === "needs_revision") return "수정 요청으로 변경했습니다.";
+  if (status === "published") return "발행 완료로 처리했습니다.";
+  if (status === "in_review") return "검토 요청으로 보냈습니다.";
+  return "상태를 변경했습니다.";
+}
+
 function normalizeLibraryImageError(message?: string | null) {
   if (!message) return "이미지 생성 중 오류가 발생했습니다.";
   const lowered = message.toLowerCase();
@@ -206,6 +214,7 @@ export default function LibraryClient({
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailActionError, setDetailActionError] = useState<string | null>(null);
+  const [flashMessage, setFlashMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "card">("table");
   const [imagePrompts, setImagePrompts] = useState<ImagePromptPreset[]>(DEFAULT_IMAGE_PROMPT_PRESETS);
   const [selectedImagePromptId, setSelectedImagePromptId] = useState(DEFAULT_IMAGE_PROMPT_PRESETS[0]?.id ?? "");
@@ -214,6 +223,8 @@ export default function LibraryClient({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingLessonPackage, setIsSavingLessonPackage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [titleEditLesson, setTitleEditLesson] = useState<LessonSummary | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
   const isMountedRef = useRef(true);
   const detailTemplate = useMemo(() => {
     if (!lessonDetail) return null;
@@ -440,6 +451,7 @@ export default function LibraryClient({
   useEffect(() => {
     function handleWindowClick() {
       setShareMenuLessonId(null);
+      setProjectMenuLessonId(null);
     }
 
     window.addEventListener("click", handleWindowClick);
@@ -449,6 +461,12 @@ export default function LibraryClient({
   useEffect(() => {
     setSelectedReviewIds([]);
   }, [scope, statusFilter, selectedProject, favOnly, search, reassignedFilter]);
+
+  useEffect(() => {
+    if (!flashMessage) return;
+    const timeoutId = window.setTimeout(() => setFlashMessage(null), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [flashMessage]);
 
   // ── Load lesson detail ─────────────────────────────────────
   async function selectLesson(lesson: LessonSummary) {
@@ -666,7 +684,9 @@ export default function LibraryClient({
         }),
       });
       if (!res.ok) {
-        setDetailActionError(await getApiErrorMessage(res, "검토 상태 변경 중 오류가 발생했습니다."));
+        const message = await getApiErrorMessage(res, "검토 상태 변경 중 오류가 발생했습니다.");
+        setDetailActionError(message);
+        setFlashMessage({ tone: "error", text: message });
         return;
       }
       const { lesson } = await res.json();
@@ -674,6 +694,7 @@ export default function LibraryClient({
       setLessons((prev) => prev.map((item) => item.id === lesson.id ? { ...item, status: lesson.status, review_notes: lesson.review_notes } : item));
       setSelectedLesson((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
       setLessonDetail((prev) => prev ? { ...prev, status: lesson.status, review_notes: lesson.review_notes } : prev);
+      setFlashMessage({ tone: "success", text: getSuccessMessageForStatus(status) });
       await selectLesson({
         ...(selectedLesson as LessonSummary),
         status: lesson.status,
@@ -716,7 +737,9 @@ export default function LibraryClient({
         }),
       });
       if (!res.ok) {
-        setDetailActionError(await getApiErrorMessage(res, "카드 검토 상태 변경 중 오류가 발생했습니다."));
+        const message = await getApiErrorMessage(res, "카드 검토 상태 변경 중 오류가 발생했습니다.");
+        setDetailActionError(message);
+        setFlashMessage({ tone: "error", text: message });
         return;
       }
 
@@ -737,6 +760,7 @@ export default function LibraryClient({
           review_notes: updatedLesson.review_notes,
         });
       }
+      setFlashMessage({ tone: "success", text: `"${lesson.title}" ${getSuccessMessageForStatus(status)}` });
       await loadLessons({ silent: true });
     } catch (error) {
       setDetailActionError(error instanceof Error ? error.message : "카드 검토 상태 변경 중 오류가 발생했습니다.");
@@ -755,7 +779,9 @@ export default function LibraryClient({
         body: JSON.stringify(updates),
       });
       if (!res.ok) {
-        setDetailActionError(await getApiErrorMessage(res, "레슨 정보 저장 중 오류가 발생했습니다."));
+        const message = await getApiErrorMessage(res, "레슨 정보 저장 중 오류가 발생했습니다.");
+        setDetailActionError(message);
+        setFlashMessage({ tone: "error", text: message });
         return null;
       }
       const { lesson: updatedLesson } = await res.json();
@@ -794,20 +820,42 @@ export default function LibraryClient({
             : prev
         );
       }
+      setFlashMessage({
+        tone: "success",
+        text:
+          updates.title !== undefined
+            ? "레슨 이름을 저장했습니다."
+            : updates.project_id !== undefined
+              ? `프로젝트를 ${getProjectDisplayName(updatedLesson.project_id ?? null)}(으)로 변경했습니다.`
+              : "레슨 정보를 저장했습니다.",
+      });
       await loadLessons({ silent: true });
       return updatedLesson;
     } catch (error) {
-      setDetailActionError(error instanceof Error ? error.message : "레슨 정보 저장 중 오류가 발생했습니다.");
+      const message = error instanceof Error ? error.message : "레슨 정보 저장 중 오류가 발생했습니다.";
+      setDetailActionError(message);
+      setFlashMessage({ tone: "error", text: message });
       return null;
     }
   }
 
-  async function renameLesson(lesson: LessonSummary) {
-    const nextTitle = window.prompt("레슨 이름을 수정해 주세요.", lesson.title);
-    if (nextTitle === null) return;
+  function openRenameDialog(lesson: LessonSummary) {
+    setTitleEditLesson(lesson);
+    setTitleDraft(lesson.title);
+    setShareMenuLessonId(null);
+  }
+
+  async function renameLesson(lesson: LessonSummary, explicitTitle?: string) {
+    const nextTitle = explicitTitle ?? titleDraft;
     const trimmed = nextTitle.trim();
-    if (!trimmed || trimmed === lesson.title) return;
-    await updateLessonMetadata(lesson, { title: trimmed });
+    if (!trimmed || trimmed === lesson.title) {
+      setTitleEditLesson(null);
+      return;
+    }
+    const updated = await updateLessonMetadata(lesson, { title: trimmed });
+    if (updated) {
+      setTitleEditLesson(null);
+    }
   }
 
   async function assignLessonProject(lesson: LessonSummary, projectId: string | null) {
@@ -851,7 +899,9 @@ export default function LibraryClient({
 
       const failedResponse = responses.find((res) => !res.ok);
       if (failedResponse) {
-        setDetailActionError(await getApiErrorMessage(failedResponse, "일괄 검토 처리 중 오류가 발생했습니다."));
+        const message = await getApiErrorMessage(failedResponse, "일괄 검토 처리 중 오류가 발생했습니다.");
+        setDetailActionError(message);
+        setFlashMessage({ tone: "error", text: message });
         return;
       }
 
@@ -869,8 +919,11 @@ export default function LibraryClient({
           });
         }
       }
+      setFlashMessage({ tone: "success", text: `${selectedReviewIds.length}개 레슨을 ${status === "approved" ? "승인" : "수정 요청"} 처리했습니다.` });
     } catch (error) {
-      setDetailActionError(error instanceof Error ? error.message : "일괄 검토 처리 중 오류가 발생했습니다.");
+      const message = error instanceof Error ? error.message : "일괄 검토 처리 중 오류가 발생했습니다.";
+      setDetailActionError(message);
+      setFlashMessage({ tone: "error", text: message });
     }
   }
 
@@ -1166,6 +1219,13 @@ export default function LibraryClient({
       minute: "2-digit",
     }).format(new Date(lastUpdatedAt));
   }, [lastUpdatedAt]);
+  const getProjectDisplayName = useCallback(
+    (projectId?: string | null) => {
+      if (!projectId) return "미배정";
+      return projects.find((project) => project.id === projectId)?.name ?? "알 수 없음";
+    },
+    [projects]
+  );
 
   return (
     <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -1620,6 +1680,23 @@ export default function LibraryClient({
           </div>
         )}
 
+        {flashMessage && (
+          <div
+            style={{
+              margin: "12px 12px 0",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: `1px solid ${flashMessage.tone === "success" ? "#BBF7D0" : "#FECACA"}`,
+              background: flashMessage.tone === "success" ? "#F0FDF4" : "#FEF2F2",
+              color: flashMessage.tone === "success" ? "#166534" : "#B91C1C",
+              fontSize: "12px",
+              fontWeight: "600",
+            }}
+          >
+            {flashMessage.text}
+          </div>
+        )}
+
         {/* Cards */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
           {loading ? (
@@ -1657,7 +1734,7 @@ export default function LibraryClient({
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "980px" }}>
                   <thead>
                     <tr style={{ background: "var(--color-bg)" }}>
-                      {["제목", "난이도", "상태", "저장자", "검토 담당", "생성일", "AI", "액션"].map((label) => (
+                      {["제목", "난이도", "상태", "저장자", "검토 담당", "프로젝트", "생성일", "AI", "액션"].map((label) => (
                         <th
                           key={label}
                           style={{
@@ -1739,6 +1816,9 @@ export default function LibraryClient({
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.reviewer_name ? "var(--color-text)" : "var(--color-text-subtle)" }}>
                             {getReviewerDisplayName(lesson.reviewer_name)}
                           </td>
+                          <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: lesson.project_id ? "var(--color-text)" : "var(--color-text-subtle)" }}>
+                            {getProjectDisplayName(lesson.project_id)}
+                          </td>
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)", fontSize: "12px", color: "var(--color-text-muted)", whiteSpace: "nowrap" }}>
                             {fmtDate(lesson.created_at)}
                           </td>
@@ -1768,7 +1848,7 @@ export default function LibraryClient({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void renameLesson(lesson);
+                                  openRenameDialog(lesson);
                                 }}
                                 style={{
                                   padding: "5px 8px",
@@ -2069,7 +2149,7 @@ export default function LibraryClient({
                                 key={item.value}
                                 onClick={() => {
                                   if (item.value === "rename") {
-                                    void renameLesson(lesson);
+                                    openRenameDialog(lesson);
                                   } else if (item.value === "project") {
                                     setProjectMenuLessonId((current) => current === lesson.id ? null : lesson.id);
                                   } else {
@@ -2241,6 +2321,7 @@ export default function LibraryClient({
                     <div style={{ display: "grid", gap: "4px", marginBottom: "8px" }}>
                       <MetaRow label="저장자" value={getOwnerDisplayName(lesson.owner_name)} muted={!lesson.owner_name} />
                       <MetaRow label="검토 담당" value={getReviewerDisplayName(lesson.reviewer_name)} muted={!lesson.reviewer_name} />
+                      <MetaRow label="프로젝트" value={getProjectDisplayName(lesson.project_id)} muted={!lesson.project_id} />
                       {reviewAgeHours !== null && reviewAgeTone && (
                         <div
                           style={{
@@ -2267,8 +2348,48 @@ export default function LibraryClient({
                       </div>
                     )}
 
-                    <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
-                      {fmtDate(lesson.created_at)}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "2px" }}>
+                      <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                        {fmtDate(lesson.created_at)}
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openRenameDialog(lesson);
+                          }}
+                          style={{
+                            padding: "5px 8px",
+                            borderRadius: "999px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text-muted)",
+                            fontSize: "10px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          이름 수정
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectMenuLessonId((current) => current === lesson.id ? null : lesson.id);
+                          }}
+                          style={{
+                            padding: "5px 8px",
+                            borderRadius: "999px",
+                            border: "1px solid var(--color-border)",
+                            background: lesson.project_id ? "var(--color-primary-light)" : "var(--color-surface)",
+                            color: lesson.project_id ? "var(--color-primary)" : "var(--color-text-muted)",
+                            fontSize: "10px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          프로젝트
+                        </button>
+                      </div>
                     </div>
 
                     {lesson.delete_request_pending && lesson.delete_request_requested_at && (
@@ -2460,7 +2581,7 @@ export default function LibraryClient({
                       검토 담당: {getReviewerDisplayName(lessonDetail.reviewer_name)}
                     </span>
                     <span style={{ fontSize: "11px", color: lessonDetail.project_id ? "var(--color-text-muted)" : "var(--color-text-subtle)" }}>
-                      프로젝트: {lessonDetail.project_id ? projects.find((project) => project.id === lessonDetail.project_id)?.name ?? "알 수 없음" : "미배정"}
+                      프로젝트: {getProjectDisplayName(lessonDetail.project_id)}
                     </span>
                     {lessonDetail.package.documentTemplate?.name && (
                       <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
@@ -2606,7 +2727,7 @@ export default function LibraryClient({
                     </div>
                     <div style={{ display: "grid", gap: "6px", marginBottom: "10px" }}>
                       <button
-                        onClick={() => selectedLesson && void renameLesson(selectedLesson)}
+                        onClick={() => selectedLesson && openRenameDialog(selectedLesson)}
                         style={{
                           padding: "9px 10px",
                           borderRadius: "8px",
@@ -3213,6 +3334,92 @@ export default function LibraryClient({
           </>
         )}
       </aside>
+      {titleEditLesson && (
+        <div
+          onClick={() => setTitleEditLesson(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 60,
+            padding: "20px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: "420px",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "14px",
+              boxShadow: "0 16px 40px rgba(15, 23, 42, 0.18)",
+              padding: "18px",
+              display: "grid",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "15px", fontWeight: "700", color: "var(--color-text)", marginBottom: "4px" }}>
+                레슨 이름 수정
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                카드와 상세 화면에 바로 반영됩니다.
+              </div>
+            </div>
+            <input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              autoFocus
+              placeholder="레슨 이름을 입력해 주세요"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid var(--color-border-strong)",
+                background: "#fff",
+                fontSize: "13px",
+                color: "var(--color-text)",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <button
+                onClick={() => setTitleEditLesson(null)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text-muted)",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                취소
+              </button>
+              <button
+                onClick={() => void renameLesson(titleEditLesson, titleDraft)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: "var(--color-primary)",
+                  color: "#fff",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                }}
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
