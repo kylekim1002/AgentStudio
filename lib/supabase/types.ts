@@ -330,6 +330,212 @@ export interface Database {
           agent_name?: string | null;
         };
       };
+      curriculum_assets: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          semester: string;
+          level_name: string;
+          subject: string;
+          content_type: string;
+          storage_path: string;
+          file_url: string;
+          file_type: string;
+          notes: string | null;
+          status: string;
+          lexile_min: number | null;
+          lexile_max: number | null;
+          metadata: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          semester: string;
+          level_name: string;
+          subject: string;
+          content_type: string;
+          storage_path: string;
+          file_url: string;
+          file_type: string;
+          notes?: string | null;
+          status?: string;
+          lexile_min?: number | null;
+          lexile_max?: number | null;
+          metadata?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string;
+          semester?: string;
+          level_name?: string;
+          subject?: string;
+          content_type?: string;
+          storage_path?: string;
+          file_url?: string;
+          file_type?: string;
+          notes?: string | null;
+          status?: string;
+          lexile_min?: number | null;
+          lexile_max?: number | null;
+          metadata?: Json | null;
+          updated_at?: string;
+        };
+      };
+      curriculum_asset_pages: {
+        Row: {
+          id: string;
+          asset_id: string;
+          page_number: number;
+          extracted_text: string | null;
+          preview_image_url: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          asset_id: string;
+          page_number: number;
+          extracted_text?: string | null;
+          preview_image_url?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          extracted_text?: string | null;
+          preview_image_url?: string | null;
+        };
+      };
+      curriculum_passages: {
+        Row: {
+          id: string;
+          asset_id: string;
+          title: string;
+          body: string;
+          lexile_min: number | null;
+          lexile_max: number | null;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          asset_id: string;
+          title: string;
+          body: string;
+          lexile_min?: number | null;
+          lexile_max?: number | null;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          title?: string;
+          body?: string;
+          lexile_min?: number | null;
+          lexile_max?: number | null;
+          metadata?: Json | null;
+        };
+      };
+      curriculum_question_sets: {
+        Row: {
+          id: string;
+          asset_id: string;
+          passage_id: string | null;
+          section_type: string;
+          question_style: string | null;
+          item_count: number;
+          style_summary: string | null;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          asset_id: string;
+          passage_id?: string | null;
+          section_type: string;
+          question_style?: string | null;
+          item_count?: number;
+          style_summary?: string | null;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          passage_id?: string | null;
+          section_type?: string;
+          question_style?: string | null;
+          item_count?: number;
+          style_summary?: string | null;
+          metadata?: Json | null;
+        };
+      };
+      curriculum_questions: {
+        Row: {
+          id: string;
+          question_set_id: string;
+          question_type: string;
+          prompt: string;
+          choices: Json | null;
+          answer: string | null;
+          explanation: string | null;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          question_set_id: string;
+          question_type: string;
+          prompt: string;
+          choices?: Json | null;
+          answer?: string | null;
+          explanation?: string | null;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          question_type?: string;
+          prompt?: string;
+          choices?: Json | null;
+          answer?: string | null;
+          explanation?: string | null;
+          metadata?: Json | null;
+        };
+      };
+      curriculum_transform_jobs: {
+        Row: {
+          id: string;
+          asset_id: string;
+          status: string;
+          provider: string | null;
+          model: string | null;
+          error_message: string | null;
+          result_summary: Json | null;
+          started_at: string;
+          completed_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          asset_id: string;
+          status?: string;
+          provider?: string | null;
+          model?: string | null;
+          error_message?: string | null;
+          result_summary?: Json | null;
+          started_at?: string;
+          completed_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          status?: string;
+          provider?: string | null;
+          model?: string | null;
+          error_message?: string | null;
+          result_summary?: Json | null;
+          started_at?: string;
+          completed_at?: string | null;
+        };
+      };
     };
   };
 }

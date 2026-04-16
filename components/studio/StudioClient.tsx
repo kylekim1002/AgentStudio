@@ -4,7 +4,16 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { AgentName, AIProvider, ContentCounts, DEFAULT_CONTENT_COUNTS } from "@/lib/agents/types";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { useLessonGenerate } from "@/hooks/useLessonGenerate";
-import { ContentCheckpoint, PassageCheckpoint, getWritingTasks } from "@/lib/workflows/lesson/types";
+import {
+  AssessmentOutput,
+  ContentCheckpoint,
+  GrammarOutput,
+  PassageCheckpoint,
+  ReadingOutput,
+  VocabularyOutput,
+  WritingOutput,
+  getWritingTasks,
+} from "@/lib/workflows/lesson/types";
 import {
   AUTO_DOCUMENT_TEMPLATE,
   AUTO_DOCUMENT_TEMPLATE_ID,
@@ -17,9 +26,22 @@ import {
 import { DEFAULT_IMAGE_PROMPT_PRESETS, ImagePromptPreset } from "@/lib/imagePrompts";
 import { getTemplateImageItems } from "@/lib/documentTemplateRender";
 import {
+  buildCurriculumReferenceText,
+  CurriculumAssetDetail,
+  CurriculumPartialSectionType,
+  CurriculumPartialValidation,
+  CurriculumAssetSummary,
+  CurriculumReferencePayload,
+  CURRICULUM_PARTIAL_SECTION_TYPES,
+  CURRICULUM_SEMESTERS,
+  CURRICULUM_SUBJECTS,
+  CURRICULUM_TYPES,
+} from "@/lib/curriculum";
+import {
   buildLevelContextText,
   DEFAULT_LEVEL_SETTINGS,
   getOfficialDifficultyBand,
+  getLevelInternalDifficulty,
   LevelSetting,
 } from "@/lib/levelSettings";
 import AgentPanel from "./AgentPanel";
@@ -31,6 +53,8 @@ import { dispatchInboxSync } from "@/lib/ui/inboxSync";
 
 type Mode = "chat" | "pipeline";
 type GenerationTarget = "full" | "passage_review" | "content_review" | "passage_and_content_review";
+type StudioGenerationMode = "standard" | "curriculum";
+type CurriculumExecutionMode = "full" | "partial";
 interface StudioClientProps {
   canViewPipeline: boolean;
   canSelectProvider: boolean;
@@ -48,6 +72,22 @@ interface GeneratedPassageImage {
   url: string;
   storagePath?: string;
   createdAt: string;
+}
+
+type CurriculumPartialOutput =
+  | ReadingOutput
+  | VocabularyOutput
+  | GrammarOutput
+  | WritingOutput
+  | AssessmentOutput;
+
+interface CurriculumPartialResult {
+  sectionType: CurriculumPartialSectionType;
+  targetCount: number;
+  output: CurriculumPartialOutput;
+  validation: CurriculumPartialValidation;
+  referenceTitle: string;
+  generatedAt: string;
 }
 
 const PROVIDERS: { value: AIProvider; label: string; color: string; short: string }[] = [
@@ -91,6 +131,20 @@ export default function StudioClient({
   const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>(initialDocumentTemplates);
   const [levelSettings, setLevelSettings] = useState<LevelSetting[]>(initialLevelSettings);
   const [selectedLevelId, setSelectedLevelId] = useState("");
+  const [studioGenerationMode, setStudioGenerationMode] = useState<StudioGenerationMode>("standard");
+  const [curriculumExecutionMode, setCurriculumExecutionMode] = useState<CurriculumExecutionMode>("full");
+  const [curriculumSemester, setCurriculumSemester] = useState("");
+  const [curriculumLevel, setCurriculumLevel] = useState("");
+  const [curriculumSubject, setCurriculumSubject] = useState("");
+  const [curriculumType, setCurriculumType] = useState("");
+  const [curriculumAssets, setCurriculumAssets] = useState<CurriculumAssetSummary[]>([]);
+  const [selectedCurriculumAssetId, setSelectedCurriculumAssetId] = useState("");
+  const [selectedCurriculumAsset, setSelectedCurriculumAsset] = useState<CurriculumAssetDetail | null>(null);
+  const [curriculumPartialSection, setCurriculumPartialSection] = useState<CurriculumPartialSectionType>("reading");
+  const [curriculumPartialPrompt, setCurriculumPartialPrompt] = useState("");
+  const [curriculumPartialResult, setCurriculumPartialResult] = useState<CurriculumPartialResult | null>(null);
+  const [curriculumPartialError, setCurriculumPartialError] = useState<string | null>(null);
+  const [isRunningCurriculumPartial, setIsRunningCurriculumPartial] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState(AUTO_DOCUMENT_TEMPLATE_ID);
   const [generationTarget, setGenerationTarget] = useState<GenerationTarget>("full");
   const [reviewTitle, setReviewTitle] = useState("");
@@ -127,6 +181,44 @@ export default function StudioClient({
     () => imagePrompts.find((prompt) => prompt.id === selectedImagePromptId) ?? null,
     [imagePrompts, selectedImagePromptId]
   );
+  const curriculumReference = useMemo<CurriculumReferencePayload | null>(() => {
+    if (studioGenerationMode !== "curriculum" || !selectedCurriculumAsset) return null;
+    return {
+      assetId: selectedCurriculumAsset.id,
+      title: selectedCurriculumAsset.title,
+      semester: selectedCurriculumAsset.semester,
+      levelName: selectedCurriculumAsset.levelName,
+      subject: selectedCurriculumAsset.subject,
+      contentType: selectedCurriculumAsset.contentType,
+      lexileMin: selectedCurriculumAsset.lexileMin,
+      lexileMax: selectedCurriculumAsset.lexileMax,
+      passageSamples: selectedCurriculumAsset.passages.slice(0, 3).map((passage) => ({
+        title: passage.title,
+        body: passage.body,
+      })),
+      questionSetSamples: selectedCurriculumAsset.questionSets.slice(0, 3).map((set) => ({
+        sectionType: set.sectionType,
+        questionStyle: set.questionStyle,
+        styleSummary: set.styleSummary,
+        questions: selectedCurriculumAsset.questions
+          .filter((question) => question.questionSetId === set.id)
+          .slice(0, 5)
+          .map((question) => ({
+            questionType: question.questionType,
+            prompt: question.prompt,
+            choices: question.choices,
+            answer: question.answer,
+          })),
+      })),
+    };
+  }, [selectedCurriculumAsset, studioGenerationMode]);
+  const curriculumPartialTargetCount = useMemo(() => {
+    if (curriculumPartialSection === "reading") return contentCounts.reading;
+    if (curriculumPartialSection === "vocabulary") return contentCounts.vocabulary;
+    if (curriculumPartialSection === "grammar") return contentCounts.grammarExercises;
+    if (curriculumPartialSection === "writing") return contentCounts.writing;
+    return contentCounts.assessment;
+  }, [contentCounts, curriculumPartialSection]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
   const imageSourceTitle = useMemo(
@@ -276,6 +368,78 @@ export default function StudioClient({
   }, []);
 
   useEffect(() => {
+    if (studioGenerationMode !== "curriculum") {
+      setCurriculumAssets([]);
+      setSelectedCurriculumAssetId("");
+      setSelectedCurriculumAsset(null);
+      setCurriculumPartialResult(null);
+      setCurriculumPartialError(null);
+      setCurriculumExecutionMode("full");
+      return;
+    }
+
+    let cancelled = false;
+    const params = new URLSearchParams();
+    params.set("status", "approved");
+    if (curriculumSemester) params.set("semester", curriculumSemester);
+    if (curriculumLevel) params.set("level", curriculumLevel);
+    if (curriculumSubject) params.set("subject", curriculumSubject);
+    if (curriculumType) params.set("type", curriculumType);
+
+    fetch(`/api/curriculum/assets?${params.toString()}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !Array.isArray(data.assets)) return;
+        setCurriculumAssets(data.assets);
+        setSelectedCurriculumAssetId((current) => {
+          if (data.assets.some((asset: CurriculumAssetSummary) => asset.id === current)) {
+            return current;
+          }
+          return data.assets[0]?.id ?? "";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCurriculumAssets([]);
+          setSelectedCurriculumAssetId("");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [studioGenerationMode, curriculumSemester, curriculumLevel, curriculumSubject, curriculumType]);
+
+  useEffect(() => {
+    setCurriculumPartialResult(null);
+    setCurriculumPartialError(null);
+  }, [selectedCurriculumAssetId, curriculumPartialSection]);
+
+  useEffect(() => {
+    if (studioGenerationMode !== "curriculum" || !selectedCurriculumAssetId) {
+      setSelectedCurriculumAsset(null);
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/curriculum/assets/${selectedCurriculumAssetId}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data.asset) return;
+        setSelectedCurriculumAsset(data.asset);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedCurriculumAsset(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [studioGenerationMode, selectedCurriculumAssetId]);
+
+  useEffect(() => {
     if (!canOpenImageTools) {
       setShowImageTools(false);
     }
@@ -322,8 +486,10 @@ export default function StudioClient({
 
   function buildLevelScopedInput(baseInput: string) {
     const levelContext = buildLevelContextText(selectedLevel);
-    if (!levelContext) return baseInput;
-    return `${baseInput}\n\n[기본 레벨 설정]\n${levelContext}`;
+    const curriculumContext = buildCurriculumReferenceText(curriculumReference);
+    return [baseInput, levelContext ? `[기본 레벨 설정]\n${levelContext}` : "", curriculumContext]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   function handleConfirmGenerate(chatSummary: string) {
@@ -340,6 +506,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget,
     });
@@ -359,9 +527,115 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget,
     });
+  }
+
+  async function handleRunCurriculumPartial() {
+    if (!curriculumReference) {
+      setCurriculumPartialError("먼저 승인된 커리큘럼 참고 자료를 선택해 주세요.");
+      return;
+    }
+
+    const prompt = curriculumPartialPrompt.trim();
+    if (!prompt) {
+      setCurriculumPartialError("부분 보강 생성에 사용할 요청을 입력해 주세요.");
+      return;
+    }
+
+    setCurriculumPartialError(null);
+    setCurriculumPartialResult(null);
+    setIsRunningCurriculumPartial(true);
+
+    try {
+      const res = await fetch("/api/curriculum/partial-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userInput: buildLevelScopedInput(prompt),
+          provider,
+          sectionType: curriculumPartialSection,
+          targetCount: curriculumPartialTargetCount,
+          requestedLevelName: selectedLevel?.name,
+          requestedOfficialDifficulty: selectedLevel
+            ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label
+            : undefined,
+          requestedLexileMin: selectedLevel?.lexileMin,
+          requestedLexileMax: selectedLevel?.lexileMax,
+          difficulty: getLevelInternalDifficulty(selectedLevel),
+          curriculumReference,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error ?? "부분 보강 생성에 실패했습니다.");
+      }
+      setCurriculumPartialResult(payload as CurriculumPartialResult);
+    } catch (partialError) {
+      setCurriculumPartialError(
+        partialError instanceof Error ? partialError.message : "부분 보강 생성에 실패했습니다."
+      );
+    } finally {
+      setIsRunningCurriculumPartial(false);
+    }
+  }
+
+  async function handleCopyCurriculumPartialResult() {
+    if (!curriculumPartialResult) return;
+    const output = curriculumPartialResult.output;
+    let text = "";
+    if (curriculumPartialResult.sectionType === "reading") {
+      const readingOutput = output as ReadingOutput;
+      text = readingOutput.questions
+        .map(
+          (question, index) =>
+            `${index + 1}. ${question.question}\n${(question.options ?? []).join("\n")}\n정답: ${question.answer}\n해설: ${question.explanation}`
+        )
+        .join("\n\n");
+    } else if (curriculumPartialResult.sectionType === "vocabulary") {
+      const vocabularyOutput = output as VocabularyOutput;
+      text = vocabularyOutput.words
+        .map(
+          (word, index) =>
+            `${index + 1}. ${word.word} (${word.partOfSpeech})\n뜻: ${word.definition}\n예문: ${word.exampleSentence}\n한국어: ${word.koreanTranslation}`
+        )
+        .join("\n\n");
+    } else if (curriculumPartialResult.sectionType === "grammar") {
+      const grammarOutput = output as GrammarOutput;
+      text = [
+        `문법 포인트: ${grammarOutput.focusPoint}`,
+        `설명: ${grammarOutput.explanation}`,
+        `예문:\n${grammarOutput.examples.map((example, index) => `${index + 1}. ${example}`).join("\n")}`,
+        `연습:\n${grammarOutput.practiceExercises
+          .map(
+            (exercise, index) =>
+              `${index + 1}. ${exercise.instruction}\n${exercise.items
+                .map((item, itemIndex) => `- ${item}\n  정답: ${exercise.answers[itemIndex] ?? ""}`)
+                .join("\n")}`
+          )
+          .join("\n\n")}`,
+      ].join("\n\n");
+    } else if (curriculumPartialResult.sectionType === "writing") {
+      const tasks = getWritingTasks(output as WritingOutput);
+      text = tasks
+        .map(
+          (task, index) =>
+            `${index + 1}. ${task.prompt}\n스캐폴딩: ${task.scaffolding.join(" / ")}\n모범답안: ${task.modelAnswer}`
+        )
+        .join("\n\n");
+    } else {
+      const assessmentOutput = output as AssessmentOutput;
+      text = assessmentOutput.questions
+        .map(
+          (question, index) =>
+            `${index + 1}. ${question.question}\n${question.options?.join("\n") ?? ""}\n정답: ${question.answer}\n배점: ${question.points}`
+        )
+        .join("\n\n");
+    }
+    await navigator.clipboard.writeText(text);
   }
 
   function buildEditedCheckpoint() {
@@ -403,6 +677,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget:
         generationTarget === "passage_and_content_review"
@@ -434,6 +710,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget:
         generationTarget === "passage_and_content_review"
@@ -452,6 +730,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget: "full",
       contentCheckpoint,
@@ -468,6 +748,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget: "content_review",
       contentCheckpoint,
@@ -486,6 +768,8 @@ export default function StudioClient({
       requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
       requestedLexileMin: selectedLevel?.lexileMin,
       requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode: studioGenerationMode,
+      curriculumReference,
       contentCounts,
       generationTarget: "content_review",
       passageCheckpoint: {
@@ -768,6 +1052,31 @@ export default function StudioClient({
                 {template.name}
               </option>
             ))}
+          </select>
+          <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+
+        <div style={{ position: "relative", minWidth: 0 }}>
+          <select
+            value={studioGenerationMode}
+            onChange={(e) => setStudioGenerationMode(e.target.value as StudioGenerationMode)}
+            disabled={isRunning}
+            style={{
+              appearance: "none",
+              paddingLeft: "10px", paddingRight: "22px", paddingTop: "5px", paddingBottom: "5px",
+              borderRadius: "6px", border: "1px solid var(--color-border)",
+              fontSize: "12px", color: "var(--color-text-muted)",
+              background: "var(--color-surface)", outline: "none", fontFamily: "inherit",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.6 : 1,
+              minWidth: "116px",
+            }}
+            title="일반 생성과 커리큘럼 참고 생성 중 하나를 선택합니다"
+          >
+            <option value="standard">일반 생성</option>
+            <option value="curriculum">커리큘럼 모드</option>
           </select>
           <div style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2 3l2.5 3L7 3" stroke="var(--color-text-muted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -1124,7 +1433,443 @@ export default function StudioClient({
         </div>
       </div>
 
+      {studioGenerationMode === "curriculum" && (
+        <div
+          style={{
+            flexShrink: 0,
+            borderBottom: "1px solid var(--color-border)",
+            background: "var(--color-surface)",
+            padding: "10px 16px",
+            display: "grid",
+            gridTemplateColumns: "repeat(8, minmax(0, 1fr)) minmax(220px, 1.4fr)",
+            gap: "8px",
+            alignItems: "center",
+          }}
+        >
+          <select value={curriculumSemester} onChange={(e) => setCurriculumSemester(e.target.value)} style={curriculumFilterStyle}>
+            <option value="">학기 전체</option>
+            {CURRICULUM_SEMESTERS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <input value={curriculumLevel} onChange={(e) => setCurriculumLevel(e.target.value)} placeholder="레벨" style={curriculumFilterStyle} />
+          <select value={curriculumSubject} onChange={(e) => setCurriculumSubject(e.target.value)} style={curriculumFilterStyle}>
+            <option value="">과목 전체</option>
+            {CURRICULUM_SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={curriculumType} onChange={(e) => setCurriculumType(e.target.value)} style={curriculumFilterStyle}>
+            <option value="">유형 전체</option>
+            {CURRICULUM_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <div
+            style={{
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-bg)",
+              fontSize: "12px",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            승인 자료 {curriculumAssets.length}건
+          </div>
+          <select
+            value={curriculumExecutionMode}
+            onChange={(e) => setCurriculumExecutionMode(e.target.value as CurriculumExecutionMode)}
+            style={curriculumFilterStyle}
+          >
+            <option value="full">전체 레슨 생성</option>
+            <option value="partial">부분 보강 생성</option>
+          </select>
+          {curriculumExecutionMode === "partial" ? (
+            <select
+              value={curriculumPartialSection}
+              onChange={(e) => setCurriculumPartialSection(e.target.value as CurriculumPartialSectionType)}
+              style={curriculumFilterStyle}
+            >
+              {CURRICULUM_PARTIAL_SECTION_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type === "reading"
+                    ? "독해 문제"
+                    : type === "vocabulary"
+                      ? "어휘 학습"
+                      : type === "grammar"
+                        ? "문법 문제"
+                        : type === "writing"
+                          ? "쓰기 과제"
+                          : "평가지"}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div
+              style={{
+                padding: "8px 10px",
+                borderRadius: "10px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-bg)",
+                fontSize: "12px",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              전체 파이프라인 참고 생성
+            </div>
+          )}
+          <div
+            style={{
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-bg)",
+              fontSize: "12px",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            현재 단계: {curriculumExecutionMode === "partial" ? "단일 에이전트 보강 생성" : "전체 생성 참고"}
+          </div>
+          <select
+            value={selectedCurriculumAssetId}
+            onChange={(e) => setSelectedCurriculumAssetId(e.target.value)}
+            style={curriculumFilterStyle}
+          >
+            <option value="">{curriculumAssets.length ? "참고 자료 선택" : "승인된 자료 없음"}</option>
+            {curriculumAssets.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.title} · {asset.levelName} · {asset.subject}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* ── Body (3 panels) ── */}
+      {studioGenerationMode === "curriculum" && selectedCurriculumAsset && (
+        <div
+          style={{
+            flexShrink: 0,
+            margin: "12px 16px 0",
+            padding: "12px 14px",
+            borderRadius: "14px",
+            border: "1px solid rgba(59,130,246,0.18)",
+            background: "rgba(59,130,246,0.05)",
+            display: "grid",
+            gap: "6px",
+          }}
+        >
+          <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--color-text)" }}>
+            커리큘럼 참고자료: {selectedCurriculumAsset.title}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>
+            {selectedCurriculumAsset.semester} · {selectedCurriculumAsset.levelName} · {selectedCurriculumAsset.subject} · {selectedCurriculumAsset.contentType}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--color-text-subtle)" }}>
+            지문 {selectedCurriculumAsset.passageCount} · 문제세트 {selectedCurriculumAsset.questionSetCount} · 문항 {selectedCurriculumAsset.questionCount} · Lexile {selectedCurriculumAsset.lexileMin ?? "?"}L~{selectedCurriculumAsset.lexileMax ?? "?"}L
+          </div>
+        </div>
+      )}
+
+      {studioGenerationMode === "curriculum" && curriculumExecutionMode === "partial" && selectedCurriculumAsset && (
+        <div
+          style={{
+            flexShrink: 0,
+            margin: "12px 16px 0",
+            padding: "14px",
+            borderRadius: "14px",
+            border: "1px solid rgba(16,185,129,0.18)",
+            background: "rgba(16,185,129,0.05)",
+            display: "grid",
+            gap: "12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--color-text)" }}>
+                부분 보강 생성
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginTop: "4px", lineHeight: 1.6 }}>
+                선택한 커리큘럼 자료를 참고해 <strong>
+                  {curriculumPartialSection === "reading"
+                    ? "독해 문제"
+                    : curriculumPartialSection === "vocabulary"
+                      ? "어휘 학습"
+                      : curriculumPartialSection === "grammar"
+                        ? "문법 문제"
+                        : curriculumPartialSection === "writing"
+                          ? "쓰기 과제"
+                          : "평가지"}
+                </strong>만 생성하고 구조 검증까지 바로 진행합니다.
+              </div>
+            </div>
+            <div
+              style={{
+                padding: "8px 10px",
+                borderRadius: "10px",
+                border: "1px solid var(--color-border)",
+                background: "#fff",
+                fontSize: "12px",
+                color: "var(--color-text-muted)",
+                fontWeight: "700",
+              }}
+            >
+              생성 수 {curriculumPartialTargetCount}
+            </div>
+          </div>
+
+          <textarea
+            value={curriculumPartialPrompt}
+            onChange={(e) => setCurriculumPartialPrompt(e.target.value)}
+            placeholder="예: 현재 Wind1 학생들이 어휘 문맥 추론을 어려워하니, 환경 보호 지문 기반으로 어휘 8개를 조금 더 쉬운 단어 설명으로 보강해줘."
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid var(--color-border-strong)",
+              background: "#fff",
+              fontSize: "12px",
+              lineHeight: 1.6,
+              color: "var(--color-text)",
+              outline: "none",
+              resize: "vertical",
+              boxSizing: "border-box",
+            }}
+          />
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => void handleRunCurriculumPartial()}
+              disabled={isRunningCurriculumPartial || isRunning}
+              style={{
+                padding: "9px 14px",
+                borderRadius: "10px",
+                border: "none",
+                background: "#059669",
+                color: "#fff",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: isRunningCurriculumPartial || isRunning ? "not-allowed" : "pointer",
+                opacity: isRunningCurriculumPartial || isRunning ? 0.7 : 1,
+              }}
+            >
+              {isRunningCurriculumPartial ? "부분 보강 생성 중..." : "부분 보강 생성"}
+            </button>
+            {curriculumPartialResult && (
+              <button
+                type="button"
+                onClick={() => void handleCopyCurriculumPartialResult()}
+                style={{
+                  padding: "9px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  color: "var(--color-text)",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                결과 텍스트 복사
+              </button>
+            )}
+            <div style={{ fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>
+              현재 단계는 구조 검증까지 포함합니다. 기존 레슨 패키지는 건드리지 않고, 결과만 별도로 확인/복사할 수 있습니다.
+            </div>
+          </div>
+
+          {curriculumPartialError && (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                background: "#FEF2F2",
+                border: "1px solid #FECACA",
+                color: "#B91C1C",
+                fontSize: "12px",
+                lineHeight: 1.6,
+              }}
+            >
+              {curriculumPartialError}
+            </div>
+          )}
+
+          {curriculumPartialResult && (
+            <div
+              style={{
+                borderRadius: "12px",
+                border: `1px solid ${curriculumPartialResult.validation.passed ? "#A7F3D0" : "#FDE68A"}`,
+                background: "#fff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px 14px",
+                  background: curriculumPartialResult.validation.passed ? "#ECFDF5" : "#FFFBEB",
+                  borderBottom: `1px solid ${curriculumPartialResult.validation.passed ? "#A7F3D0" : "#FDE68A"}`,
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1.4fr) repeat(3, minmax(0, 0.7fr))",
+                  gap: "12px",
+                  alignItems: "start",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--color-text)" }}>
+                    {curriculumPartialResult.referenceTitle} · {curriculumPartialResult.sectionType}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginTop: "4px", lineHeight: 1.6 }}>
+                    {curriculumPartialResult.validation.summary}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>검증 상태</div>
+                  <div style={{ fontSize: "18px", fontWeight: "800", color: curriculumPartialResult.validation.passed ? "#059669" : "#B45309" }}>
+                    {curriculumPartialResult.validation.passed ? "통과" : "검토 필요"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>생성 수</div>
+                  <div style={{ fontSize: "18px", fontWeight: "800", color: "var(--color-text)" }}>
+                    {curriculumPartialResult.targetCount}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--color-text-subtle)" }}>생성 시각</div>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>
+                    {new Date(curriculumPartialResult.generatedAt).toLocaleString("ko-KR", {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {curriculumPartialResult.validation.issues.length > 0 && (
+                <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--color-border)", background: "#FFFBEB" }}>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "#92400E", marginBottom: "6px" }}>
+                    검토 포인트
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: "18px", color: "#A16207", fontSize: "12px", lineHeight: 1.7 }}>
+                    {curriculumPartialResult.validation.issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div style={{ padding: "14px", display: "grid", gap: "12px" }}>
+                {curriculumPartialResult.sectionType === "reading" &&
+                  (curriculumPartialResult.output as ReadingOutput).questions.map((question, index) => (
+                    <div key={`${question.question}-${index}`} style={{ border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "800", color: "var(--color-text)" }}>{index + 1}. {question.question}</div>
+                      <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
+                        {question.options.map((option) => (
+                          <div key={option} style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>{option}</div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: "8px", fontSize: "11px", color: "#1D4ED8", fontWeight: "700" }}>정답: {question.answer}</div>
+                      <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-subtle)", lineHeight: 1.6 }}>{question.explanation}</div>
+                    </div>
+                  ))}
+
+                {curriculumPartialResult.sectionType === "vocabulary" &&
+                  "words" in curriculumPartialResult.output &&
+                  curriculumPartialResult.output.words.map((word) => (
+                    <div key={word.word} style={{ border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px" }}>
+                      <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--color-text)" }}>{word.word}</div>
+                      <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-subtle)" }}>{word.partOfSpeech}</div>
+                      <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--color-text)" }}>{word.definition}</div>
+                      <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>{word.exampleSentence}</div>
+                      <div style={{ marginTop: "6px", fontSize: "11px", color: "#2563EB", fontWeight: "700" }}>{word.koreanTranslation}</div>
+                    </div>
+                  ))}
+
+                {curriculumPartialResult.sectionType === "grammar" &&
+                  "focusPoint" in curriculumPartialResult.output && (
+                    <div style={{ border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px", display: "grid", gap: "10px" }}>
+                      <div>
+                        <div style={{ fontSize: "11px", color: "var(--color-text-subtle)" }}>문법 포인트</div>
+                        <div style={{ fontSize: "14px", fontWeight: "800", color: "var(--color-text)" }}>{curriculumPartialResult.output.focusPoint}</div>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--color-text)", lineHeight: 1.7 }}>{curriculumPartialResult.output.explanation}</div>
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        {curriculumPartialResult.output.examples.map((example, index) => (
+                          <div key={`${example}-${index}`} style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>
+                            예문 {index + 1}. {example}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "grid", gap: "10px" }}>
+                        {curriculumPartialResult.output.practiceExercises.map((exercise, index) => (
+                          <div key={`${exercise.instruction}-${index}`} style={{ borderTop: index === 0 ? "none" : "1px solid var(--color-border)", paddingTop: index === 0 ? 0 : "10px" }}>
+                            <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--color-text)" }}>{exercise.instruction}</div>
+                            <div style={{ marginTop: "6px", display: "grid", gap: "6px" }}>
+                              {exercise.items.map((item, itemIndex) => (
+                                <div key={`${item}-${itemIndex}`} style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                                  {itemIndex + 1}. {item}
+                                  <div style={{ color: "#1D4ED8", fontWeight: "700", marginTop: "2px" }}>
+                                    정답: {exercise.answers[itemIndex] ?? "-"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {curriculumPartialResult.sectionType === "writing" && (
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    {getWritingTasks(curriculumPartialResult.output as ContentCheckpoint["writing"]).map((task, index) => (
+                      <div key={`${task.prompt}-${index}`} style={{ border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px", display: "grid", gap: "8px" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--color-text)" }}>{index + 1}. {task.prompt}</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {task.scaffolding.map((hint) => (
+                            <span key={hint} style={{ padding: "4px 8px", borderRadius: "999px", background: "#F8FAFC", border: "1px solid var(--color-border)", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                              {hint}
+                            </span>
+                          ))}
+                        </div>
+                        <div style={{ display: "grid", gap: "4px" }}>
+                          {task.rubric.map((criterion) => (
+                            <div key={criterion.criterion} style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
+                              {criterion.criterion} ({criterion.maxPoints}점) · {criterion.description}
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--color-text)", lineHeight: 1.7 }}>
+                          <strong>모범답안</strong><br />{task.modelAnswer}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {curriculumPartialResult.sectionType === "assessment" &&
+                  (curriculumPartialResult.output as AssessmentOutput).questions.map((question, index) => (
+                    <div key={`${question.question}-${index}`} style={{ border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "800", color: "var(--color-text)" }}>{index + 1}. {question.question}</div>
+                      {question.options && question.options.length > 0 && (
+                        <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
+                          {question.options.map((option) => (
+                            <div key={option} style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>{option}</div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ marginTop: "8px", display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "11px", color: "var(--color-text-subtle)" }}>
+                        <span>유형: {question.type}</span>
+                        <span>정답: {question.answer}</span>
+                        <span>배점: {question.points}</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {passageCheckpoint && (
         <div style={{
           background: "#FFFBEB",
@@ -1891,3 +2636,15 @@ export default function StudioClient({
     </div>
   );
 }
+
+const curriculumFilterStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 10px",
+  borderRadius: "10px",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface)",
+  fontSize: "12px",
+  fontFamily: "inherit",
+  color: "var(--color-text-muted)",
+  outline: "none",
+};

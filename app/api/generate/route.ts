@@ -12,6 +12,7 @@ import {
   LessonRequest,
   PassageCheckpoint,
 } from "@/lib/workflows/lesson/types";
+import { CurriculumReferencePayload } from "@/lib/curriculum";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -62,6 +63,8 @@ export async function POST(req: NextRequest) {
     contentCheckpoint?: ContentCheckpoint;
     regenerateAgents?: AgentName[];
     revisionInstructions?: Partial<Record<AgentName, string>>;
+    curriculumMode?: "standard" | "curriculum";
+    curriculumReference?: CurriculumReferencePayload | null;
   };
 
   // Load user's saved API keys from profile settings
@@ -152,6 +155,14 @@ export async function POST(req: NextRequest) {
     contentCheckpoint,
     regenerateAgents,
     revisionInstructions,
+    curriculumMode:
+      body && typeof body === "object" && (body as { curriculumMode?: unknown }).curriculumMode === "curriculum"
+        ? "curriculum"
+        : "standard",
+    curriculumReference:
+      body && typeof body === "object"
+        ? ((body as { curriculumReference?: CurriculumReferencePayload | null }).curriculumReference ?? null)
+        : null,
     contentCounts: safeCounts,
     approvalMode: access.features.includes("studio.approval_toggle")
       ? (body && typeof body === "object"

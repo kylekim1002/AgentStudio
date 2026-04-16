@@ -134,6 +134,8 @@ export default function ChatPanel({
   const prevRunning = useRef(false);
   const sendLockRef = useRef(false);
   const isComposingRef = useRef(false);
+  const suppressNextCompositionEndRef = useRef(false);
+  const lastSendRef = useRef<{ signature: string; at: number } | null>(null);
 
   const displayMessages = useMemo(
     () => [...toDisplayMessages(storedMessages), ...ephemeralMessages],
@@ -440,6 +442,17 @@ export default function ChatPanel({
   async function send() {
     const text = input.trim();
     if (!text || isAiThinking || isRunning || sendLockRef.current || isComposingRef.current) return;
+
+    const dedupeSignature = `${selectedThreadId ?? "new"}:${activeAgentName ?? "chat"}:${text}`;
+    const now = Date.now();
+    if (
+      lastSendRef.current &&
+      lastSendRef.current.signature === dedupeSignature &&
+      now - lastSendRef.current.at < 1500
+    ) {
+      return;
+    }
+    lastSendRef.current = { signature: dedupeSignature, at: now };
     sendLockRef.current = true;
 
     let threadId = selectedThreadId;
@@ -451,8 +464,12 @@ export default function ChatPanel({
       }
     }
 
+    suppressNextCompositionEndRef.current = true;
     setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (textareaRef.current) {
+      textareaRef.current.value = "";
+      textareaRef.current.style.height = "auto";
+    }
     setMentionQuery(null);
     setShowConfirmButton(false);
 
@@ -600,12 +617,16 @@ export default function ChatPanel({
     } finally {
       setIsAiThinking(false);
       sendLockRef.current = false;
+      suppressNextCompositionEndRef.current = false;
     }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    const nativeEvent = e.nativeEvent as unknown as { isComposing?: boolean };
-    if (isComposingRef.current || nativeEvent.isComposing) {
+    const nativeEvent = e.nativeEvent as unknown as { isComposing?: boolean; keyCode?: number };
+    if (e.repeat) {
+      return;
+    }
+    if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
       return;
     }
     if (mentionQuery !== null && filteredMentions.length > 0) {
@@ -1261,6 +1282,14 @@ export default function ChatPanel({
                 }}
                 onCompositionEnd={(e) => {
                   isComposingRef.current = false;
+                  if (suppressNextCompositionEndRef.current) {
+                    suppressNextCompositionEndRef.current = false;
+                    e.currentTarget.value = "";
+                    setInput("");
+                    adjustHeight();
+                    setMentionQuery(null);
+                    return;
+                  }
                   setInput(e.currentTarget.value);
                   adjustHeight();
                   detectMention(e.currentTarget.value);

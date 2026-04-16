@@ -66,6 +66,16 @@ const BASE_NAV_TABS = [
     ),
   },
   {
+    href: "/curriculum",
+    label: "커리큘럼 자료",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M3 3.5h10v9H3v-9z" stroke="currentColor" strokeWidth="1.3"/>
+        <path d="M5 6h6M5 8.5h6M5 11h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
+  {
     href: "/settings",
     label: "시스템 설정",
     icon: (

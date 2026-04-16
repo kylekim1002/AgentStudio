@@ -8,6 +8,7 @@ import {
 export { AIProvider };
 
 import { DocumentTemplate } from "@/lib/documentTemplates";
+import { CurriculumReferencePayload } from "@/lib/curriculum";
 
 export enum AgentName {
   INTENT_ROUTER = "intent_router_agent",
@@ -268,6 +269,8 @@ export interface LessonRequest {
   contentCheckpoint?: ContentCheckpoint;
   regenerateAgents?: AgentName[];
   revisionInstructions?: Partial<Record<AgentName, string>>;
+  curriculumMode?: "standard" | "curriculum";
+  curriculumReference?: CurriculumReferencePayload | null;
 }
 
 export interface LessonPackage {

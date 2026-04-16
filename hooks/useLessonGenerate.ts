@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { AgentName, AIProvider, ContentCounts, DifficultyLevel, LessonPackage, AgentStatus } from "@/lib/agents/types";
 import { AgentName as LessonAgentName, ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
+import { CurriculumReferencePayload } from "@/lib/curriculum";
 
 export interface AgentProgressState {
   agent: AgentName;
@@ -75,6 +76,8 @@ export function useLessonGenerate() {
       contentCheckpoint?: ContentCheckpoint;
       regenerateAgents?: LessonAgentName[];
       revisionInstructions?: Partial<Record<LessonAgentName, string>>;
+      curriculumMode?: "standard" | "curriculum";
+      curriculumReference?: CurriculumReferencePayload | null;
     }) => {
       abortRef.current?.abort();
       const controller = new AbortController();
