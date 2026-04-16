@@ -121,14 +121,24 @@ function getReviewerDisplayName(name?: string | null) {
 
 function normalizeLibraryImageError(message?: string | null) {
   if (!message) return "이미지 생성 중 오류가 발생했습니다.";
+  const lowered = message.toLowerCase();
   if (
     message.includes("Cannot coerce the result to a single JSON object") ||
     message.includes("single JSON object")
   ) {
     return "참조 이미지 기반 생성에 실패했습니다. 프롬프트를 조금 단순하게 바꾸거나 참조 없이 다시 시도해 주세요.";
   }
-  if (message.toLowerCase().includes("content policy")) {
+  if (lowered.includes("content policy") || lowered.includes("safety system")) {
     return "이미지 생성 요청이 정책에 맞지 않아 처리되지 않았습니다. 프롬프트를 완화해서 다시 시도해 주세요.";
+  }
+  if (lowered.includes("rate limit") || lowered.includes("too many requests")) {
+    return "이미지 생성 요청이 잠시 몰려 있습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (lowered.includes("api key") || lowered.includes("unauthorized") || lowered.includes("authentication")) {
+    return "이미지 생성용 API 설정을 확인해 주세요.";
+  }
+  if (lowered.includes("bucket") || lowered.includes("storage") || lowered.includes("upload")) {
+    return "생성된 이미지를 저장하는 중 문제가 발생했습니다. 저장소 설정을 확인한 뒤 다시 시도해 주세요.";
   }
   return message;
 }
@@ -1115,14 +1125,13 @@ export default function LibraryClient({
   const filteredLessons = deleteRequestOnly
     ? lessons.filter((lesson) => lesson.delete_request_pending)
     : lessons; // server-side filtering already applied
-  const canShowReviewActions = canManageReview && (viewerRole === "admin" || viewerRole === "lead_teacher" || viewerRole === "reviewer");
+  const canShowReviewActions = canManageReview;
   const isOwner = selectedLesson?.user_id === viewerId;
   const isAdmin = viewerRole === "admin";
   const canEditLessonPackage = Boolean(isOwner || canManageReview);
   const canReviewCurrentLesson =
     canShowReviewActions &&
-    !!selectedLesson &&
-    (viewerRole === "admin" || viewerRole === "lead_teacher" || selectedLesson.reviewer_id === viewerId);
+    !!selectedLesson;
   const canPublishCurrentLesson = Boolean(
     selectedLesson &&
       selectedLesson.status === "approved" &&
@@ -1145,8 +1154,7 @@ export default function LibraryClient({
   const approvedCount = lessons.filter((lesson) => lesson.status === "approved" || lesson.status === "published").length;
   const deleteRequestCount = lessons.filter((lesson) => lesson.delete_request_pending).length;
   const reviewSelectableLessons = lessons.filter((lesson) =>
-    lesson.status === "in_review" &&
-    (viewerRole === "admin" || viewerRole === "lead_teacher" || lesson.reviewer_id === viewerId)
+    lesson.status === "in_review" && canShowReviewActions
   );
   const allReviewSelected =
     reviewSelectableLessons.length > 0 &&
