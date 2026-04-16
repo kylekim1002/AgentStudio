@@ -142,18 +142,29 @@ export async function POST(req: NextRequest) {
   try {
     const referenceFiles = await loadReferenceFiles();
     const service = await createServiceClient();
-    const result = referenceFiles.length > 0
-      ? await client.images.edit({
+    let result;
+    if (referenceFiles.length > 0) {
+      try {
+        result = await client.images.edit({
           model: "gpt-image-1",
           prompt: finalPrompt,
           image: referenceFiles,
           size: "1536x1024",
-        })
-      : await client.images.generate({
+        });
+      } catch {
+        result = await client.images.generate({
           model: "gpt-image-1",
           prompt: finalPrompt,
           size: "1536x1024",
         });
+      }
+    } else {
+      result = await client.images.generate({
+        model: "gpt-image-1",
+        prompt: finalPrompt,
+        size: "1536x1024",
+      });
+    }
 
     const base64 = result.data?.[0]?.b64_json;
     if (!base64) {
@@ -207,12 +218,18 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    const rawMessage =
+      error instanceof Error
+        ? error.message
+        : "이미지 생성 중 오류가 발생했습니다.";
+    const message =
+      rawMessage.includes("Cannot coerce the result to a single JSON object") ||
+      rawMessage.includes("single JSON object")
+        ? "참조 이미지 기반 생성에 실패했습니다. 프롬프트를 조금 단순하게 바꾸거나 참조 없이 다시 시도해 주세요."
+        : rawMessage;
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "이미지 생성 중 오류가 발생했습니다.",
+        error: message,
       },
       { status: 500 }
     );

@@ -119,6 +119,20 @@ function getReviewerDisplayName(name?: string | null) {
   return name?.trim() ? name : "자동 배정 대기";
 }
 
+function normalizeLibraryImageError(message?: string | null) {
+  if (!message) return "이미지 생성 중 오류가 발생했습니다.";
+  if (
+    message.includes("Cannot coerce the result to a single JSON object") ||
+    message.includes("single JSON object")
+  ) {
+    return "참조 이미지 기반 생성에 실패했습니다. 프롬프트를 조금 단순하게 바꾸거나 참조 없이 다시 시도해 주세요.";
+  }
+  if (message.toLowerCase().includes("content policy")) {
+    return "이미지 생성 요청이 정책에 맞지 않아 처리되지 않았습니다. 프롬프트를 완화해서 다시 시도해 주세요.";
+  }
+  return message;
+}
+
 // ─── Component ───────────────────────────────────────────────
 
 export default function LibraryClient({
@@ -168,6 +182,7 @@ export default function LibraryClient({
   const [deleteRequestOnly, setDeleteRequestOnly] = useState(initialDeleteRequestOnly);
   const [copiedLinkType, setCopiedLinkType] = useState<"review" | "comments" | "activities" | null>(null);
   const [shareMenuLessonId, setShareMenuLessonId] = useState<string | null>(null);
+  const [projectMenuLessonId, setProjectMenuLessonId] = useState<string | null>(null);
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
   const [reviewTemplates, setReviewTemplates] = useState<ReviewNoteTemplates>(DEFAULT_REVIEW_NOTE_TEMPLATES);
   const [reviewSlaHours, setReviewSlaHours] = useState(DEFAULT_REVIEW_SLA_HOURS);
@@ -264,7 +279,7 @@ export default function LibraryClient({
   const loadLessonDetailRef = useRef(loadLessonDetail);
   useEffect(() => { loadLessonDetailRef.current = loadLessonDetail; }, [loadLessonDetail]);
 
-  const loadLessons = useCallback(async (options?: { silent?: boolean }) => {
+  const loadLessons = useCallback(async (options?: { silent?: boolean }): Promise<LessonSummary[]> => {
     const silent = options?.silent ?? false;
     if (silent) {
       setRefreshing(true);
@@ -289,10 +304,10 @@ export default function LibraryClient({
         } catch {}
         console.error("[Library] loadLessons failed:", res.status, message);
         if (isMountedRef.current) setLoadError(message);
-        return;
+        return [] as LessonSummary[];
       }
       const { lessons: nextLessons } = await res.json();
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) return [] as LessonSummary[];
       const lessonRows = nextLessons ?? [];
       setLessons(lessonRows);
       setLastUpdatedAt(new Date().toISOString());
@@ -303,11 +318,13 @@ export default function LibraryClient({
         const refreshed = lessonRows.find((l: LessonSummary) => l.id === currentSelected.id) ?? null;
         if (refreshed) void loadLessonDetailRef.current(refreshed.id, refreshed);
       }
+      return lessonRows;
     } catch (err) {
       console.error("[Library] loadLessons error:", err);
       if (isMountedRef.current) {
         setLoadError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다");
       }
+      return [] as LessonSummary[];
     } finally {
       if (isMountedRef.current) {
         if (silent) setRefreshing(false);
@@ -522,7 +539,7 @@ export default function LibraryClient({
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error ?? "이미지 생성 실패");
+        throw new Error(normalizeLibraryImageError(data.error ?? "이미지 생성 실패"));
       }
 
       const nextImage = data.image as GeneratedPassageImage;
@@ -534,7 +551,9 @@ export default function LibraryClient({
       await saveGeneratedImages(nextImages);
       setImageRevisionText("");
     } catch (error) {
-      setImageError(error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다.");
+      setImageError(
+        normalizeLibraryImageError(error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다.")
+      );
     } finally {
       setIsGeneratingImage(false);
     }
@@ -781,19 +800,8 @@ export default function LibraryClient({
     await updateLessonMetadata(lesson, { title: trimmed });
   }
 
-  async function assignLessonProject(lesson: LessonSummary) {
-    const projectGuide = projects.map((project) => `${project.id}: ${project.name}`).join("\n");
-    const nextProjectId = window.prompt(
-      `프로젝트를 배정해 주세요.\n비워 두면 미배정으로 변경됩니다.\n\n사용 가능한 프로젝트 ID:\n${projectGuide || "(등록된 프로젝트 없음)"}`,
-      lesson.project_id ?? ""
-    );
-    if (nextProjectId === null) return;
-    const trimmed = nextProjectId.trim();
-    if (trimmed && !projects.some((project) => project.id === trimmed)) {
-      setDetailActionError("유효한 프로젝트 ID를 입력해 주세요.");
-      return;
-    }
-    await updateLessonMetadata(lesson, { project_id: trimmed || null });
+  async function assignLessonProject(lesson: LessonSummary, projectId: string | null) {
+    await updateLessonMetadata(lesson, { project_id: projectId });
   }
 
   async function batchUpdateReview(
@@ -839,10 +847,10 @@ export default function LibraryClient({
 
       dispatchInboxSync("lesson_reviewed");
       setSelectedReviewIds([]);
-      await loadLessons();
+      const refreshedLessons = await loadLessons();
 
       if (selectedLesson && selectedReviewIds.includes(selectedLesson.id)) {
-        const nextLesson = lessons.find((lesson) => lesson.id === selectedLesson.id);
+        const nextLesson = refreshedLessons.find((lesson: LessonSummary) => lesson.id === selectedLesson.id);
         if (nextLesson) {
           await selectLesson({
             ...nextLesson,
@@ -1730,7 +1738,7 @@ export default function LibraryClient({
                             {lesson.provider}
                           </td>
                           <td style={{ padding: "12px", borderBottom: "1px solid var(--color-border)" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-start" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-start", position: "relative" }}>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1770,7 +1778,7 @@ export default function LibraryClient({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void assignLessonProject(lesson);
+                                  setProjectMenuLessonId((current) => current === lesson.id ? null : lesson.id);
                                 }}
                                 style={{
                                   padding: "5px 8px",
@@ -1785,6 +1793,67 @@ export default function LibraryClient({
                               >
                                 프로젝트
                               </button>
+                              {projectMenuLessonId === lesson.id && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    position: "absolute",
+                                    top: "34px",
+                                    left: "120px",
+                                    minWidth: "168px",
+                                    background: "var(--color-surface)",
+                                    border: "1px solid var(--color-border)",
+                                    borderRadius: "10px",
+                                    boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
+                                    overflow: "hidden",
+                                    zIndex: 12,
+                                  }}
+                                >
+                                  <button
+                                    onClick={() => {
+                                      void assignLessonProject(lesson, null);
+                                      setProjectMenuLessonId(null);
+                                    }}
+                                    style={{
+                                      width: "100%",
+                                      padding: "9px 10px",
+                                      border: "none",
+                                      borderBottom: projects.length > 0 ? "1px solid var(--color-border)" : "none",
+                                      background: !lesson.project_id ? "var(--color-primary-light)" : "var(--color-surface)",
+                                      color: !lesson.project_id ? "var(--color-primary)" : "var(--color-text-muted)",
+                                      fontSize: "11px",
+                                      fontWeight: !lesson.project_id ? "700" : "600",
+                                      textAlign: "left",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    미배정
+                                  </button>
+                                  {projects.map((project) => (
+                                    <button
+                                      key={`${lesson.id}-${project.id}`}
+                                      onClick={() => {
+                                        void assignLessonProject(lesson, project.id);
+                                        setProjectMenuLessonId(null);
+                                      }}
+                                      style={{
+                                        width: "100%",
+                                        padding: "9px 10px",
+                                        border: "none",
+                                        borderTop: "1px solid var(--color-border)",
+                                        background: lesson.project_id === project.id ? "var(--color-primary-light)" : "var(--color-surface)",
+                                        color: lesson.project_id === project.id ? "var(--color-primary)" : "var(--color-text-muted)",
+                                        fontSize: "11px",
+                                        fontWeight: lesson.project_id === project.id ? "700" : "600",
+                                        textAlign: "left",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {project.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1994,7 +2063,7 @@ export default function LibraryClient({
                                   if (item.value === "rename") {
                                     void renameLesson(lesson);
                                   } else if (item.value === "project") {
-                                    void assignLessonProject(lesson);
+                                    setProjectMenuLessonId((current) => current === lesson.id ? null : lesson.id);
                                   } else {
                                     void copyLessonLinkFromCard(lesson, item.value);
                                   }
@@ -2029,6 +2098,67 @@ export default function LibraryClient({
                                 }}
                               >
                                 {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {projectMenuLessonId === lesson.id && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: "absolute",
+                              top: "28px",
+                              right: "54px",
+                              minWidth: "168px",
+                              background: "var(--color-surface)",
+                              border: "1px solid var(--color-border)",
+                              borderRadius: "8px",
+                              boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
+                              overflow: "hidden",
+                              zIndex: 11,
+                            }}
+                          >
+                            <button
+                              onClick={() => {
+                                void assignLessonProject(lesson, null);
+                                setProjectMenuLessonId(null);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "8px 10px",
+                                border: "none",
+                                borderBottom: projects.length > 0 ? "1px solid var(--color-border)" : "none",
+                                background: !lesson.project_id ? "var(--color-primary-light)" : "var(--color-surface)",
+                                color: !lesson.project_id ? "var(--color-primary)" : "var(--color-text-muted)",
+                                fontSize: "11px",
+                                fontWeight: !lesson.project_id ? "700" : "600",
+                                cursor: "pointer",
+                                textAlign: "left",
+                              }}
+                            >
+                              미배정
+                            </button>
+                            {projects.map((project) => (
+                              <button
+                                key={`${lesson.id}-card-${project.id}`}
+                                onClick={() => {
+                                  void assignLessonProject(lesson, project.id);
+                                  setProjectMenuLessonId(null);
+                                }}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 10px",
+                                  border: "none",
+                                  borderTop: "1px solid var(--color-border)",
+                                  background: lesson.project_id === project.id ? "var(--color-primary-light)" : "var(--color-surface)",
+                                  color: lesson.project_id === project.id ? "var(--color-primary)" : "var(--color-text-muted)",
+                                  fontSize: "11px",
+                                  fontWeight: lesson.project_id === project.id ? "700" : "600",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                              >
+                                {project.name}
                               </button>
                             ))}
                           </div>

@@ -56,6 +56,7 @@ export const LESSON_ACTIVITY_LABELS: Record<string, string> = {
   submitted_for_review: "검토 요청",
   status_changed: "상태 변경",
   approved: "승인",
+  published: "발행 완료",
   revision_requested: "수정 요청",
   commented: "코멘트 작성",
   reviewer_assigned: "검토자 지정",
