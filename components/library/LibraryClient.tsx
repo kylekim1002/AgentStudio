@@ -799,8 +799,10 @@ export default function LibraryClient({
     }
   ) {
     if (selectedReviewIds.length === 0) return;
-    const reviewNotes = window.prompt(promptMessage, "");
-    if (reviewNotes === null) return;
+    const shouldPrompt = status !== "approved";
+    const reviewNotes = shouldPrompt ? window.prompt(promptMessage, "") : "";
+    if (shouldPrompt && reviewNotes === null) return;
+    if (!shouldPrompt && !window.confirm(`${selectedReviewIds.length}개 레슨을 승인할까요?`)) return;
     setDetailActionError(null);
     try {
       const responses = await Promise.all(
@@ -865,7 +867,7 @@ export default function LibraryClient({
     template: string
   ) {
     await updateReview(status, {
-      promptForNotes: true,
+      promptForNotes: status !== "approved",
       promptMessage,
       template: {
         kind: status === "approved" ? "approved" : "needs_revision",
@@ -1969,6 +1971,8 @@ export default function LibraryClient({
                             }}
                           >
                             {([
+                              { value: "rename", label: "이름 수정" },
+                              { value: "project", label: "프로젝트 배정" },
                               { value: "review", label: "검토 열기 링크" },
                               { value: "comments", label: "피드백 보기 링크" },
                               { value: "activities", label: "활동 이력 링크" },
@@ -1976,7 +1980,13 @@ export default function LibraryClient({
                               <button
                                 key={item.value}
                                 onClick={() => {
-                                  void copyLessonLinkFromCard(lesson, item.value);
+                                  if (item.value === "rename") {
+                                    void renameLesson(lesson);
+                                  } else if (item.value === "project") {
+                                    void assignLessonProject(lesson);
+                                  } else {
+                                    void copyLessonLinkFromCard(lesson, item.value);
+                                  }
                                   setShareMenuLessonId(null);
                                 }}
                                 style={{
@@ -1984,10 +1994,25 @@ export default function LibraryClient({
                                   padding: "8px 10px",
                                   border: "none",
                                   borderBottom: item.value !== "activities" ? "1px solid var(--color-border)" : "none",
-                                  background: recommendedCardLinkType === item.value ? "var(--color-primary-light)" : "var(--color-surface)",
-                                  color: recommendedCardLinkType === item.value ? "var(--color-primary)" : "var(--color-text-muted)",
+                                  background:
+                                    item.value === "review" || item.value === "comments" || item.value === "activities"
+                                      ? recommendedCardLinkType === item.value
+                                        ? "var(--color-primary-light)"
+                                        : "var(--color-surface)"
+                                      : "var(--color-surface)",
+                                  color:
+                                    item.value === "review" || item.value === "comments" || item.value === "activities"
+                                      ? recommendedCardLinkType === item.value
+                                        ? "var(--color-primary)"
+                                        : "var(--color-text-muted)"
+                                      : "var(--color-text-muted)",
                                   fontSize: "11px",
-                                  fontWeight: recommendedCardLinkType === item.value ? "700" : "600",
+                                  fontWeight:
+                                    item.value === "review" || item.value === "comments" || item.value === "activities"
+                                      ? recommendedCardLinkType === item.value
+                                        ? "700"
+                                        : "600"
+                                      : "600",
                                   cursor: "pointer",
                                   textAlign: "left",
                                 }}
@@ -2577,7 +2602,7 @@ export default function LibraryClient({
                                 수정 요청
                               </button>
                               <button
-                                onClick={() => updateReview("approved", { promptForNotes: true, promptMessage: "승인 메모를 남겨주세요. (선택)" })}
+                                onClick={() => updateReview("approved")}
                                 style={{ padding: "9px 10px", borderRadius: "8px", border: "none", background: "#E0E7FF", color: "#3730A3", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                               >
                                 승인
