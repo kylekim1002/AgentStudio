@@ -38,9 +38,11 @@ interface ChatPanelProps {
   lessonPackage: LessonPackage | null;
   error: string | null;
   onConfirmGenerate: (chatSummary: string) => void;
+  onRetryFailedGenerate: (chatSummary: string, failedAgent: AgentName) => void;
   onReset: () => void;
   approvalMode: "auto" | "require_review";
   selectedLevel: LevelSetting | null;
+  failedAgentName: AgentName | null;
 }
 
 const EVT_COLOR: Record<string, { bg: string; text: string; border: string }> = {
@@ -111,9 +113,11 @@ export default function ChatPanel({
   lessonPackage,
   error,
   onConfirmGenerate,
+  onRetryFailedGenerate,
   onReset,
   approvalMode,
   selectedLevel,
+  failedAgentName,
 }: ChatPanelProps) {
   const [viewportWidth, setViewportWidth] = useState(1440);
   const [threads, setThreads] = useState<StoredThread[]>([]);
@@ -129,6 +133,7 @@ export default function ChatPanel({
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [showConfirmButton, setShowConfirmButton] = useState(false);
+  const [confirmMode, setConfirmMode] = useState<"generate" | "retry">("generate");
   const [activeAgentName, setActiveAgentName] = useState<AgentName | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
@@ -210,6 +215,7 @@ export default function ChatPanel({
     setThreadError(null);
     setEphemeralMessages([]);
     setShowConfirmButton(false);
+    setConfirmMode("generate");
     try {
       const res = await fetch(`/api/studio-chat/threads/${threadId}`, { cache: "no-store" });
       const payload = await res.json();
@@ -230,6 +236,7 @@ export default function ChatPanel({
       setStoredMessages([]);
       setEphemeralMessages([]);
       setShowConfirmButton(false);
+      setConfirmMode("generate");
       setActiveAgentName(null);
       if (resetStudio) {
         onReset();
@@ -254,6 +261,7 @@ export default function ChatPanel({
     setStoredMessages([]);
     setEphemeralMessages([]);
     setShowConfirmButton(false);
+    setConfirmMode("generate");
     setActiveAgentName(null);
     if (resetStudio) {
       onReset();
@@ -516,6 +524,7 @@ export default function ChatPanel({
     }
     setMentionQuery(null);
     setShowConfirmButton(false);
+    setConfirmMode("generate");
 
     const mentionMatch = text.match(/@([\w_]+)/);
     let targetAgent: AgentName | null = activeAgentName;
@@ -650,7 +659,36 @@ export default function ChatPanel({
       }
       setStreamingText("");
 
-      if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
+      const normalizedResponse = fullText.toLowerCase();
+      const shouldRetryFromFailure =
+        !!failedAgentName &&
+        targetAgent === failedAgentName &&
+        (normalizedResponse.includes("다시 진행") ||
+          normalizedResponse.includes("재시도") ||
+          normalizedResponse.includes("재생성") ||
+          normalizedResponse.includes("수정 후") ||
+          normalizedResponse.includes("실패 원인"));
+
+      if (shouldRetryFromFailure) {
+        const transcript = chatHistory
+          .map((message) => `${message.role === "user" ? "교사" : "AI"}: ${message.content}`)
+          .join("\n");
+        const summary = transcript
+          ? `다음은 실패 원인 분석과 재진행 전 대화 기록입니다. 사용자의 수정 요청과 실패 원인 지적을 반영해 해당 단계부터 다시 진행하세요.\n\n${transcript}`
+          : fullText;
+        onRetryFailedGenerate(summary, failedAgentName);
+        setEphemeralMessages((prevItems) => [
+          ...prevItems,
+          {
+            type: "ai",
+            text: `${AGENT_META[failedAgentName].label} 단계 실패 원인을 반영해 해당 단계부터 다시 진행합니다 🚀`,
+            ts: new Date(),
+          },
+        ]);
+        setConfirmMode("generate");
+        setShowConfirmButton(false);
+      } else if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
+        setConfirmMode("generate");
         setShowConfirmButton(true);
       }
     } catch (sendError) {
@@ -708,20 +746,29 @@ export default function ChatPanel({
     const summary = transcript
       ? `다음은 레슨 생성 전 대화 기록입니다. 사용자의 난이도/렉사일/어휘/문장 수준 조정 요청이 있으면 반드시 반영하세요.\n\n${transcript}`
       : "";
-    onConfirmGenerate(summary);
+    if (confirmMode === "retry" && failedAgentName) {
+      onRetryFailedGenerate(summary, failedAgentName);
+    } else {
+      onConfirmGenerate(summary);
+    }
     setEphemeralMessages((prevItems) => [
       ...prevItems,
       {
         type: "ai",
-        text: "알겠습니다! 지금 바로 레슨 생성을 시작합니다 🚀",
+        text:
+          confirmMode === "retry" && failedAgentName
+            ? "알겠습니다! 실패한 단계부터 다시 진행합니다 🚀"
+            : "알겠습니다! 지금 바로 레슨 생성을 시작합니다 🚀",
         ts: new Date(),
       },
     ]);
+    setConfirmMode("generate");
   }
 
   function handleReset() {
     setEphemeralMessages([]);
     setShowConfirmButton(false);
+    setConfirmMode("generate");
     onReset();
   }
 
@@ -1311,7 +1358,9 @@ export default function ChatPanel({
             }}
           >
             <div style={{ flex: 1, fontSize: "12px", color: "var(--color-text-muted)", lineHeight: "1.4" }}>
-              레슨 정보가 확인되었습니다. 아래 버튼을 눌러 생성을 시작하세요.
+              {confirmMode === "retry" && failedAgentName
+                ? `${AGENT_META[failedAgentName].label} 단계 실패 내용을 반영해 해당 단계부터 다시 진행합니다.`
+                : "레슨 정보가 확인되었습니다. 아래 버튼을 눌러 생성을 시작하세요."}
             </div>
             <button
               onClick={handleConfirm}
@@ -1331,7 +1380,7 @@ export default function ChatPanel({
                 flexShrink: 0,
               }}
             >
-              🚀 레슨 생성 시작
+              🚀 {confirmMode === "retry" && failedAgentName ? "실패 단계 재시도" : "레슨 생성 시작"}
             </button>
           </div>
         )}

@@ -2,7 +2,12 @@
 
 import { useState, useCallback, useRef } from "react";
 import { AgentName, AIProvider, ContentCounts, DifficultyLevel, LessonPackage, AgentStatus } from "@/lib/agents/types";
-import { AgentName as LessonAgentName, ContentCheckpoint, PassageCheckpoint } from "@/lib/workflows/lesson/types";
+import {
+  AgentName as LessonAgentName,
+  ContentCheckpoint,
+  LessonFailureResumeState,
+  PassageCheckpoint,
+} from "@/lib/workflows/lesson/types";
 import { CurriculumReferencePayload } from "@/lib/curriculum";
 
 export interface AgentProgressState {
@@ -14,6 +19,7 @@ export interface AgentProgressState {
 
 export interface GenerateState {
   isRunning: boolean;
+  executionId: string | null;
   agentStates: Map<AgentName, AgentProgressState>;
   lessonPackage: LessonPackage | null;
   passageCheckpoint: PassageCheckpoint | null;
@@ -51,6 +57,7 @@ const initialAgentStates = (): Map<AgentName, AgentProgressState> => {
 export function useLessonGenerate() {
   const [state, setState] = useState<GenerateState>({
     isRunning: false,
+    executionId: null,
     agentStates: initialAgentStates(),
     lessonPackage: null,
     passageCheckpoint: null,
@@ -76,6 +83,8 @@ export function useLessonGenerate() {
       contentCheckpoint?: ContentCheckpoint;
       regenerateAgents?: LessonAgentName[];
       revisionInstructions?: Partial<Record<LessonAgentName, string>>;
+      resumeState?: LessonFailureResumeState;
+      resumeFromAgent?: LessonAgentName;
       curriculumMode?: "standard" | "curriculum";
       curriculumReference?: CurriculumReferencePayload | null;
     }) => {
@@ -85,6 +94,7 @@ export function useLessonGenerate() {
 
       setState({
         isRunning: true,
+        executionId: null,
         agentStates: initialAgentStates(),
         lessonPackage: null,
         passageCheckpoint: null,
@@ -140,6 +150,7 @@ export function useLessonGenerate() {
 
             if (event.type === "progress") {
               const { agent, status, error, output } = event as {
+                executionId?: string;
                 agent: AgentName;
                 status: AgentStatus;
                 output?: unknown;
@@ -148,12 +159,19 @@ export function useLessonGenerate() {
               setState((prev) => {
                 const next = new Map(prev.agentStates);
                 next.set(agent, { agent, status, output, error });
-                return { ...prev, agentStates: next };
+                return {
+                  ...prev,
+                  executionId:
+                    typeof event.executionId === "string" ? event.executionId : prev.executionId,
+                  agentStates: next,
+                };
               });
             } else if (event.type === "complete") {
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
+                executionId:
+                  typeof event.executionId === "string" ? event.executionId : prev.executionId,
                 lessonPackage: event.package as LessonPackage,
                 passageCheckpoint: null,
                 contentCheckpoint: null,
@@ -162,6 +180,8 @@ export function useLessonGenerate() {
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
+                executionId:
+                  typeof event.executionId === "string" ? event.executionId : prev.executionId,
                 lessonPackage: null,
                 passageCheckpoint: (event.checkpoint as PassageCheckpoint) ?? null,
                 contentCheckpoint: null,
@@ -170,6 +190,8 @@ export function useLessonGenerate() {
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
+                executionId:
+                  typeof event.executionId === "string" ? event.executionId : prev.executionId,
                 lessonPackage: null,
                 passageCheckpoint: null,
                 contentCheckpoint: (event.checkpoint as ContentCheckpoint) ?? null,
@@ -182,6 +204,8 @@ export function useLessonGenerate() {
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
+                executionId:
+                  typeof event.executionId === "string" ? event.executionId : prev.executionId,
                 error: `승인 필요: ${summary}`,
               }));
             } else if (event.type === "error") {
@@ -192,6 +216,8 @@ export function useLessonGenerate() {
               setState((prev) => ({
                 ...prev,
                 isRunning: false,
+                executionId:
+                  typeof event.executionId === "string" ? event.executionId : prev.executionId,
                 error: errorMsg,
               }));
             }
@@ -213,6 +239,7 @@ export function useLessonGenerate() {
     abortRef.current?.abort();
     setState({
       isRunning: false,
+      executionId: null,
       agentStates: initialAgentStates(),
       lessonPackage: null,
       passageCheckpoint: null,

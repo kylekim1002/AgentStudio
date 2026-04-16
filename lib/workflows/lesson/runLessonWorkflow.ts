@@ -328,6 +328,14 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         },
       });
 
+    const emitResolvedStep = (step: AgentName, output?: unknown) => {
+      runtime.emit({
+        step,
+        status: output === undefined ? "skipped" : "done",
+        output,
+      });
+    };
+
     const generateValidatedPassage = async (params: {
       mode: SourceMode | undefined;
       providedPassage?: string;
@@ -335,6 +343,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       researchCuration?: ResearchCurationOutput;
       difficultyLock: DifficultyLockOutput;
       teachingFrame: TeachingFrameOutput;
+      initialRevisionInstruction?: string;
       allowRetry?: boolean;
     }) => {
       const runGeneration = async (revisionInstruction?: string) =>
@@ -368,7 +377,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         return reconcilePassageValidation(rawValidation, passage, params.difficultyLock);
       };
 
-      let passage = await runGeneration();
+      let passage = await runGeneration(params.initialRevisionInstruction);
       let validation = await runValidation(passage);
 
       if (!validation.approved && params.allowRetry !== false) {
@@ -417,7 +426,7 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         existingOutput: T | undefined
       ): Promise<T> => {
         if (
-          request.contentCheckpoint &&
+          (request.contentCheckpoint || request.resumeState) &&
           existingOutput !== undefined &&
           !regenerateAgents.has(agent)
         ) {
@@ -447,7 +456,59 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.assessment = normalizeAssessmentOutput(assessment);
     };
 
-    if (request.passageCheckpoint) {
+    if (request.resumeState) {
+      Object.assign(state, request.resumeState);
+      const resumeFromAgent = request.resumeFromAgent ?? AgentName.PASSAGE_GENERATION;
+
+      emitResolvedStep(AgentName.INTENT_ROUTER, state.intentRouter);
+      emitResolvedStep(AgentName.TEACHING_FRAME, state.teachingFrame);
+      emitResolvedStep(AgentName.DIFFICULTY_LOCK, state.difficultyLock);
+      emitResolvedStep(AgentName.SOURCE_MODE_ROUTER, state.sourceModeRouter);
+      if (state.sourceModeRouter?.mode === "topic") {
+        emitResolvedStep(AgentName.TOPIC_SELECTION, state.topicSelection);
+        emitResolvedStep(AgentName.RESEARCH_CURATION, state.researchCuration);
+      } else {
+        emitResolvedStep(AgentName.TOPIC_SELECTION);
+        emitResolvedStep(AgentName.RESEARCH_CURATION);
+      }
+
+      if (
+        resumeFromAgent === AgentName.PASSAGE_GENERATION ||
+        resumeFromAgent === AgentName.PASSAGE_VALIDATION
+      ) {
+        const passageStage = await generateValidatedPassage({
+          mode: state.sourceModeRouter?.mode,
+          providedPassage: state.sourceModeRouter?.providedPassage ?? request.providedPassage,
+          topicSelection: state.topicSelection,
+          researchCuration: state.researchCuration,
+          difficultyLock: state.difficultyLock!,
+          teachingFrame: state.teachingFrame!,
+          initialRevisionInstruction:
+            request.revisionInstructions?.[AgentName.PASSAGE_GENERATION] ??
+            request.revisionInstructions?.[resumeFromAgent],
+        });
+        state.passageGeneration = passageStage.passage;
+        state.passageValidation = passageStage.validation;
+
+        if (!state.passageValidation.approved) {
+          throw new Error(
+            `Passage validation failed: ${state.passageValidation.issues.join(", ")}`
+          );
+        }
+
+        state.approvedPassageLock = await runtime.step<ApprovedPassageLockOutput>(
+          AgentName.APPROVED_PASSAGE_LOCK,
+          () =>
+            callAgent(AgentName.APPROVED_PASSAGE_LOCK, {
+              passageGeneration: state.passageGeneration,
+            })
+        );
+      } else {
+        emitResolvedStep(AgentName.PASSAGE_GENERATION, state.passageGeneration);
+        emitResolvedStep(AgentName.PASSAGE_VALIDATION, state.passageValidation);
+        emitResolvedStep(AgentName.APPROVED_PASSAGE_LOCK, state.approvedPassageLock);
+      }
+    } else if (request.passageCheckpoint) {
       state.difficultyLock = request.passageCheckpoint.difficultyLock;
       state.teachingFrame = request.passageCheckpoint.teachingFrame;
 
@@ -675,7 +736,26 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       };
     }
 
-    await runContentStage();
+    if (request.resumeState) {
+      const resumeFromAgent = request.resumeFromAgent ?? AgentName.PASSAGE_GENERATION;
+      if (
+        resumeFromAgent === AgentName.READING ||
+        resumeFromAgent === AgentName.VOCABULARY ||
+        resumeFromAgent === AgentName.GRAMMAR ||
+        resumeFromAgent === AgentName.WRITING ||
+        resumeFromAgent === AgentName.ASSESSMENT
+      ) {
+        await runContentStage();
+      } else {
+        emitResolvedStep(AgentName.READING, state.reading);
+        emitResolvedStep(AgentName.VOCABULARY, state.vocabulary);
+        emitResolvedStep(AgentName.GRAMMAR, state.grammar);
+        emitResolvedStep(AgentName.WRITING, state.writing);
+        emitResolvedStep(AgentName.ASSESSMENT, state.assessment);
+      }
+    } else {
+      await runContentStage();
+    }
 
     if (
       request.generationTarget === "content_review" ||
@@ -718,13 +798,34 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
         }
       );
 
-    state.qa = await runQA();
+    const shouldRerunQA =
+      !request.resumeState ||
+      !state.qa ||
+      request.resumeFromAgent === AgentName.QA ||
+      request.resumeFromAgent === AgentName.PASSAGE_GENERATION ||
+      request.resumeFromAgent === AgentName.PASSAGE_VALIDATION ||
+      request.resumeFromAgent === AgentName.READING ||
+      request.resumeFromAgent === AgentName.VOCABULARY ||
+      request.resumeFromAgent === AgentName.GRAMMAR ||
+      request.resumeFromAgent === AgentName.WRITING ||
+      request.resumeFromAgent === AgentName.ASSESSMENT;
+
+    if (shouldRerunQA) {
+      state.qa = await runQA();
+    } else {
+      emitResolvedStep(AgentName.QA, state.qa);
+    }
+
+    const qaResult = state.qa;
+    if (!qaResult) {
+      throw new Error("QA result is missing after quality assurance step");
+    }
 
     if (
-      !state.qa.approvedForPublish &&
-      state.qa.issues.some(isAssessmentDuplicationIssue)
+      !qaResult.approvedForPublish &&
+      qaResult.issues.some(isAssessmentDuplicationIssue)
     ) {
-      const revisionInstruction = buildAssessmentRevisionInstruction(state.qa.issues);
+      const revisionInstruction = buildAssessmentRevisionInstruction(qaResult.issues);
       state.assessment = normalizeAssessmentOutput(
         await runtime.step<AssessmentOutput>(AgentName.ASSESSMENT, () =>
           callAgent(AgentName.ASSESSMENT, {
@@ -740,36 +841,57 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
       state.qa = await runQA();
     }
 
-    if (!state.qa.approvedForPublish) {
+    const finalQaResult = state.qa;
+    if (!finalQaResult?.approvedForPublish) {
       throw new Error(
-        `QA failed (score: ${state.qa.overallScore}): ${state.qa.issues.join(", ")}`
+        `QA failed (score: ${finalQaResult?.overallScore ?? "unknown"}): ${(finalQaResult?.issues ?? []).join(", ")}`
       );
     }
 
+    const approvedPassage = state.approvedPassageLock;
+    const difficultyLock = state.difficultyLock;
+    const readingOutput = state.reading;
+    const vocabularyOutput = state.vocabulary;
+    const grammarOutput = state.grammar;
+    const writingOutput = state.writing;
+    const assessmentOutput = state.assessment;
+
+    if (
+      !approvedPassage ||
+      !difficultyLock ||
+      !readingOutput ||
+      !vocabularyOutput ||
+      !grammarOutput ||
+      !writingOutput ||
+      !assessmentOutput
+    ) {
+      throw new Error("Lesson package is incomplete after workflow execution");
+    }
+
     const lessonPackage: LessonPackage = {
-      title: state.approvedPassageLock.title,
-      difficulty: state.difficultyLock.difficulty,
-      passage: state.approvedPassageLock.passage,
-      wordCount: state.approvedPassageLock.wordCount,
-      reading: state.reading!,
-      vocabulary: state.vocabulary!,
-      grammar: state.grammar!,
-      writing: state.writing!,
-      assessment: state.assessment!,
+      title: approvedPassage.title,
+      difficulty: difficultyLock.difficulty,
+      passage: approvedPassage.passage,
+      wordCount: approvedPassage.wordCount,
+      reading: readingOutput,
+      vocabulary: vocabularyOutput,
+      grammar: grammarOutput,
+      writing: writingOutput,
+      assessment: assessmentOutput,
     };
 
     await applyApprovalPolicy(lessonWorkflowDefinition, runtime, {
       request,
       step: AgentName.PUBLISHER,
       data: {
-        qa: state.qa,
+        qa: finalQaResult,
         lessonPackage,
       },
     });
 
     const publisherMeta = await runtime.step<PublisherMetaOutput>(
       AgentName.PUBLISHER,
-      () => callAgent(AgentName.PUBLISHER, { qa: state.qa })
+      () => callAgent(AgentName.PUBLISHER, { qa: finalQaResult })
     );
 
     state.publisher = {

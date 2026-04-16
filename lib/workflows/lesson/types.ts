@@ -229,6 +229,8 @@ export interface LessonWorkflowState {
   publisher?: PublisherOutput;
 }
 
+export type LessonFailureResumeState = Partial<LessonWorkflowState>;
+
 export interface ContentCounts {
   reading?: number;           // default 5 — 독해 문항 수
   vocabulary?: number;        // default 8 — 어휘 단어 수
@@ -269,6 +271,8 @@ export interface LessonRequest {
   contentCheckpoint?: ContentCheckpoint;
   regenerateAgents?: AgentName[];
   revisionInstructions?: Partial<Record<AgentName, string>>;
+  resumeState?: LessonFailureResumeState;
+  resumeFromAgent?: AgentName;
   curriculumMode?: "standard" | "curriculum";
   curriculumReference?: CurriculumReferencePayload | null;
 }

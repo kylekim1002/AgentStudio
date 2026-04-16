@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
     contentCheckpoint?: ContentCheckpoint;
     regenerateAgents?: AgentName[];
     revisionInstructions?: Partial<Record<AgentName, string>>;
+    resumeState?: LessonRequest["resumeState"];
+    resumeFromAgent?: AgentName;
     curriculumMode?: "standard" | "curriculum";
     curriculumReference?: CurriculumReferencePayload | null;
   };
@@ -155,6 +157,14 @@ export async function POST(req: NextRequest) {
     contentCheckpoint,
     regenerateAgents,
     revisionInstructions,
+    resumeState:
+      body && typeof body === "object"
+        ? ((body as { resumeState?: LessonRequest["resumeState"] }).resumeState ?? undefined)
+        : undefined,
+    resumeFromAgent:
+      body && typeof body === "object"
+        ? ((body as { resumeFromAgent?: AgentName }).resumeFromAgent ?? undefined)
+        : undefined,
     curriculumMode:
       body && typeof body === "object" && (body as { curriculumMode?: unknown }).curriculumMode === "curriculum"
         ? "curriculum"

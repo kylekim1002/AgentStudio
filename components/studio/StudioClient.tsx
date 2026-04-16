@@ -8,6 +8,7 @@ import {
   AssessmentOutput,
   ContentCheckpoint,
   GrammarOutput,
+  LessonFailureResumeState,
   PassageCheckpoint,
   ReadingOutput,
   VocabularyOutput,
@@ -259,6 +260,10 @@ export default function StudioClient({
   const curriculumTypeOptions = useMemo(() => getCodeValueItems(codeValues, "content_type"), [codeValues]);
 
   const { isRunning, agentStates, lessonPackage, passageCheckpoint, contentCheckpoint, error, generate, reset } = useLessonGenerate();
+  const failedAgentName = useMemo(
+    () => Array.from(agentStates.values()).find((state) => state.status === "error")?.agent ?? null,
+    [agentStates]
+  );
   const imageSourceTitle = useMemo(
     () =>
       reviewTitle.trim() ||
@@ -561,6 +566,57 @@ export default function StudioClient({
       curriculumReference,
       contentCounts,
       generationTarget,
+    });
+  }
+
+  function buildFailureResumeState(): LessonFailureResumeState {
+    const nextState: LessonFailureResumeState = {};
+    nextState.intentRouter = agentStates.get(AgentName.INTENT_ROUTER)?.output as LessonFailureResumeState["intentRouter"];
+    nextState.teachingFrame = agentStates.get(AgentName.TEACHING_FRAME)?.output as LessonFailureResumeState["teachingFrame"];
+    nextState.difficultyLock = agentStates.get(AgentName.DIFFICULTY_LOCK)?.output as LessonFailureResumeState["difficultyLock"];
+    nextState.sourceModeRouter = agentStates.get(AgentName.SOURCE_MODE_ROUTER)?.output as LessonFailureResumeState["sourceModeRouter"];
+    nextState.topicSelection = agentStates.get(AgentName.TOPIC_SELECTION)?.output as LessonFailureResumeState["topicSelection"];
+    nextState.researchCuration = agentStates.get(AgentName.RESEARCH_CURATION)?.output as LessonFailureResumeState["researchCuration"];
+    nextState.passageGeneration = agentStates.get(AgentName.PASSAGE_GENERATION)?.output as LessonFailureResumeState["passageGeneration"];
+    nextState.passageValidation = agentStates.get(AgentName.PASSAGE_VALIDATION)?.output as LessonFailureResumeState["passageValidation"];
+    nextState.approvedPassageLock = agentStates.get(AgentName.APPROVED_PASSAGE_LOCK)?.output as LessonFailureResumeState["approvedPassageLock"];
+    nextState.reading = agentStates.get(AgentName.READING)?.output as LessonFailureResumeState["reading"];
+    nextState.vocabulary = agentStates.get(AgentName.VOCABULARY)?.output as LessonFailureResumeState["vocabulary"];
+    nextState.grammar = agentStates.get(AgentName.GRAMMAR)?.output as LessonFailureResumeState["grammar"];
+    nextState.writing = agentStates.get(AgentName.WRITING)?.output as LessonFailureResumeState["writing"];
+    nextState.assessment = agentStates.get(AgentName.ASSESSMENT)?.output as LessonFailureResumeState["assessment"];
+    nextState.qa = agentStates.get(AgentName.QA)?.output as LessonFailureResumeState["qa"];
+    return nextState;
+  }
+
+  function handleRetryFailedGenerate(chatSummary: string, failedAgent: AgentName) {
+    const retryTarget =
+      failedAgent === AgentName.PASSAGE_VALIDATION
+        ? AgentName.PASSAGE_GENERATION
+        : failedAgent;
+    const nextInput =
+      lastUserInput || buildLevelScopedInput("이전 실패 지점부터 다시 진행해 주세요.");
+
+    setLastUserInput(nextInput);
+    setImageError(null);
+    generate({
+      userInput: nextInput,
+      provider,
+      approvalMode,
+      requestedLevelName: selectedLevel?.name,
+      requestedOfficialDifficulty: selectedLevel ? getOfficialDifficultyBand(selectedLevel.difficultyBandId).label : undefined,
+      requestedLexileMin: selectedLevel?.lexileMin,
+      requestedLexileMax: selectedLevel?.lexileMax,
+      curriculumMode,
+      curriculumReference,
+      contentCounts,
+      generationTarget: "full",
+      resumeState: buildFailureResumeState(),
+      resumeFromAgent: retryTarget,
+      regenerateAgents: [retryTarget],
+      revisionInstructions: {
+        [retryTarget]: chatSummary || "이전 실패 원인을 반영해 해당 단계부터 다시 진행",
+      },
     });
   }
 
@@ -2669,9 +2725,11 @@ export default function StudioClient({
             lessonPackage={lessonPackage}
             error={error}
             onConfirmGenerate={handleConfirmGenerate}
+            onRetryFailedGenerate={handleRetryFailedGenerate}
             onReset={reset}
             approvalMode={approvalMode}
             selectedLevel={selectedLevel}
+            failedAgentName={failedAgentName}
           />
         )}
 

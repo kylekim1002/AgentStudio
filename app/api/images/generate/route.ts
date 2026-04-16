@@ -234,6 +234,23 @@ export async function POST(req: NextRequest) {
       rawMessage.includes("Cannot coerce the result to a single JSON object") ||
       rawMessage.includes("single JSON object")
         ? "참조 이미지 기반 생성에 실패했습니다. 프롬프트를 조금 단순하게 바꾸거나 참조 없이 다시 시도해 주세요."
+        : rawMessage.toLowerCase().includes("content policy") || rawMessage.toLowerCase().includes("safety system")
+          ? "이미지 생성 요청이 정책에 맞지 않아 처리되지 않았습니다. 프롬프트를 완화해서 다시 시도해 주세요."
+          : rawMessage.toLowerCase().includes("rate limit") || rawMessage.toLowerCase().includes("too many requests")
+            ? "이미지 생성 요청이 잠시 몰려 있습니다. 잠시 후 다시 시도해 주세요."
+            : rawMessage.toLowerCase().includes("authentication") ||
+              rawMessage.toLowerCase().includes("unauthorized") ||
+              rawMessage.toLowerCase().includes("api key")
+              ? "이미지 생성용 API 설정을 확인해 주세요."
+              : rawMessage.toLowerCase().includes("storage") ||
+                rawMessage.toLowerCase().includes("bucket") ||
+                rawMessage.toLowerCase().includes("upload")
+                ? "생성된 이미지를 저장하는 중 문제가 발생했습니다. 저장소 설정을 확인한 뒤 다시 시도해 주세요."
+                : rawMessage.toLowerCase().includes("invalid image") ||
+                  rawMessage.toLowerCase().includes("unsupported image") ||
+                  rawMessage.toLowerCase().includes("invalid type") ||
+                  rawMessage.toLowerCase().includes("bad request")
+                  ? "이미지 생성 요청 형식을 처리하지 못했습니다. 프롬프트를 더 단순하게 하거나 참조 이미지 수를 줄여 다시 시도해 주세요."
         : rawMessage;
     return NextResponse.json(
       {

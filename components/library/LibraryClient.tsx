@@ -142,6 +142,15 @@ function normalizeLibraryImageError(message?: string | null) {
   if (lowered.includes("bucket") || lowered.includes("storage") || lowered.includes("upload")) {
     return "생성된 이미지를 저장하는 중 문제가 발생했습니다. 저장소 설정을 확인한 뒤 다시 시도해 주세요.";
   }
+  if (
+    lowered.includes("openai") ||
+    lowered.includes("invalid image") ||
+    lowered.includes("unsupported image") ||
+    lowered.includes("invalid type") ||
+    lowered.includes("bad request")
+  ) {
+    return "이미지 생성 요청 형식을 처리하지 못했습니다. 프롬프트를 더 단순하게 하거나 참조 이미지 수를 줄여 다시 시도해 주세요.";
+  }
   return message;
 }
 
@@ -2032,9 +2041,7 @@ export default function LibraryClient({
                         ? { bg: "#FFFBEB", border: "#FDE68A", text: "#A16207" }
                         : { bg: "#EEF2FF", border: "#C7D2FE", text: "#4338CA" };
                 const canReviewLessonCard =
-                  canShowReviewActions &&
-                  lesson.status === "in_review" &&
-                  (viewerRole === "admin" || viewerRole === "lead_teacher" || lesson.reviewer_id === viewerId);
+                  canShowReviewActions && lesson.status === "in_review";
                 const canRequestDeleteCard = !isAdmin && lesson.user_id === viewerId;
                 const canCancelDeleteCard =
                   Boolean(lesson.delete_request_pending && (isAdmin || lesson.delete_request_requester_id === viewerId));
