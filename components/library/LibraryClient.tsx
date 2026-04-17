@@ -151,7 +151,7 @@ function normalizeLibraryImageError(message?: string | null) {
   ) {
     return "이미지 생성 요청 형식을 처리하지 못했습니다. 프롬프트를 더 단순하게 하거나 참조 이미지 수를 줄여 다시 시도해 주세요.";
   }
-  return message;
+  return "대표 이미지 생성에 실패했습니다. 프롬프트를 더 단순하게 바꾸거나 잠시 후 다시 시도해 주세요.";
 }
 
 // ─── Component ───────────────────────────────────────────────
@@ -589,12 +589,13 @@ export default function LibraryClient({
           : [nextImage, ...currentImages];
       await saveGeneratedImages(nextImages);
       setImageRevisionText("");
+      setFlashMessage({ tone: "success", text: "대표 이미지를 새로 생성했습니다." });
     } catch (error) {
       const message = normalizeLibraryImageError(
         error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다."
       );
       setImageError(message);
-      setDetailActionError(message);
+      setFlashMessage({ tone: "error", text: message });
     } finally {
       setIsGeneratingImage(false);
     }
@@ -3169,7 +3170,7 @@ export default function LibraryClient({
                         이미지 재생성
                       </div>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: "8px" }}>
-                        저장된 지문 본문과 레슨 제목을 기준으로 대표 이미지를 다시 만듭니다. 선택한 프리셋 프롬프트와 참조 이미지가 있으면 함께 참고하고, 기존 이미지가 있으면 수정 지시를 붙여 변형 생성도 시도합니다.
+                        저장된 지문 본문과 레슨 제목을 기준으로 대표 이미지를 다시 만듭니다. 선택한 프리셋 프롬프트와 참조 정보, 수정 요청 문구를 함께 반영해 새 이미지를 생성합니다.
                       </div>
                       <div style={{ display: "grid", gap: "8px" }}>
                         <select

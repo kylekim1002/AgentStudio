@@ -160,7 +160,7 @@ export default function ChatPanel({
   const levelContextText = useMemo(() => buildLevelContextText(selectedLevel), [selectedLevel]);
   const isMobileViewport = viewportWidth < 900;
   const retryIntentPattern =
-    /다시 진행|재시도|재생성|다시 실행|수정해서 진행|수정 후 진행|실패 원인 반영|해당 부분만 수정|문제점 파악|다시 해줘|다시 시작/;
+    /다시 진행|재시도|재생성|다시 실행|수정해서 진행|수정 후 진행|실패 원인 반영|해당 부분만 수정|문제점 파악|원인 파악|수정 진행|수정해|다시 해줘|다시 시작|전달해서 다시|다시 만들어/;
 
   function buildRetrySummary(messages: ChatMessageLike[], fallback: string) {
     const transcript = messages
@@ -585,9 +585,7 @@ export default function ChatPanel({
       const nextStoredMessages = [...storedMessages, userMessage];
 
       const retryRequestedByUser =
-        !!failedAgentName &&
-        retryIntentPattern.test(text.toLowerCase()) &&
-        (!targetAgent || targetAgent === failedAgentName);
+        !!failedAgentName && retryIntentPattern.test(text.toLowerCase());
 
       if (retryRequestedByUser) {
         onRetryFailedGenerate(
@@ -689,12 +687,16 @@ export default function ChatPanel({
       const normalizedResponse = fullText.toLowerCase();
       const shouldRetryFromFailure =
         !!failedAgentName &&
-        targetAgent === failedAgentName &&
+        (targetAgent === failedAgentName || targetAgent !== null) &&
         (normalizedResponse.includes("다시 진행") ||
           normalizedResponse.includes("재시도") ||
           normalizedResponse.includes("재생성") ||
           normalizedResponse.includes("수정 후") ||
-          normalizedResponse.includes("실패 원인"));
+          normalizedResponse.includes("실패 원인") ||
+          normalizedResponse.includes("전달하겠습니다") ||
+          normalizedResponse.includes("전달하고") ||
+          normalizedResponse.includes("재생성 요청") ||
+          normalizedResponse.includes("바로 레슨 생성을 시작"));
 
       if (shouldRetryFromFailure) {
         onRetryFailedGenerate(
