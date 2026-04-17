@@ -11,6 +11,7 @@ import { DocumentTemplate } from "@/lib/documentTemplates";
 import { CurriculumReferencePayload } from "@/lib/curriculum";
 
 export enum AgentName {
+  VICE_PRINCIPAL = "vice_principal_agent",
   INTENT_ROUTER = "intent_router_agent",
   TEACHING_FRAME = "teaching_frame_agent",
   DIFFICULTY_LOCK = "difficulty_lock_agent",

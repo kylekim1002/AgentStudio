@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { AgentName, AgentStatus, LessonPackage } from "@/lib/agents/types";
-import { AGENT_META, PIPELINE_ORDER } from "@/lib/agentMeta";
+import { AGENT_META, CALLABLE_AGENT_ORDER } from "@/lib/agentMeta";
 import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
 
 type UserMsg = { type: "user"; text: string; ts: Date };
@@ -31,6 +31,33 @@ interface StoredMessage {
   text: string;
   agent_name: string | null;
   created_at: string;
+}
+
+function isNearDuplicateStoredMessage(
+  a: StoredMessage | null | undefined,
+  b: StoredMessage | null | undefined
+) {
+  if (!a || !b) return false;
+  if (a.role !== b.role) return false;
+  if ((a.text ?? "").trim() !== (b.text ?? "").trim()) return false;
+  if ((a.agent_name ?? null) !== (b.agent_name ?? null)) return false;
+  const aTime = new Date(a.created_at).getTime();
+  const bTime = new Date(b.created_at).getTime();
+  if (Number.isNaN(aTime) || Number.isNaN(bTime)) return false;
+  return Math.abs(aTime - bTime) < 5000;
+}
+
+function dedupeStoredMessages(messages: StoredMessage[]) {
+  const deduped: StoredMessage[] = [];
+  for (const message of messages) {
+    const prev = deduped[deduped.length - 1];
+    if (isNearDuplicateStoredMessage(prev, message)) {
+      deduped[deduped.length - 1] = message;
+      continue;
+    }
+    deduped.push(message);
+  }
+  return deduped;
 }
 
 interface ChatPanelProps {
@@ -85,7 +112,7 @@ function formatThreadTime(value?: string | null) {
 }
 
 function toDisplayMessages(messages: StoredMessage[]): DisplayMsg[] {
-  return messages.map((message) =>
+  return dedupeStoredMessages(messages).map((message) =>
     message.role === "user"
       ? {
           type: "user",
@@ -147,6 +174,7 @@ export default function ChatPanel({
   const isComposingRef = useRef(false);
   const suppressNextCompositionEndRef = useRef(false);
   const lastSendRef = useRef<{ signature: string; at: number } | null>(null);
+  const lastFailureReportRef = useRef<string | null>(null);
 
   const displayMessages = useMemo(
     () => [...toDisplayMessages(storedMessages), ...ephemeralMessages],
@@ -237,7 +265,7 @@ export default function ChatPanel({
         setStoredMessages([]);
         return;
       }
-      setStoredMessages((payload.messages ?? []) as StoredMessage[]);
+      setStoredMessages(dedupeStoredMessages((payload.messages ?? []) as StoredMessage[]));
     } finally {
       setLoadingMessages(false);
     }
@@ -425,7 +453,7 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
 
-  const MENTION_AGENTS = PIPELINE_ORDER.map((agent) => ({
+  const MENTION_AGENTS = CALLABLE_AGENT_ORDER.map((agent) => ({
     key: AGENT_META[agent].mention,
     agent,
     label: `@${AGENT_META[agent].mention}`,
@@ -468,6 +496,135 @@ export default function ChatPanel({
     setInput(e.target.value);
     adjustHeight();
     detectMention(e.target.value);
+  }
+
+  async function runAgentChatRequest(params: {
+    agentName: AgentName;
+    messages: ChatHistory;
+    threadId: string | null;
+    sessionTitle: string;
+  }) {
+    const res = await fetch("/api/agent-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentName: params.agentName,
+        messages: params.messages,
+        sessionId: params.threadId,
+        sessionTitle: params.sessionTitle,
+        levelProfile: selectedLevel,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error("에이전트 응답을 불러오지 못했습니다.");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.text) {
+            fullText += parsed.text;
+          }
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+        } catch (parseError) {
+          if ((parseError as Error).message !== "Unexpected token") throw parseError;
+        }
+      }
+    }
+
+    return fullText;
+  }
+
+  async function appendAssistantMessage(params: {
+    threadId: string;
+    text: string;
+    agentName: AgentName;
+  }) {
+    const createdAt = new Date().toISOString();
+    const optimisticAssistantMessage = {
+      id: `local-assistant-${Date.now()}-${params.agentName}`,
+      role: "assistant" as const,
+      text: params.text,
+      agent_name: params.agentName,
+      created_at: createdAt,
+    };
+
+    setStoredMessages((prev) => dedupeStoredMessages([...prev, optimisticAssistantMessage]));
+    if (!storageUnavailable) {
+      updateThreadMetaLocally(params.threadId, {
+        updated_at: createdAt,
+        lastMessagePreview: params.text,
+        lastMessageAt: createdAt,
+      });
+    }
+
+    if (storageUnavailable) {
+      return;
+    }
+
+    const assistantMessage = await saveMessage({
+      threadId: params.threadId,
+      role: "assistant",
+      text: params.text,
+      agentName: params.agentName,
+    });
+
+    setStoredMessages((prev) =>
+      dedupeStoredMessages(
+        prev.map((message) =>
+          message.id === optimisticAssistantMessage.id ? assistantMessage : message
+        )
+      )
+    );
+    updateThreadMetaLocally(params.threadId, {
+      updated_at: assistantMessage.created_at,
+      lastMessagePreview: assistantMessage.text,
+      lastMessageAt: assistantMessage.created_at,
+    });
+  }
+
+  async function appendVicePrincipalReport(
+    threadId: string,
+    sessionTitle: string,
+    userInstruction: string,
+    sourceAgent: AgentName,
+    sourceResponse: string
+  ) {
+    const reportPrompt = [
+      `사용자가 ${AGENT_META[sourceAgent].label}에게 직접 업무를 지시했습니다.`,
+      `원래 사용자 지시: ${userInstruction}`,
+      `${AGENT_META[sourceAgent].label} 응답:`,
+      sourceResponse,
+      "",
+      "위 작업 결과를 부원장 에이전트 입장에서 1차 검수/요약해서 사용자에게 다시 보고하세요. 최종 권한은 사용자에게 있다고 분명히 밝히고, 필요하면 다음 조치를 1~2개 제안하세요.",
+    ].join("\n");
+
+    const fullText = await runAgentChatRequest({
+      agentName: AgentName.VICE_PRINCIPAL,
+      messages: [{ role: "user", content: reportPrompt }],
+      threadId: storageUnavailable ? null : threadId,
+      sessionTitle,
+    });
+
+    await appendAssistantMessage({
+      threadId,
+      text: fullText,
+      agentName: AgentName.VICE_PRINCIPAL,
+    });
   }
 
   async function handleDeleteThread(threadId: string) {
@@ -559,7 +716,7 @@ export default function ChatPanel({
         agent_name: null,
         created_at: new Date().toISOString(),
       };
-      setStoredMessages((prev) => [...prev, optimisticUserMessage]);
+      setStoredMessages((prev) => dedupeStoredMessages([...prev, optimisticUserMessage]));
       if (!storageUnavailable) {
         updateThreadMetaLocally(threadId, {
           title: selectedThread?.messageCount ? selectedThread?.title ?? "새 프로젝트" : nextTitle,
@@ -583,9 +740,14 @@ export default function ChatPanel({
           prev.map((message) => (message.id === optimisticUserMessage.id ? userMessage : message))
         );
       }
-      const nextStoredMessages = [...storedMessages, userMessage];
+      const nextStoredMessages = dedupeStoredMessages([...storedMessages, userMessage]);
 
       const normalizedText = text.toLowerCase();
+      const shouldReportToVicePrincipal =
+        targetAgent !== null &&
+        targetAgent !== AgentName.VICE_PRINCIPAL &&
+        /(부원장|@vice_principal|vice principal)/i.test(text) &&
+        /(보고|브리핑|정리|공유)/i.test(text);
       const retryRequestedByUser =
         !!failedAgentName &&
         retryIntentPattern.test(normalizedText) &&
@@ -606,25 +768,25 @@ export default function ChatPanel({
       setStreamingText("");
 
       const endpoint = targetAgent ? "/api/agent-chat" : "/api/chat";
-      const body = targetAgent
-        ? {
-            agentName: targetAgent,
-            messages: toChatHistory(nextStoredMessages),
-            sessionId: storageUnavailable ? null : threadId,
-            sessionTitle: nextTitle,
-            levelProfile: selectedLevel,
-          }
-        : {
-            messages: toChatHistory(nextStoredMessages),
-            sessionId: storageUnavailable ? null : threadId,
-            sessionTitle: nextTitle,
-            levelProfile: selectedLevel,
-          };
-
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          targetAgent
+            ? {
+                agentName: targetAgent,
+                messages: toChatHistory(nextStoredMessages),
+                sessionId: storageUnavailable ? null : threadId,
+                sessionTitle: nextTitle,
+                levelProfile: selectedLevel,
+              }
+            : {
+                messages: toChatHistory(nextStoredMessages),
+                sessionId: storageUnavailable ? null : threadId,
+                sessionTitle: nextTitle,
+                levelProfile: selectedLevel,
+              }
+        ),
       });
 
       if (!res.ok || !res.body) {
@@ -660,10 +822,10 @@ export default function ChatPanel({
         id: `local-assistant-${Date.now()}`,
         role: "assistant" as const,
         text: fullText,
-        agent_name: targetAgent ?? null,
+        agent_name: targetAgent ?? AgentName.VICE_PRINCIPAL,
         created_at: new Date().toISOString(),
       };
-      setStoredMessages((prev) => [...prev, optimisticAssistantMessage]);
+      setStoredMessages((prev) => dedupeStoredMessages([...prev, optimisticAssistantMessage]));
       if (!storageUnavailable) {
         updateThreadMetaLocally(threadId, {
           updated_at: optimisticAssistantMessage.created_at,
@@ -678,12 +840,14 @@ export default function ChatPanel({
             threadId,
             role: "assistant",
             text: fullText,
-            agentName: targetAgent ?? null,
+            agentName: targetAgent ?? AgentName.VICE_PRINCIPAL,
           });
       if (!storageUnavailable) {
         setStoredMessages((prev) =>
-          prev.map((message) =>
-            message.id === optimisticAssistantMessage.id ? assistantMessage : message
+          dedupeStoredMessages(
+            prev.map((message) =>
+              message.id === optimisticAssistantMessage.id ? assistantMessage : message
+            )
           )
         );
       }
@@ -692,6 +856,10 @@ export default function ChatPanel({
       if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
         setConfirmMode(failedAgentName ? "retry" : "generate");
         setShowConfirmButton(true);
+      }
+
+      if (shouldReportToVicePrincipal && targetAgent) {
+        await appendVicePrincipalReport(threadId, nextTitle, text, targetAgent, fullText);
       }
     } catch (sendError) {
       const message =
@@ -704,6 +872,56 @@ export default function ChatPanel({
       suppressNextCompositionEndRef.current = false;
     }
   }
+
+  useEffect(() => {
+    if (!failedAgentName || !error) return;
+    const nextFailedAgent = failedAgentName;
+    const signature = `${nextFailedAgent}:${error}`;
+    if (lastFailureReportRef.current === signature) return;
+    lastFailureReportRef.current = signature;
+
+    let cancelled = false;
+
+    async function reportFailureToVicePrincipal() {
+      const threadId = selectedThreadId ?? (await createThread());
+      if (!threadId || cancelled) return;
+
+      try {
+        const failurePrompt = [
+          `${AGENT_META[nextFailedAgent].label} 단계에서 실패가 발생했습니다.`,
+          `실패 메시지: ${error}`,
+          levelContextText ? `현재 기본 레벨 설정: ${levelContextText}` : "",
+          "",
+          "부원장 에이전트로서 사용자에게 현재 상태, 실패 원인, 가장 안전한 수정안 1~3개를 설명하세요. 최종 재시도 여부는 사용자 승인 후 진행된다고 분명히 말하세요.",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const fullText = await runAgentChatRequest({
+          agentName: AgentName.VICE_PRINCIPAL,
+          messages: [{ role: "user", content: failurePrompt }],
+          threadId: storageUnavailable ? null : threadId,
+          sessionTitle: selectedThread?.title ?? "새 프로젝트",
+        });
+
+        if (!cancelled) {
+          await appendAssistantMessage({
+            threadId,
+            text: fullText,
+            agentName: AgentName.VICE_PRINCIPAL,
+          });
+        }
+      } catch {
+        // Secondary reporting should never break the main failure surface.
+      }
+    }
+
+    void reportFailureToVicePrincipal();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [error, failedAgentName, levelContextText, selectedThread?.title, selectedThreadId, storageUnavailable]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     const nativeEvent = e.nativeEvent as unknown as { isComposing?: boolean; keyCode?: number };

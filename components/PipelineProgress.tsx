@@ -9,6 +9,7 @@ interface PipelineProgressProps {
 }
 
 const AGENT_LABELS: Record<AgentName, string> = {
+  [AgentName.VICE_PRINCIPAL]: "부원장 총괄",
   [AgentName.INTENT_ROUTER]: "요청 분류",
   [AgentName.TEACHING_FRAME]: "교수 프레임 설정",
   [AgentName.DIFFICULTY_LOCK]: "난이도 잠금",

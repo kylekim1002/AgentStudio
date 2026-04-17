@@ -12,6 +12,11 @@ export interface AgentMeta {
 }
 
 export const AGENT_META: Record<AgentName, AgentMeta> = {
+  [AgentName.VICE_PRINCIPAL]: {
+    num: "VP", label: "부원장 에이전트", mention: "vice_principal",
+    desc: "전체 상황을 총괄하고, 실패 원인을 분석해 사용자에게 보고하며, 수정안과 재실행 범위를 제안하는 1차 검수·조정 에이전트입니다. 최종 권한은 항상 사용자에게 있습니다.",
+    tag: "총괄", group: "총괄",
+  },
   [AgentName.INTENT_ROUTER]: {
     num: "01", label: "의도 분석기", mention: "intent_router",
     desc: "사용자의 요청을 해석해 '레슨 생성 / 수정 / 질문' 중 하나로 분류하고, 지문 소스 방식(주제 생성 vs 직접 제공)을 결정합니다.",
@@ -114,8 +119,14 @@ export const PIPELINE_ORDER: AgentName[] = [
   AgentName.PUBLISHER,
 ];
 
+export const CALLABLE_AGENT_ORDER: AgentName[] = [
+  AgentName.VICE_PRINCIPAL,
+  ...PIPELINE_ORDER,
+];
+
 // 그룹 순서
 export const AGENT_GROUPS = [
+  "총괄",
   "분석 단계",
   "주제 단계",
   "지문 생성",
