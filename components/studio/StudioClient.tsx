@@ -2731,6 +2731,7 @@ export default function StudioClient({
           />
         ) : (
           <ChatPanel
+            provider={provider}
             agentStates={statusMap}
             isRunning={isRunning}
             lessonPackage={lessonPackage}

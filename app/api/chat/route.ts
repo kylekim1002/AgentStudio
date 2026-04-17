@@ -144,15 +144,17 @@ async function runGeminiChat(systemPrompt: string, messages: ChatMessage[], apiK
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const { messages, sessionId, sessionTitle, levelProfile } = (await req.json()) as {
+  const body = (await req.json()) as {
     messages: ChatMessage[];
     sessionId?: string;
     sessionTitle?: string;
     levelProfile?: LevelSetting | null;
+    provider?: AIProvider;
   };
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { messages, sessionId, sessionTitle, levelProfile, provider: requestedProvider } = body;
 
   if (!messages?.length) {
     return new Response(JSON.stringify({ error: "messages required" }), { status: 400 });
@@ -167,12 +169,14 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const { provider, apiKeys } = user?.id
+        const { provider: savedProvider, apiKeys } = user?.id
           ? await loadChatProviderSettings(user.id)
           : { provider: AIProvider.CLAUDE, apiKeys: {} };
-        activeProvider = provider;
+        activeProvider = requestedProvider
+          ? normalizeProvider(requestedProvider)
+          : savedProvider;
 
-        if (provider === AIProvider.CLAUDE) {
+        if (activeProvider === AIProvider.CLAUDE) {
           const response = await runClaudeChat(chatSystemPrompt, messages, apiKeys.anthropic);
           let inputTokens: number | null = null;
           let outputTokens: number | null = null;
@@ -206,7 +210,7 @@ export async function POST(req: NextRequest) {
 
           void logAIUsage({
             userId: user?.id,
-            provider: AIProvider.CLAUDE,
+            provider: activeProvider,
             model: CLAUDE_CHAT_MODEL,
             workflow: "studio_chat",
             endpoint: "chat.messages",
@@ -223,7 +227,7 @@ export async function POST(req: NextRequest) {
           });
         } else {
           const response =
-            provider === AIProvider.GPT
+            activeProvider === AIProvider.GPT
               ? await runGptChat(chatSystemPrompt, messages, apiKeys.openai)
               : await runGeminiChat(chatSystemPrompt, messages, apiKeys.google);
 
@@ -233,7 +237,7 @@ export async function POST(req: NextRequest) {
 
           void logAIUsage({
             userId: user?.id,
-            provider,
+            provider: activeProvider,
             model: response.model,
             workflow: "studio_chat",
             endpoint: "chat.messages",

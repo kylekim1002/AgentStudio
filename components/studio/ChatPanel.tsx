@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
 import { AgentName, AgentStatus, LessonPackage } from "@/lib/agents/types";
-import { AGENT_META, CALLABLE_AGENT_ORDER } from "@/lib/agentMeta";
+import {
+  AGENT_META,
+  CALLABLE_AGENT_ORDER,
+  getAgentMentionTokens,
+  resolveAgentMention,
+} from "@/lib/agentMeta";
 import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
 
 type UserMsg = { type: "user"; text: string; ts: Date };
@@ -61,6 +66,7 @@ function dedupeStoredMessages(messages: StoredMessage[]) {
 }
 
 interface ChatPanelProps {
+  provider: string;
   agentStates: Map<AgentName, AgentStatus>;
   isRunning: boolean;
   lessonPackage: LessonPackage | null;
@@ -136,6 +142,7 @@ function toChatHistory(messages: StoredMessage[]): ChatHistory {
 }
 
 export default function ChatPanel({
+  provider,
   agentStates,
   isRunning,
   lessonPackage,
@@ -454,18 +461,20 @@ export default function ChatPanel({
   }
 
   const MENTION_AGENTS = CALLABLE_AGENT_ORDER.map((agent) => ({
-    key: AGENT_META[agent].mention,
+    key: AGENT_META[agent].displayMention,
     agent,
-    label: `@${AGENT_META[agent].mention}`,
+    label: `@${AGENT_META[agent].displayMention}`,
     desc: AGENT_META[agent].label,
     num: AGENT_META[agent].num,
+    tokens: getAgentMentionTokens(agent),
   }));
 
   const filteredMentions =
     mentionQuery !== null
       ? MENTION_AGENTS.filter(
           (mention) =>
-            mention.key.includes(mentionQuery) || mention.desc.includes(mentionQuery)
+            mention.tokens.some((token) => token.includes(mentionQuery)) ||
+            mention.desc.includes(mentionQuery)
         )
       : [];
 
@@ -480,7 +489,7 @@ export default function ChatPanel({
       setMentionQuery(null);
       return;
     }
-    setMentionQuery(after.toLowerCase());
+    setMentionQuery(after.trim().toLowerCase());
     setMentionIdx(0);
   }
 
@@ -507,14 +516,15 @@ export default function ChatPanel({
     const res = await fetch("/api/agent-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agentName: params.agentName,
-        messages: params.messages,
-        sessionId: params.threadId,
-        sessionTitle: params.sessionTitle,
-        levelProfile: selectedLevel,
-      }),
-    });
+        body: JSON.stringify({
+          agentName: params.agentName,
+          messages: params.messages,
+          sessionId: params.threadId,
+          sessionTitle: params.sessionTitle,
+          levelProfile: selectedLevel,
+          provider,
+        }),
+      });
 
     if (!res.ok || !res.body) {
       throw new Error("에이전트 응답을 불러오지 못했습니다.");
@@ -696,12 +706,11 @@ export default function ChatPanel({
     setShowConfirmButton(false);
     setConfirmMode("generate");
 
-    const mentionMatch = text.match(/@([\w_]+)/);
+    const mentionMatch = text.match(/@([^\s]+)/);
     let targetAgent: AgentName | null = activeAgentName;
     if (mentionMatch) {
-      const key = mentionMatch[1].toLowerCase();
-      const found = MENTION_AGENTS.find((mention) => mention.key === key);
-      if (found) targetAgent = found.agent;
+      const found = resolveAgentMention(mentionMatch[1]);
+      if (found) targetAgent = found;
     }
 
     const titleSource =
@@ -779,12 +788,14 @@ export default function ChatPanel({
                 sessionId: storageUnavailable ? null : threadId,
                 sessionTitle: nextTitle,
                 levelProfile: selectedLevel,
+                provider,
               }
             : {
                 messages: toChatHistory(nextStoredMessages),
                 sessionId: storageUnavailable ? null : threadId,
                 sessionTitle: nextTitle,
                 levelProfile: selectedLevel,
+                provider,
               }
         ),
       });
