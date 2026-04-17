@@ -404,12 +404,11 @@ export async function PATCH(
     patch.project_id = body.project_id ?? null;
   }
 
-  const { data, error } = await (serviceSupabase as any)
+  const { error } = await (serviceSupabase as any)
     .from("lessons")
     .update(patch)
     .eq("id", id)
-    .select("*")
-    .maybeSingle();
+    .select("id");
 
   if (error) {
     const message = String(error.message ?? "");
@@ -424,6 +423,12 @@ export async function PATCH(
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const { data } = await (serviceSupabase as any)
+    .from("lessons")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
 
   if (!data) {
     return NextResponse.json(

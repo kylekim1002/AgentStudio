@@ -689,9 +689,8 @@ export default function ChatPanel({
       }
       setStreamingText("");
 
-      const normalizedResponse = fullText.toLowerCase();
       if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
-        setConfirmMode("generate");
+        setConfirmMode(failedAgentName ? "retry" : "generate");
         setShowConfirmButton(true);
       }
     } catch (sendError) {
