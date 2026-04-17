@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { LessonStatus } from "@/lib/collab/lesson";
 import { getViewerAccess } from "@/lib/authz/server";
 import { canDeleteLesson, canReviewLesson, canViewLesson } from "@/lib/collab/access";
@@ -99,6 +99,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const supabase = await createClient();
+  const serviceSupabase = await createServiceClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
@@ -209,6 +210,7 @@ export async function DELETE(
 ) {
   const { id } = await params;
   const supabase = await createClient();
+  const serviceSupabase = await createServiceClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
@@ -254,6 +256,7 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const supabase = await createClient();
+  const serviceSupabase = await createServiceClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
@@ -291,7 +294,7 @@ export async function PATCH(
     submitted_at: body.status === "in_review" ? new Date().toISOString() : undefined,
   } as Record<string, unknown>;
 
-  const { data: lesson } = await (supabase as any)
+  const { data: lesson } = await (serviceSupabase as any)
     .from("lessons")
     .select("id, user_id, reviewer_id, status, project_id, title")
     .eq("id", id)
@@ -330,7 +333,7 @@ export async function PATCH(
   }
 
   if (body.reviewer_id) {
-    const { data: reviewer } = await supabase
+    const { data: reviewer } = await (serviceSupabase as any)
       .from("profiles")
       .select("id, role")
       .eq("id", body.reviewer_id)
@@ -342,7 +345,7 @@ export async function PATCH(
   }
 
   if (body.status === "in_review" && !body.reviewer_id && !lesson.reviewer_id) {
-    const recommendedReviewerId = await resolveRecommendedReviewerId(supabase);
+    const recommendedReviewerId = await resolveRecommendedReviewerId(serviceSupabase as Awaited<ReturnType<typeof createClient>>);
     if (!recommendedReviewerId) {
       return NextResponse.json(
         { error: "검토 요청을 처리할 검토자가 없습니다. 검토자 계정을 먼저 설정해 주세요." },
@@ -384,7 +387,7 @@ export async function PATCH(
   if (body.project_id !== undefined) {
     if (body.project_id) {
       const allowedOwnerIds = Array.from(new Set([user.id, lesson.user_id].filter(Boolean)));
-      const { data: project } = await (supabase as any)
+      const { data: project } = await (serviceSupabase as any)
         .from("projects")
         .select("id, user_id, name")
         .eq("id", body.project_id)
@@ -401,7 +404,7 @@ export async function PATCH(
     patch.project_id = body.project_id ?? null;
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (serviceSupabase as any)
     .from("lessons")
     .update(patch)
     .eq("id", id)
@@ -435,7 +438,7 @@ export async function PATCH(
       : body.reviewer_id ?? lesson.reviewer_id ?? null;
 
   if (nextReviewerId && nextReviewerId !== lesson.reviewer_id) {
-    await logLessonActivity(supabase, {
+    await logLessonActivity(serviceSupabase as any, {
       lessonId: id,
       actorId: user.id,
       action: "reviewer_assigned",
@@ -463,7 +466,7 @@ export async function PATCH(
               ? "published"
             : "status_changed";
 
-    await logLessonActivity(supabase, {
+    await logLessonActivity(serviceSupabase as any, {
       lessonId: id,
       actorId: user.id,
       action,
@@ -480,7 +483,7 @@ export async function PATCH(
   }
 
   if (body.package) {
-    await logLessonActivity(supabase, {
+    await logLessonActivity(serviceSupabase as any, {
       lessonId: id,
       actorId: user.id,
       action: "package_updated",
@@ -491,7 +494,7 @@ export async function PATCH(
   }
 
   if (body.title !== undefined && body.title.trim() !== lesson.title) {
-    await logLessonActivity(supabase, {
+    await logLessonActivity(serviceSupabase as any, {
       lessonId: id,
       actorId: user.id,
       action: "title_renamed",
@@ -503,7 +506,7 @@ export async function PATCH(
   }
 
   if (body.project_id !== undefined && body.project_id !== lesson.project_id) {
-    await logLessonActivity(supabase, {
+    await logLessonActivity(serviceSupabase as any, {
       lessonId: id,
       actorId: user.id,
       action: body.project_id ? "project_assigned" : "project_unassigned",
