@@ -5,6 +5,12 @@ import fs from "fs";
 import path from "path";
 import { AIProvider, AgentName, ApiKeys } from "./types";
 import { logAIUsage } from "@/lib/usage/aiUsage";
+import {
+  CLAUDE_CHAT_MODEL,
+  GEMINI_MODEL_CANDIDATES,
+  GPT_CHAT_MODEL,
+  isGeminiModelAvailabilityError,
+} from "@/lib/ai/providerModels";
 
 let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
@@ -64,7 +70,7 @@ async function callClaude(
   userMessage: string,
   apiKey?: string
 ): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
-  const model = "claude-opus-4-6";
+  const model = CLAUDE_CHAT_MODEL;
   const client = apiKey ? new Anthropic({ apiKey }) : getAnthropic();
   const response = await client.messages.create({
     model,
@@ -93,7 +99,7 @@ async function callGPT(
   userMessage: string,
   apiKey?: string
 ): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
-  const model = "gpt-4o";
+  const model = GPT_CHAT_MODEL;
   const client = apiKey ? new OpenAI({ apiKey }) : getOpenAI();
   const response = await client.chat.completions.create({
     model,
@@ -120,23 +126,36 @@ async function callGemini(
   apiKey?: string
 ): Promise<{ text: string; model: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
   const client = apiKey ? new GoogleGenerativeAI(apiKey) : getGemini();
-  const modelName = "gemini-1.5-pro";
-  const modelClient = client.getGenerativeModel({
-    model: modelName,
-    systemInstruction: systemPrompt,
-  });
-  const result = await modelClient.generateContent(userMessage);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const usage = (result.response as any).usageMetadata;
-  return {
-    text: result.response.text(),
-    model: modelName,
-    usage: {
-      inputTokens: usage?.promptTokenCount,
-      outputTokens: usage?.candidatesTokenCount,
-      totalTokens: usage?.totalTokenCount,
-    },
-  };
+  let lastError: unknown = null;
+  for (const modelName of GEMINI_MODEL_CANDIDATES) {
+    try {
+      const modelClient = client.getGenerativeModel({
+        model: modelName,
+        systemInstruction: systemPrompt,
+      });
+      const result = await modelClient.generateContent(userMessage);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const usage = (result.response as any).usageMetadata;
+      return {
+        text: result.response.text(),
+        model: modelName,
+        usage: {
+          inputTokens: usage?.promptTokenCount,
+          outputTokens: usage?.candidatesTokenCount,
+          totalTokens: usage?.totalTokenCount,
+        },
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isGeminiModelAvailabilityError(error)) {
+        break;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Gemini lesson generation failed");
 }
 
 export async function runLessonAgent<T = unknown>(

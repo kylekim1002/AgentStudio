@@ -854,7 +854,7 @@ export default function SettingsClient({
               {([
                 { id: AIProvider.CLAUDE,  label: "Anthropic Claude", sub: "claude-opus-4-6", color: "#D97706", envKey: "ANTHROPIC_API_KEY", statusKey: "anthropic" as const, draft: anthropicKeyDraft, setDraft: setAnthropicKeyDraft, field: "anthropicApiKey" as const },
                 { id: AIProvider.GPT,     label: "OpenAI GPT",       sub: "gpt-4o",          color: "#10A37F", envKey: "OPENAI_API_KEY",    statusKey: "openai"    as const, draft: openaiKeyDraft,    setDraft: setOpenaiKeyDraft,    field: "openaiApiKey"    as const },
-                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-1.5-pro",  color: "#4285F4", envKey: "GOOGLE_API_KEY",    statusKey: "google"    as const, draft: googleKeyDraft,    setDraft: setGoogleKeyDraft,    field: "googleApiKey"    as const },
+                { id: AIProvider.GEMINI,  label: "Google Gemini",    sub: "gemini-2.0-flash",  color: "#4285F4", envKey: "GOOGLE_API_KEY",    statusKey: "google"    as const, draft: googleKeyDraft,    setDraft: setGoogleKeyDraft,    field: "googleApiKey"    as const },
               ]).map((p) => {
                 const status = apiKeyStatus[p.statusKey];
                 const hasKey = Boolean(status?.hasKey);

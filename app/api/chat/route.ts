@@ -6,6 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import { logAIUsage } from "@/lib/usage/aiUsage";
 import { AIProvider } from "@/lib/agents/types";
 import { buildLevelContextText, LevelSetting } from "@/lib/levelSettings";
+import {
+  CLAUDE_CHAT_MODEL,
+  GEMINI_MODEL_CANDIDATES,
+  GPT_CHAT_MODEL,
+  isGeminiModelAvailabilityError,
+} from "@/lib/ai/providerModels";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -63,7 +69,7 @@ async function loadChatProviderSettings(userId: string) {
 async function runClaudeChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new Anthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
-    model: "claude-opus-4-6",
+    model: CLAUDE_CHAT_MODEL,
     max_tokens: 512,
     system: systemPrompt,
     messages,
@@ -75,7 +81,7 @@ async function runClaudeChat(systemPrompt: string, messages: ChatMessage[], apiK
 async function runGptChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new OpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY });
   const response = await client.chat.completions.create({
-    model: "gpt-4o",
+    model: GPT_CHAT_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       ...messages,
@@ -84,7 +90,7 @@ async function runGptChat(systemPrompt: string, messages: ChatMessage[], apiKey?
 
   return {
     text: response.choices[0]?.message?.content ?? "",
-    model: "gpt-4o",
+    model: GPT_CHAT_MODEL,
     usage: {
       inputTokens: response.usage?.prompt_tokens ?? null,
       outputTokens: response.usage?.completion_tokens ?? null,
@@ -95,11 +101,6 @@ async function runGptChat(systemPrompt: string, messages: ChatMessage[], apiKey?
 
 async function runGeminiChat(systemPrompt: string, messages: ChatMessage[], apiKey?: string) {
   const client = new GoogleGenerativeAI(apiKey || process.env.GOOGLE_API_KEY || "");
-  const model = client.getGenerativeModel({
-    model: "gemini-1.5-pro",
-    systemInstruction: systemPrompt,
-  });
-
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
   const priorHistory = messages
     .slice(0, latestUserMessage ? -1 : messages.length)
@@ -108,21 +109,37 @@ async function runGeminiChat(systemPrompt: string, messages: ChatMessage[], apiK
       parts: [{ text: message.content }],
     }));
 
-  const chat = model.startChat({ history: priorHistory });
-  const result = await chat.sendMessage(latestUserMessage);
-  const usage = (result.response as unknown as {
-    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
-  }).usageMetadata;
+  let lastError: unknown = null;
+  for (const modelName of GEMINI_MODEL_CANDIDATES) {
+    try {
+      const model = client.getGenerativeModel({
+        model: modelName,
+        systemInstruction: systemPrompt,
+      });
+      const chat = model.startChat({ history: priorHistory });
+      const result = await chat.sendMessage(latestUserMessage);
+      const usage = (result.response as unknown as {
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+      }).usageMetadata;
 
-  return {
-    text: result.response.text(),
-    model: "gemini-1.5-pro",
-    usage: {
-      inputTokens: usage?.promptTokenCount ?? null,
-      outputTokens: usage?.candidatesTokenCount ?? null,
-      totalTokens: usage?.totalTokenCount ?? null,
-    },
-  };
+      return {
+        text: result.response.text(),
+        model: modelName,
+        usage: {
+          inputTokens: usage?.promptTokenCount ?? null,
+          outputTokens: usage?.candidatesTokenCount ?? null,
+          totalTokens: usage?.totalTokenCount ?? null,
+        },
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isGeminiModelAvailabilityError(error)) {
+        break;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Gemini chat failed");
 }
 
 export async function POST(req: NextRequest) {
@@ -142,6 +159,7 @@ export async function POST(req: NextRequest) {
   }
 
   const encoder = new TextEncoder();
+  let activeProvider: AIProvider = AIProvider.CLAUDE;
   const levelContext = buildLevelContextText(levelProfile);
   const chatSystemPrompt = levelContext
     ? `${SYSTEM_PROMPT}\n\n현재 기본 레벨 설정:\n${levelContext}\n이 값은 대화 시작 시의 기본 기준이며, 교사와 대화하면서 더 세밀하게 조정할 수 있습니다.`
@@ -152,6 +170,7 @@ export async function POST(req: NextRequest) {
         const { provider, apiKeys } = user?.id
           ? await loadChatProviderSettings(user.id)
           : { provider: AIProvider.CLAUDE, apiKeys: {} };
+        activeProvider = provider;
 
         if (provider === AIProvider.CLAUDE) {
           const response = await runClaudeChat(chatSystemPrompt, messages, apiKeys.anthropic);
@@ -188,7 +207,7 @@ export async function POST(req: NextRequest) {
           void logAIUsage({
             userId: user?.id,
             provider: AIProvider.CLAUDE,
-            model: "claude-opus-4-6",
+            model: CLAUDE_CHAT_MODEL,
             workflow: "studio_chat",
             endpoint: "chat.messages",
             inputTokens,
@@ -230,7 +249,12 @@ export async function POST(req: NextRequest) {
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Chat failed";
+        const msg =
+          err instanceof Error && err.message
+            ? activeProvider === AIProvider.GEMINI
+              ? "Gemini 호출에 실패했습니다. 설정된 Gemini API 키와 사용 가능한 모델을 확인해 주세요."
+              : err.message
+            : "Chat failed";
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
       } finally {
         controller.close();

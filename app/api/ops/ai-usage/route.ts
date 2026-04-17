@@ -36,7 +36,8 @@ function estimateCostUsd(provider: string, model: string | null, inputTokens: nu
   const pricing: Record<string, { inputPer1M: number; outputPer1M: number }> = {
     "claude:claude-opus-4-6": { inputPer1M: 15, outputPer1M: 75 },
     "gpt:gpt-4o": { inputPer1M: 5, outputPer1M: 15 },
-    "gemini:gemini-1.5-pro": { inputPer1M: 3.5, outputPer1M: 10.5 },
+    "gemini:gemini-2.0-flash": { inputPer1M: 3.5, outputPer1M: 10.5 },
+    "gemini:gemini-1.5-flash": { inputPer1M: 3.5, outputPer1M: 10.5 },
   };
 
   const matched =
@@ -47,7 +48,7 @@ function estimateCostUsd(provider: string, model: string | null, inputTokens: nu
       : provider.toLowerCase() === "gpt"
         ? pricing["gpt:gpt-4o"]
         : provider.toLowerCase() === "gemini"
-          ? pricing["gemini:gemini-1.5-pro"]
+          ? pricing["gemini:gemini-2.0-flash"]
           : null);
 
   if (!matched) return 0;
