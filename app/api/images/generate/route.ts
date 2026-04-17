@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
                   rawMessage.toLowerCase().includes("invalid type") ||
                   rawMessage.toLowerCase().includes("bad request")
                   ? "이미지 생성 요청 형식을 처리하지 못했습니다. 프롬프트를 더 단순하게 하거나 참조 이미지 수를 줄여 다시 시도해 주세요."
-        : rawMessage;
+                  : "대표 이미지 생성에 실패했습니다. 프롬프트를 조금 더 단순하게 바꾸거나 잠시 후 다시 시도해 주세요.";
     return NextResponse.json(
       {
         error: message,

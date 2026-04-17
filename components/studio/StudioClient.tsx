@@ -594,6 +594,17 @@ export default function StudioClient({
       failedAgent === AgentName.PASSAGE_VALIDATION
         ? AgentName.PASSAGE_GENERATION
         : failedAgent;
+    const regenerateAgents =
+      retryTarget === AgentName.PASSAGE_GENERATION
+        ? [
+            AgentName.PASSAGE_GENERATION,
+            AgentName.READING,
+            AgentName.VOCABULARY,
+            AgentName.GRAMMAR,
+            AgentName.WRITING,
+            AgentName.ASSESSMENT,
+          ]
+        : [retryTarget];
     const nextInput =
       lastUserInput || buildLevelScopedInput("이전 실패 지점부터 다시 진행해 주세요.");
 
@@ -613,7 +624,7 @@ export default function StudioClient({
       generationTarget: "full",
       resumeState: buildFailureResumeState(),
       resumeFromAgent: retryTarget,
-      regenerateAgents: [retryTarget],
+      regenerateAgents,
       revisionInstructions: {
         [retryTarget]: chatSummary || "이전 실패 원인을 반영해 해당 단계부터 다시 진행",
       },

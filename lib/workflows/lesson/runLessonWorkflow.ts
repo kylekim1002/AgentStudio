@@ -739,6 +739,8 @@ export const lessonWorkflowDefinition: WorkflowDefinition<
     if (request.resumeState) {
       const resumeFromAgent = request.resumeFromAgent ?? AgentName.PASSAGE_GENERATION;
       if (
+        resumeFromAgent === AgentName.PASSAGE_GENERATION ||
+        resumeFromAgent === AgentName.PASSAGE_VALIDATION ||
         resumeFromAgent === AgentName.READING ||
         resumeFromAgent === AgentName.VOCABULARY ||
         resumeFromAgent === AgentName.GRAMMAR ||

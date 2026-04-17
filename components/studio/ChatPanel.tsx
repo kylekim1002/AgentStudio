@@ -594,14 +594,6 @@ export default function ChatPanel({
           buildRetrySummary(toChatHistory(nextStoredMessages), text),
           failedAgentName
         );
-        setEphemeralMessages((prevItems) => [
-          ...prevItems,
-          {
-            type: "ai",
-            text: `${AGENT_META[failedAgentName].label} 단계 실패 원인을 반영해 해당 단계부터 다시 진행합니다 🚀`,
-            ts: new Date(),
-          },
-        ]);
         setShowConfirmButton(false);
         setConfirmMode("generate");
         return;
@@ -709,14 +701,6 @@ export default function ChatPanel({
           buildRetrySummary(toChatHistory([...nextStoredMessages, assistantMessage]), fullText),
           failedAgentName
         );
-        setEphemeralMessages((prevItems) => [
-          ...prevItems,
-          {
-            type: "ai",
-            text: `${AGENT_META[failedAgentName].label} 단계 실패 원인을 반영해 해당 단계부터 다시 진행합니다 🚀`,
-            ts: new Date(),
-          },
-        ]);
         setConfirmMode("generate");
         setShowConfirmButton(false);
       } else if (!targetAgent && fullText.includes("레슨 생성을 시작하세요")) {
@@ -783,17 +767,6 @@ export default function ChatPanel({
     } else {
       onConfirmGenerate(summary);
     }
-    setEphemeralMessages((prevItems) => [
-      ...prevItems,
-      {
-        type: "ai",
-        text:
-          confirmMode === "retry" && failedAgentName
-            ? "알겠습니다! 실패한 단계부터 다시 진행합니다 🚀"
-            : "알겠습니다! 지금 바로 레슨 생성을 시작합니다 🚀",
-        ts: new Date(),
-      },
-    ]);
     setConfirmMode("generate");
   }
 
