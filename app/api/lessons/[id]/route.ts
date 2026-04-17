@@ -406,10 +406,27 @@ export async function PATCH(
     .update(patch)
     .eq("id", id)
     .select("*")
-    .single();
+    .maybeSingle();
 
   if (error) {
+    const message = String(error.message ?? "");
+    if (
+      message.includes("Cannot coerce the result to a single JSON object") ||
+      message.toLowerCase().includes("single json object")
+    ) {
+      return NextResponse.json(
+        { error: "레슨 상태를 변경하지 못했습니다. 권한 또는 현재 상태를 다시 확인해 주세요." },
+        { status: 403 }
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json(
+      { error: "레슨 상태를 변경하지 못했습니다. 권한 또는 현재 상태를 다시 확인해 주세요." },
+      { status: 403 }
+    );
   }
 
   const nextReviewerId =
