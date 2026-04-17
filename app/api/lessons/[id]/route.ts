@@ -407,8 +407,7 @@ export async function PATCH(
   const { error } = await (serviceSupabase as any)
     .from("lessons")
     .update(patch)
-    .eq("id", id)
-    .select("id");
+    .eq("id", id);
 
   if (error) {
     const message = String(error.message ?? "");
