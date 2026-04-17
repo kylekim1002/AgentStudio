@@ -354,6 +354,7 @@ export async function PATCH(
 
   if (body.status === "approved") {
     patch.reviewed_at = new Date().toISOString();
+    patch.review_notes = body.review_notes ?? null;
   }
 
   if (body.status === "needs_revision") {
@@ -362,6 +363,10 @@ export async function PATCH(
 
   if (body.status === "published" && lesson.status !== "approved") {
     return NextResponse.json({ error: "승인된 레슨만 발행 완료로 변경할 수 있습니다." }, { status: 400 });
+  }
+
+  if (body.status === "published") {
+    patch.review_notes = body.review_notes ?? null;
   }
 
   if (body.package) {
@@ -377,6 +382,22 @@ export async function PATCH(
   }
 
   if (body.project_id !== undefined) {
+    if (body.project_id) {
+      const allowedOwnerIds = Array.from(new Set([user.id, lesson.user_id].filter(Boolean)));
+      const { data: project } = await (supabase as any)
+        .from("projects")
+        .select("id, user_id, name")
+        .eq("id", body.project_id)
+        .in("user_id", allowedOwnerIds)
+        .maybeSingle();
+
+      if (!project) {
+        return NextResponse.json(
+          { error: "배정할 수 없는 프로젝트입니다. 프로젝트 목록을 새로고침한 뒤 다시 시도해 주세요." },
+          { status: 400 }
+        );
+      }
+    }
     patch.project_id = body.project_id ?? null;
   }
 

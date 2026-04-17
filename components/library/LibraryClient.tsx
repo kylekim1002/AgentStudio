@@ -467,7 +467,7 @@ export default function LibraryClient({
 
   useEffect(() => {
     if (!flashMessage) return;
-    const timeoutId = window.setTimeout(() => setFlashMessage(null), 2600);
+    const timeoutId = window.setTimeout(() => setFlashMessage(null), 8200);
     return () => window.clearTimeout(timeoutId);
   }, [flashMessage]);
 
@@ -595,7 +595,6 @@ export default function LibraryClient({
         error instanceof Error ? error.message : "이미지 생성 중 오류가 발생했습니다."
       );
       setImageError(message);
-      setFlashMessage({ tone: "error", text: message });
     } finally {
       setIsGeneratingImage(false);
     }
@@ -678,9 +677,9 @@ export default function LibraryClient({
             : "검토 상태를 변경할까요?";
     if (!window.confirm(confirmMessage)) return;
     const reviewNotes =
-      options?.template?.text ??
-      lessonDetail?.review_notes ??
-      (status === "needs_revision" ? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요." : null);
+      status === "needs_revision"
+        ? options?.template?.text ?? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요."
+        : options?.template?.text ?? null;
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
@@ -688,7 +687,7 @@ export default function LibraryClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status,
-          review_notes: reviewNotes ?? lessonDetail?.review_notes ?? null,
+          review_notes: reviewNotes,
           review_template: options?.template
             ? {
                 used: true,
@@ -738,9 +737,9 @@ export default function LibraryClient({
           : `"${lesson.title}" 레슨에 수정 요청을 보낼까요?`;
     if (!window.confirm(confirmMessage)) return;
     const reviewNotes =
-      template?.text ??
-      lesson.review_notes ??
-      (status === "needs_revision" ? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요." : null);
+      status === "needs_revision"
+        ? template?.text ?? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요."
+        : template?.text ?? null;
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${lesson.id}`, {
@@ -748,7 +747,7 @@ export default function LibraryClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status,
-          review_notes: reviewNotes ?? lesson.review_notes ?? null,
+          review_notes: reviewNotes,
           review_template: template
             ? {
                 used: true,
@@ -910,7 +909,7 @@ export default function LibraryClient({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               status,
-              review_notes: reviewNotes ?? null,
+              review_notes: reviewNotes,
               review_template: template
                 ? {
                     used: true,
@@ -941,7 +940,7 @@ export default function LibraryClient({
           await selectLesson({
             ...nextLesson,
             status,
-            review_notes: reviewNotes ?? nextLesson.review_notes ?? null,
+            review_notes: reviewNotes,
           });
         }
       }
@@ -3014,7 +3013,7 @@ export default function LibraryClient({
                                     opacity: isGeneratingImage || !imageRevisionText.trim() ? 0.6 : 1,
                                   }}
                                 >
-                                  부분 수정
+                                  수정 지시 반영 재생성
                                 </button>
                                 <button
                                   onClick={() => void handleGenerateLibraryImage("new")}
@@ -3031,7 +3030,7 @@ export default function LibraryClient({
                                     opacity: isGeneratingImage ? 0.6 : 1,
                                   }}
                                 >
-                                  새로 생성
+                                  새 대표 이미지 생성
                                 </button>
                               </div>
                             )}
@@ -3170,7 +3169,7 @@ export default function LibraryClient({
                         이미지 재생성
                       </div>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: "8px" }}>
-                        저장된 지문 본문과 레슨 제목을 기준으로 대표 이미지를 다시 만듭니다. 선택한 프리셋 프롬프트와 참조 정보, 수정 요청 문구를 함께 반영해 새 이미지를 생성합니다.
+                        저장된 지문 본문과 레슨 제목을 바탕으로 대표 이미지를 다시 생성합니다. 선택한 프리셋 프롬프트와 참조 정보, 수정 요청 문구는 텍스트 지시로 반영되며, 기존 이미지를 직접 편집하는 방식은 아닙니다.
                       </div>
                       <div style={{ display: "grid", gap: "8px" }}>
                         <select
@@ -3216,7 +3215,7 @@ export default function LibraryClient({
                           onChange={(e) => setImageRevisionText(e.target.value)}
                           disabled={isGeneratingImage}
                           rows={3}
-                          placeholder="부분 수정 요청 예: 배경을 더 밝게, 인물을 더 크게"
+                          placeholder="재생성 시 반영할 수정 지시 예: 배경을 더 밝게, 인물을 더 크게"
                           style={{
                             width: "100%",
                             padding: "9px 10px",
@@ -3244,7 +3243,7 @@ export default function LibraryClient({
                             opacity: isGeneratingImage ? 0.7 : 1,
                           }}
                         >
-                          {isGeneratingImage ? "생성 중..." : "새 이미지 생성"}
+                          {isGeneratingImage ? "생성 중..." : "대표 이미지 재생성"}
                         </button>
                         {imageError && (
                           <div style={{ fontSize: "11px", color: "#B91C1C" }}>
