@@ -672,13 +672,14 @@ export default function LibraryClient({
         ? "이 레슨을 승인할까요?"
         : status === "published"
           ? "이 레슨을 발행 완료로 처리할까요?"
-          : "검토 상태를 변경할까요?";
-    const shouldPrompt = options?.promptForNotes ?? status !== "approved";
-    const reviewNotes = shouldPrompt
-      ? window.prompt(options?.promptMessage ?? "검토 메모를 남겨주세요.", lessonDetail?.review_notes ?? "")
-      : lessonDetail?.review_notes ?? null;
-    if (shouldPrompt && reviewNotes === null) return;
-    if (!shouldPrompt && !window.confirm(confirmMessage)) return;
+          : status === "needs_revision"
+            ? "이 레슨에 수정 요청을 보낼까요?"
+            : "검토 상태를 변경할까요?";
+    if (!window.confirm(confirmMessage)) return;
+    const reviewNotes =
+      options?.template?.text ??
+      lessonDetail?.review_notes ??
+      (status === "needs_revision" ? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요." : null);
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${selectedLesson.id}`, {
@@ -728,10 +729,17 @@ export default function LibraryClient({
       text: string;
     }
   ) {
-    const shouldPrompt = status !== "approved";
-    const reviewNotes = shouldPrompt ? window.prompt(promptMessage, lesson.review_notes ?? "") : lesson.review_notes ?? null;
-    if (shouldPrompt && reviewNotes === null) return;
-    if (!shouldPrompt && !window.confirm(`"${lesson.title}" 레슨을 승인할까요?`)) return;
+    const confirmMessage =
+      status === "approved"
+        ? `"${lesson.title}" 레슨을 승인할까요?`
+        : status === "published"
+          ? `"${lesson.title}" 레슨을 발행 완료로 처리할까요?`
+          : `"${lesson.title}" 레슨에 수정 요청을 보낼까요?`;
+    if (!window.confirm(confirmMessage)) return;
+    const reviewNotes =
+      template?.text ??
+      lesson.review_notes ??
+      (status === "needs_revision" ? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요." : null);
     setDetailActionError(null);
     try {
       const res = await fetch(`/api/lessons/${lesson.id}`, {
@@ -884,10 +892,14 @@ export default function LibraryClient({
     }
   ) {
     if (selectedReviewIds.length === 0) return;
-    const shouldPrompt = status !== "approved";
-    const reviewNotes = shouldPrompt ? window.prompt(promptMessage, "") : "";
-    if (shouldPrompt && reviewNotes === null) return;
-    if (!shouldPrompt && !window.confirm(`${selectedReviewIds.length}개 레슨을 승인할까요?`)) return;
+    const confirmMessage =
+      status === "approved"
+        ? `${selectedReviewIds.length}개 레슨을 승인할까요?`
+        : `${selectedReviewIds.length}개 레슨에 수정 요청을 보낼까요?`;
+    if (!window.confirm(confirmMessage)) return;
+    const reviewNotes =
+      template?.text ??
+      (status === "needs_revision" ? "수정이 필요합니다. 세부 내용은 코멘트를 확인해 주세요." : "");
     setDetailActionError(null);
     try {
       const responses = await Promise.all(

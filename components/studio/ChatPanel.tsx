@@ -12,6 +12,7 @@ type ErrorMsg = { type: "error"; text: string };
 type ResultMsg = { type: "result"; pkg: LessonPackage };
 type DisplayMsg = UserMsg | AIMsg | AgentEvent | ErrorMsg | ResultMsg;
 type ChatHistory = { role: "user" | "assistant"; content: string }[];
+type ChatMessageLike = { role: "user" | "assistant"; content: string };
 
 interface StoredThread {
   id: string;
@@ -158,6 +159,17 @@ export default function ChatPanel({
   );
   const levelContextText = useMemo(() => buildLevelContextText(selectedLevel), [selectedLevel]);
   const isMobileViewport = viewportWidth < 900;
+  const retryIntentPattern =
+    /다시 진행|재시도|재생성|다시 실행|수정해서 진행|수정 후 진행|실패 원인 반영|해당 부분만 수정|문제점 파악|다시 해줘|다시 시작/;
+
+  function buildRetrySummary(messages: ChatMessageLike[], fallback: string) {
+    const transcript = messages
+      .map((message) => `${message.role === "user" ? "교사" : "AI"}: ${message.content}`)
+      .join("\n");
+    return transcript
+      ? `다음은 실패 원인 분석과 재진행 전 대화 기록입니다. 사용자의 수정 요청과 실패 원인 지적을 반영해 해당 단계부터 다시 진행하세요.\n\n${transcript}`
+      : fallback;
+  }
 
   function updateThreadMetaLocally(threadId: string, patch: Partial<StoredThread>) {
     setThreads((prev) =>
@@ -572,6 +584,29 @@ export default function ChatPanel({
       }
       const nextStoredMessages = [...storedMessages, userMessage];
 
+      const retryRequestedByUser =
+        !!failedAgentName &&
+        retryIntentPattern.test(text.toLowerCase()) &&
+        (!targetAgent || targetAgent === failedAgentName);
+
+      if (retryRequestedByUser) {
+        onRetryFailedGenerate(
+          buildRetrySummary(toChatHistory(nextStoredMessages), text),
+          failedAgentName
+        );
+        setEphemeralMessages((prevItems) => [
+          ...prevItems,
+          {
+            type: "ai",
+            text: `${AGENT_META[failedAgentName].label} 단계 실패 원인을 반영해 해당 단계부터 다시 진행합니다 🚀`,
+            ts: new Date(),
+          },
+        ]);
+        setShowConfirmButton(false);
+        setConfirmMode("generate");
+        return;
+      }
+
       setIsAiThinking(true);
       setStreamingText("");
 
@@ -670,13 +705,10 @@ export default function ChatPanel({
           normalizedResponse.includes("실패 원인"));
 
       if (shouldRetryFromFailure) {
-        const transcript = chatHistory
-          .map((message) => `${message.role === "user" ? "교사" : "AI"}: ${message.content}`)
-          .join("\n");
-        const summary = transcript
-          ? `다음은 실패 원인 분석과 재진행 전 대화 기록입니다. 사용자의 수정 요청과 실패 원인 지적을 반영해 해당 단계부터 다시 진행하세요.\n\n${transcript}`
-          : fullText;
-        onRetryFailedGenerate(summary, failedAgentName);
+        onRetryFailedGenerate(
+          buildRetrySummary(toChatHistory([...nextStoredMessages, assistantMessage]), fullText),
+          failedAgentName
+        );
         setEphemeralMessages((prevItems) => [
           ...prevItems,
           {

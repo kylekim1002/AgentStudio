@@ -14,12 +14,14 @@ function buildPrompt({
   prompt,
   revision,
   references,
+  previousImageUrl,
 }: {
   passage?: string;
   title?: string;
   prompt: string;
   revision?: string;
   references?: Array<{ name?: string; notes?: string }>;
+  previousImageUrl?: string | null;
 }) {
   const parts = [
     `Lesson title: ${title ?? "Untitled lesson"}`,
@@ -34,6 +36,9 @@ function buildPrompt({
               }`
           )
           .join("\n")}`
+      : null,
+    previousImageUrl
+      ? `Existing image context:\nThere is an existing representative image for this lesson at ${previousImageUrl}. Keep the same overall topic and scene intent unless the revision request says otherwise.`
       : null,
     revision?.trim() ? `Revision request:\n${revision.trim()}` : null,
   ].filter(Boolean);
@@ -115,64 +120,16 @@ export async function POST(req: NextRequest) {
     prompt,
     revision: body.revision,
     references,
+    previousImageUrl: typeof body.previousImageUrl === "string" ? body.previousImageUrl.trim() : null,
   });
 
-  async function loadImageFiles(urls: string[], prefix: string) {
-    const files: File[] = [];
-    for (let index = 0; index < urls.length; index += 1) {
-      const url = urls[index];
-      try {
-        const response = await fetch(url);
-        if (!response.ok) continue;
-        const contentType = response.headers.get("content-type") || "image/png";
-        if (!contentType.startsWith("image/")) continue;
-        const arrayBuffer = await response.arrayBuffer();
-        const extension = contentType.split("/")[1] || "png";
-        files.push(
-          new File([arrayBuffer], `${prefix}-${index + 1}.${extension}`, {
-            type: contentType,
-          })
-        );
-      } catch {
-        continue;
-      }
-    }
-    return files;
-  }
-
   try {
-    const referenceFiles = await loadImageFiles(
-      references.map((reference) => reference.url),
-      "reference"
-    );
-    const baseImageFiles =
-      typeof body.previousImageUrl === "string" && body.previousImageUrl.trim()
-        ? await loadImageFiles([body.previousImageUrl.trim()], "base-image")
-        : [];
     const service = await createServiceClient();
-    let result;
-    if (baseImageFiles.length > 0 || referenceFiles.length > 0) {
-      try {
-        result = await client.images.edit({
-          model: "gpt-image-1",
-          prompt: finalPrompt,
-          image: [...baseImageFiles, ...referenceFiles],
-          size: "1536x1024",
-        });
-      } catch {
-        result = await client.images.generate({
-          model: "gpt-image-1",
-          prompt: finalPrompt,
-          size: "1536x1024",
-        });
-      }
-    } else {
-      result = await client.images.generate({
-        model: "gpt-image-1",
-        prompt: finalPrompt,
-        size: "1536x1024",
-      });
-    }
+    const result = await client.images.generate({
+      model: "gpt-image-1",
+      prompt: finalPrompt,
+      size: "1536x1024",
+    });
 
     const base64 = result.data?.[0]?.b64_json;
     if (!base64) {

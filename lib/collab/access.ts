@@ -18,8 +18,15 @@ export function canDeleteLesson(access: ViewerAccess, lesson: LessonAccessRecord
 }
 
 export function canReviewLesson(access: ViewerAccess, lesson: LessonAccessRecord): boolean {
+  if (!access.features.includes("approval.manage")) {
+    return false;
+  }
+
   return (
-    access.features.includes("approval.manage") &&
-    (access.user.id === lesson.reviewer_id || access.role === "admin" || access.role === "lead_teacher" || access.role === "reviewer")
+    access.user.id === lesson.reviewer_id ||
+    access.role === "admin" ||
+    access.role === "lead_teacher" ||
+    access.role === "reviewer" ||
+    lesson.reviewer_id == null
   );
 }
